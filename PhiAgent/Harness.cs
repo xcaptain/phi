@@ -1,10 +1,12 @@
+using System.Runtime.CompilerServices;
+
 namespace PhiAgent;
 
 /// <summary>
-/// The agent loop: turn a user prompt into a final assistant message, executing
-/// any tool calls the model returns and feeding results back into the context.
-/// Combines the inner loop from tau's <c>loop.py</c> with the orchestration shell
-/// from <c>harness.py</c>; session management, event bus, and hooks come later.
+/// The agent harness: owns session state and runs the outer loop with
+/// steering and follow-up injection points. Delegates inner-loop work to
+/// <see cref="Loop"/>. Mirrors tau's <c>AgentHarness._run</c> with its
+/// <c>continue</c>-based steering/follow-up pattern.
 /// </summary>
 public sealed class Harness
 {
@@ -29,70 +31,63 @@ public sealed class Harness
         _system = system;
     }
 
+    /// <summary>All messages accumulated across this session (user, assistant, tool results).</summary>
     public IReadOnlyList<IAgentMessage> Messages => _messages;
 
-    public async Task<HarnessResult> RunAsync(
-        string userMessage,
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Runs a full session: outer loop over turns. After each turn, the
+    /// optional <paramref name="getSteeringMessages"/> and
+    /// <paramref name="getFollowUpMessages"/> callbacks are queried for
+    /// new messages to inject; if either returns a non-empty list, the loop
+    /// continues with those messages pending — matching tau's
+    /// AgentHarness._run continue pattern.
+    /// </summary>
+    public async IAsyncEnumerable<HarnessEvent> RunAsync(
+        string initialPrompt,
+        Func<IReadOnlyList<IAgentMessage>>? getSteeringMessages = null,
+        Func<IReadOnlyList<IAgentMessage>>? getFollowUpMessages = null,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        _messages.Add(new UserMessage { Content = userMessage });
+        var pending = new List<IAgentMessage>
+        {
+            new UserMessage { Content = initialPrompt }
+        };
+        var turn = 0;
 
         while (true)
         {
-            var assistant = await StreamTurnAsync(cancellationToken);
-            _messages.Add(assistant);
+            foreach (var msg in pending) _messages.Add(msg);
+            pending.Clear();
+            turn++;
+            yield return new TurnStartEvent(turn);
 
-            if (assistant.ToolCalls.Count == 0)
-                return new HarnessResult(assistant, _messages);
-
-            foreach (var call in assistant.ToolCalls)
+            await foreach (var ev in Loop.RunTurnAsync(
+                _provider, _model, _system, _messages, _tools, _executeTool, cancellationToken))
             {
-                var result = await _executeTool(
-                    call.Name, call.Id, call.Arguments, cancellationToken);
+                yield return ev;
+            }
 
-                _messages.Add(new ToolResultMessage
+            if (getSteeringMessages is not null)
+            {
+                var steering = getSteeringMessages();
+                if (steering.Count > 0)
                 {
-                    ToolCallId = call.Id,
-                    ToolName = call.Name,
-                    Content = result.Content,
-                    IsError = result.IsError,
-                });
+                    pending.AddRange(steering);
+                    continue;
+                }
             }
-        }
-    }
 
-    private async Task<AssistantMessage> StreamTurnAsync(CancellationToken ct)
-    {
-        AssistantMessage? final = null;
-        ProviderErrorEvent? lastError = null;
-
-        await foreach (var ev in _provider.StreamResponseAsync(
-            _model, _system, _messages, _tools, ct))
-        {
-            switch (ev)
+            if (getFollowUpMessages is not null)
             {
-                case ProviderResponseEndEvent end:
-                    final = end.Message;
-                    break;
-                case ProviderErrorEvent err:
-                    lastError = err;
-                    break;
+                var followUp = getFollowUpMessages();
+                if (followUp.Count > 0)
+                {
+                    pending.AddRange(followUp);
+                    continue;
+                }
             }
-        }
 
-        if (final is null)
-        {
-            var detail = lastError is not null
-                ? $" Last provider error: {lastError.Message}"
-                : " Stream ended without a final response.";
-            throw new InvalidOperationException(
-                $"Provider produced no ProviderResponseEndEvent.{detail}");
+            yield break;
         }
-
-        return final;
     }
 }
-
-public sealed record HarnessResult(
-    AssistantMessage FinalMessage,
-    IReadOnlyList<IAgentMessage> Messages);

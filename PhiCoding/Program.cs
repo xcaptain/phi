@@ -55,12 +55,27 @@ Console.WriteLine($"[prompt] {prompt}\n");
 
 try
 {
-    var result = await harness.RunAsync(prompt);
-
-    Console.WriteLine($"\n[final] {result.FinalMessage.Text}");
-    Console.WriteLine($"[turns] {result.Messages.OfType<AssistantMessage>().Count()}");
-    Console.WriteLine($"[tool calls] {result.Messages.OfType<ToolResultMessage>().Count()}");
-    Console.WriteLine($"[stop] {result.FinalMessage.StopReason}");
+    await foreach (var ev in harness.RunAsync(prompt))
+    {
+        switch (ev)
+        {
+            case TurnStartEvent ts:
+                Console.WriteLine($"\n[turn {ts.Turn}]");
+                break;
+            case AssistantTextDeltaEvent t:
+                Console.Write(t.Delta);
+                break;
+            case AssistantToolCallEvent tc:
+                Console.WriteLine($"\n[tool] {tc.ToolCall.Name}({tc.ToolCall.Id})");
+                break;
+            case ToolExecutionEndEvent te:
+                Console.WriteLine($"  → {te.Result.Text.Replace("\n", "\n  ")}");
+                break;
+            case TurnEndEvent te:
+                Console.WriteLine($"\n[stop] {te.FinalMessage.StopReason}");
+                break;
+        }
+    }
 }
 catch (InvalidOperationException ex) when (ex.Message.Contains("Provider produced no ProviderResponseEndEvent"))
 {

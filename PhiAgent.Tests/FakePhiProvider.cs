@@ -20,7 +20,7 @@ public sealed class FakePhiProvider : IPhiProvider
     public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
         string model,
         string system,
-        IReadOnlyList<IAgentMessage> messages,
+        IList<IAgentMessage> messages,
         IReadOnlyList<Tool> tools,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {

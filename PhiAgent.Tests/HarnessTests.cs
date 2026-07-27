@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using PhiAgent;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
@@ -8,217 +7,225 @@ namespace PhiAgent.Tests;
 
 public class HarnessTests
 {
+    private static ToolExecutor NeverCalledExecutor =>
+        (_, _, _, _) => throw new InvalidOperationException("Tool should not be called");
+
+    private static Harness CreateHarness(FakePhiProvider fake) =>
+        new(fake, [], NeverCalledExecutor, "test-model");
+
     [Test]
-    public async Task RunAsync_NoToolCalls_CompletesAfterOneTurn()
+    public async Task RunAsync_NoToolCalls_EmitsTurnStartThenTurnEnd()
     {
         var fake = new FakePhiProvider(new[]
         {
             new ProviderEvent[]
             {
-                new ProviderTextDeltaEvent("Hello! "),
-                new ProviderTextDeltaEvent("How can I help?"),
+                new ProviderTextDeltaEvent("Hi back"),
                 new ProviderResponseEndEvent(
                     new AssistantMessage
                     {
-                        Api = "test",
-                        Provider = "fake",
-                        Model = "test-model",
-                        Content = [new TextBlock("Hello! How can I help?")],
+                        Api = "test", Provider = "fake", Model = "test",
+                        Content = [new TextBlock("Hi back")],
                         StopReason = StopReasons.Stop,
                     },
                     StopReasons.Stop),
             },
         });
 
-        var harness = new Harness(
-            fake,
-            tools: [],
-            executeTool: (_, _, _, _) =>
-                throw new InvalidOperationException("Tool should not be called"),
-            model: "test-model");
+        var harness = CreateHarness(fake);
 
-        var result = await harness.RunAsync("Hi");
+        var events = new List<HarnessEvent>();
+        await foreach (var ev in harness.RunAsync("Hello"))
+        {
+            events.Add(ev);
+        }
 
-        await Assert.That(result.FinalMessage.Text).IsEqualTo("Hello! How can I help?");
-        await Assert.That(result.FinalMessage.StopReason).IsEqualTo(StopReasons.Stop);
-        await Assert.That(result.Messages.Count()).IsEqualTo(2);
-        await Assert.That(result.Messages[0]).IsTypeOf<UserMessage>();
-        await Assert.That(result.Messages[1]).IsTypeOf<AssistantMessage>();
-        await Assert.That(fake.CallsReceived.Count()).IsEqualTo(1);
+        await Assert.That(events.First()).IsTypeOf<TurnStartEvent>();
+        await Assert.That(((TurnStartEvent)events.First()).Turn).IsEqualTo(1);
+        await Assert.That(events.Last()).IsTypeOf<TurnEndEvent>();
+        await Assert.That(events.OfType<AssistantTextDeltaEvent>().Count()).IsEqualTo(1);
+        await Assert.That(harness.Messages.Count).IsEqualTo(2); // user + assistant
     }
 
     [Test]
-    public async Task RunAsync_ToolCall_ExecutesAndLoopsForFinalAnswer()
+    public async Task RunAsync_NoSteeringOrFollowUp_TerminatesAfterOneTurn()
     {
-        var toolCall = new ToolCall("c1", "bash")
+        var fake = new FakePhiProvider(new[]
         {
-            Arguments = JsonNode.Parse("""{"command":"ls"}""")!.AsObject(),
+            new ProviderEvent[]
+            {
+                new ProviderTextDeltaEvent("done"),
+                new ProviderResponseEndEvent(
+                    new AssistantMessage
+                    {
+                        Api = "test", Provider = "fake", Model = "test",
+                        Content = [new TextBlock("done")],
+                        StopReason = StopReasons.Stop,
+                    },
+                    StopReasons.Stop),
+            },
+        });
+
+        var harness = CreateHarness(fake);
+        var turnCount = 0;
+        await foreach (var ev in harness.RunAsync("Hi"))
+        {
+            if (ev is TurnStartEvent) turnCount++;
+        }
+
+        await Assert.That(turnCount).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task RunAsync_SteeringMessages_RunAnotherTurnWithInjectedMessage()
+    {
+        var fake = new FakePhiProvider(new[]
+        {
+            new ProviderEvent[]
+            {
+                new ProviderTextDeltaEvent("First"),
+                new ProviderResponseEndEvent(
+                    new AssistantMessage
+                    {
+                        Content = [new TextBlock("First")],
+                        StopReason = StopReasons.Stop,
+                    },
+                    StopReasons.Stop),
+            },
+            new ProviderEvent[]
+            {
+                new ProviderTextDeltaEvent("Got steering"),
+                new ProviderResponseEndEvent(
+                    new AssistantMessage
+                    {
+                        Content = [new TextBlock("Got steering")],
+                        StopReason = StopReasons.Stop,
+                    },
+                    StopReasons.Stop),
+            },
+        });
+
+        var harness = CreateHarness(fake);
+
+        var steeringFired = false;
+        Func<IReadOnlyList<IAgentMessage>> getSteering = () =>
+        {
+            if (steeringFired) return [];
+            steeringFired = true;
+            return [new UserMessage { Content = "Actually do this" }];
         };
 
+        var turnStarts = new List<TurnStartEvent>();
+        await foreach (var ev in harness.RunAsync("first prompt", getSteeringMessages: getSteering))
+        {
+            if (ev is TurnStartEvent ts) turnStarts.Add(ts);
+        }
+
+        await Assert.That(turnStarts.Count()).IsEqualTo(2);
+        await Assert.That(turnStarts[0].Turn).IsEqualTo(1);
+        await Assert.That(turnStarts[1].Turn).IsEqualTo(2);
+
+        // Messages: user1, assistant1, user2(steering), assistant2 = 4
+        await Assert.That(harness.Messages.Count).IsEqualTo(4);
+        await Assert.That(harness.Messages.OfType<UserMessage>().Count()).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task RunAsync_FollowUpMessages_AlsoTriggersAnotherTurn()
+    {
         var fake = new FakePhiProvider(new[]
         {
-            // Turn 1: tool call
             new ProviderEvent[]
             {
-                new ProviderTextDeltaEvent("Let me check."),
-                new ProviderToolCallEvent(toolCall),
+                new ProviderTextDeltaEvent("Done turn 1"),
                 new ProviderResponseEndEvent(
                     new AssistantMessage
                     {
-                        Api = "test", Provider = "fake", Model = "test-model",
-                        Content = [new TextBlock("Let me check."), toolCall],
-                        StopReason = StopReasons.ToolUse,
+                        Content = [new TextBlock("Done turn 1")],
+                        StopReason = StopReasons.Stop,
                     },
-                    StopReasons.ToolUse),
+                    StopReasons.Stop),
             },
-            // Turn 2: final answer after tool result
             new ProviderEvent[]
             {
-                new ProviderTextDeltaEvent("Found 3 files."),
+                new ProviderTextDeltaEvent("Done turn 2"),
                 new ProviderResponseEndEvent(
                     new AssistantMessage
                     {
-                        Api = "test", Provider = "fake", Model = "test-model",
-                        Content = [new TextBlock("Found 3 files.")],
+                        Content = [new TextBlock("Done turn 2")],
                         StopReason = StopReasons.Stop,
                     },
                     StopReasons.Stop),
             },
         });
 
-        var tools = new[] { new Tool("bash", "Run a command", new Dictionary<string, JsonNode>()) };
-        var executed = new List<(string Name, string Id, string Command)>();
+        var harness = CreateHarness(fake);
 
-        var harness = new Harness(
-            fake,
-            tools,
-            async (name, id, args, _) =>
-            {
-                var cmd = args["command"]?.GetValue<string>() ?? "";
-                executed.Add((name, id, cmd));
-                return new ToolResult([new TextBlock($"output of {cmd}")]);
-            },
-            model: "test-model");
+        var followUpFired = false;
+        Func<IReadOnlyList<IAgentMessage>> getFollowUp = () =>
+        {
+            if (followUpFired) return [];
+            followUpFired = true;
+            return [new UserMessage { Content = "follow up" }];
+        };
 
-        var result = await harness.RunAsync("list files");
+        var turnStarts = new List<TurnStartEvent>();
+        await foreach (var ev in harness.RunAsync("first", getFollowUpMessages: getFollowUp))
+        {
+            if (ev is TurnStartEvent ts) turnStarts.Add(ts);
+        }
 
-        await Assert.That(executed.Count()).IsEqualTo(1);
-        await Assert.That(executed[0].Name).IsEqualTo("bash");
-        await Assert.That(executed[0].Id).IsEqualTo("c1");
-        await Assert.That(executed[0].Command).IsEqualTo("ls");
-
-        await Assert.That(result.FinalMessage.Text).IsEqualTo("Found 3 files.");
-        await Assert.That(result.Messages.Count()).IsEqualTo(4);
-        await Assert.That(result.Messages[0]).IsTypeOf<UserMessage>();
-        await Assert.That(result.Messages[1]).IsTypeOf<AssistantMessage>();
-        await Assert.That(result.Messages[2]).IsTypeOf<ToolResultMessage>();
-        await Assert.That(result.Messages[3]).IsTypeOf<AssistantMessage>();
-
-        var toolResult = (ToolResultMessage)result.Messages[2];
-        await Assert.That(toolResult.ToolCallId).IsEqualTo("c1");
-        await Assert.That(toolResult.ToolName).IsEqualTo("bash");
-        await Assert.That(toolResult.Text).IsEqualTo("output of ls");
-
-        // Second provider call should have included the ToolResultMessage
-        await Assert.That(fake.CallsReceived.Count()).IsEqualTo(2);
-        await Assert.That(fake.CallsReceived[1].Count()).IsEqualTo(3); // user + assistant + tool_result
-        await Assert.That(fake.CallsReceived[1][2]).IsTypeOf<ToolResultMessage>();
+        await Assert.That(turnStarts.Count()).IsEqualTo(2);
     }
 
     [Test]
-    public async Task RunAsync_ToolReturnsError_StillContinuesLoop()
+    public async Task RunAsync_EmptySteering_DoesNotTriggerAnotherTurn()
     {
-        var toolCall = new ToolCall("c1", "bash");
         var fake = new FakePhiProvider(new[]
         {
             new ProviderEvent[]
             {
-                new ProviderToolCallEvent(toolCall),
+                new ProviderTextDeltaEvent("done"),
                 new ProviderResponseEndEvent(
                     new AssistantMessage
                     {
-                        Content = [toolCall],
-                        StopReason = StopReasons.ToolUse,
-                    },
-                    StopReasons.ToolUse),
-            },
-            new ProviderEvent[]
-            {
-                new ProviderTextDeltaEvent("It failed because of X."),
-                new ProviderResponseEndEvent(
-                    new AssistantMessage
-                    {
-                        Content = [new TextBlock("It failed because of X.")],
+                        Content = [new TextBlock("done")],
                         StopReason = StopReasons.Stop,
                     },
                     StopReasons.Stop),
             },
         });
 
-        var harness = new Harness(
-            fake,
-            [],
-            (_, _, _, _) => Task.FromResult(new ToolResult(
-                [new TextBlock("error: command not found")],
-                IsError: true)),
-            model: "test-model");
+        var harness = CreateHarness(fake);
+        Func<IReadOnlyList<IAgentMessage>> getSteering = () => [];
 
-        var result = await harness.RunAsync("try something");
+        var turnCount = 0;
+        await foreach (var ev in harness.RunAsync("Hi", getSteeringMessages: getSteering))
+        {
+            if (ev is TurnStartEvent) turnCount++;
+        }
 
-        await Assert.That(result.FinalMessage.Text).IsEqualTo("It failed because of X.");
-        var toolResult = (ToolResultMessage)result.Messages[2];
-        await Assert.That(toolResult.IsError).IsTrue();
-        await Assert.That(toolResult.Text).IsEqualTo("error: command not found");
+        await Assert.That(turnCount).IsEqualTo(1);
     }
 
     [Test]
-    public async Task RunAsync_PropagatesSystemAndModelToProvider()
+    public async Task RunAsync_ProviderErrorPropagates_ThroughOuterLoop()
     {
         var fake = new FakePhiProvider(new[]
         {
             new ProviderEvent[]
             {
-                new ProviderResponseEndEvent(
-                    new AssistantMessage { Content = [], StopReason = StopReasons.Stop },
-                    StopReasons.Stop),
+                new ProviderErrorEvent("HTTP 500: server error"),
             },
         });
 
-        var harness = new Harness(
-            fake,
-            [],
-            (_, _, _, _) => throw new InvalidOperationException("nope"),
-            model: "deepseek-chat",
-            system: "you are helpful");
+        var harness = CreateHarness(fake);
 
-        _ = await harness.RunAsync("hi");
-
-        // FakePhiProvider doesn't expose model/system args — assert via harness internals:
-        // the harness just passes them through, and the call was made.
-        await Assert.That(fake.CallsReceived.Count()).IsEqualTo(1);
-    }
-
-    [Test]
-    public async Task RunAsync_ProviderErrorEvent_SurfacesInException()
-    {
-        var fake = new FakePhiProvider(new[]
+        var ex = await Assert.That(async () =>
         {
-            new ProviderEvent[]
-            {
-                new ProviderErrorEvent("HTTP 401: {\"error\":{\"message\":\"Invalid API key\"}}"),
-            },
-        });
+            await foreach (var _ in harness.RunAsync("hi")) { }
+        }).Throws<InvalidOperationException>();
 
-        var harness = new Harness(
-            fake,
-            [],
-            (_, _, _, _) => throw new InvalidOperationException("nope"),
-            model: "test-model");
-
-        var ex = await Assert.That(async () => await harness.RunAsync("hi"))
-            .Throws<InvalidOperationException>();
-
-        await Assert.That(ex!.Message).Contains("HTTP 401");
-        await Assert.That(ex.Message).Contains("Invalid API key");
+        await Assert.That(ex!.Message).Contains("HTTP 500");
     }
 }

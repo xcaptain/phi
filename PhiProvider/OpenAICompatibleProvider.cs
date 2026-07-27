@@ -27,7 +27,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
     public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
         string model,
         string system,
-        IReadOnlyList<IAgentMessage> messages,
+        IList<IAgentMessage> messages,
         IReadOnlyList<Tool> tools,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
@@ -167,7 +167,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
     private static JsonObject BuildPayload(
         string model,
         string system,
-        IReadOnlyList<IAgentMessage> messages,
+        IList<IAgentMessage> messages,
         IReadOnlyList<Tool> tools)
     {
         var messagesArray = new JsonArray();

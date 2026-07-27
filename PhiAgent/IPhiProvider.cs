@@ -10,7 +10,7 @@ public interface IPhiProvider
     IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
         string model,
         string system,
-        IReadOnlyList<IAgentMessage> messages,
+        IList<IAgentMessage> messages,
         IReadOnlyList<Tool> tools,
         CancellationToken cancellationToken = default);
 }
