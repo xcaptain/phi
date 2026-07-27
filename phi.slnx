@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="PhiAgent/PhiAgent.csproj" />
+  <Project Path="PhiCoding/PhiCoding.csproj" />
+  <Project Path="PhiProvider/PhiProvider.csproj" />
+</Solution>
