@@ -84,7 +84,7 @@ public sealed class UserContentConverter : JsonConverter<UserContent>
     }
 }
 
-public record UserMessage
+public record UserMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
     public string Role { get; init; } = "user";
@@ -147,7 +147,7 @@ public sealed record AssistantMessageDiagnostic
     public IReadOnlyDictionary<string, JsonNode>? Details { get; init; }
 }
 
-public sealed record AssistantMessage
+public sealed record AssistantMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
     public string Role { get; init; } = "assistant";
@@ -175,7 +175,7 @@ public sealed record AssistantMessage
     public IReadOnlyList<ToolCall> ToolCalls => Content.OfType<ToolCall>().ToList();
 }
 
-public sealed record ToolResultMessage
+public sealed record ToolResultMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
     public string Role { get; init; } = "toolResult";
@@ -197,7 +197,7 @@ public sealed record ToolResultMessage
     public string Text => string.Concat(Content.OfType<TextBlock>().Select(b => b.Text));
 }
 
-public sealed record BashExecutionMessage
+public sealed record BashExecutionMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
     public string Role { get; init; } = "bashExecution";
@@ -214,7 +214,7 @@ public sealed record BashExecutionMessage
     public bool ExcludeFromContext { get; init; }
 }
 
-public sealed record CustomMessage
+public sealed record CustomMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
     public string Role { get; init; } = "custom";
@@ -232,7 +232,7 @@ public sealed record CustomMessage
     public string Text => Content.ExtractText();
 }
 
-public sealed record BranchSummaryMessage
+public sealed record BranchSummaryMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
     public string Role { get; init; } = "branchSummary";
@@ -243,7 +243,7 @@ public sealed record BranchSummaryMessage
     public long Timestamp { get; init; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }
 
-public sealed record CompactionSummaryMessage
+public sealed record CompactionSummaryMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
     public string Role { get; init; } = "compactionSummary";
