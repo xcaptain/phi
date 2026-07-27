@@ -4,5 +4,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
+    <PackageVersion Include="TUnit" Version="1.61.38" />
+    <PackageVersion Include="XenoAtom.Terminal.UI" Version="3.8.1" />
   </ItemGroup>
 </Project>
