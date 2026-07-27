@@ -35,30 +35,17 @@ var provider = new OpenAICompatibleProvider(
     },
     new HttpClient());
 
-var bashTool = new BashTool();
-var readTool = new ReadTool();
-var writeTool = new WriteTool();
-var editTool = new EditTool();
-
-var tools = new List<Tool>
+var tools = new IHarnessTool[]
 {
-    bashTool.Definition.ToTool(),
-    readTool.Definition.ToTool(),
-    writeTool.Definition.ToTool(),
-    editTool.Definition.ToTool(),
+    new BashTool(),
+    new ReadTool(),
+    new WriteTool(),
+    new EditTool(),
 };
 
 var harness = new Harness(
     provider,
-    tools: tools,
-    executeTool: (name, id, args, ct) => name switch
-    {
-        "bash" => bashTool.ExecuteAsync(id, args, ct),
-        "read" => readTool.ExecuteAsync(id, args, ct),
-        "write" => writeTool.ExecuteAsync(id, args, ct),
-        "edit" => editTool.ExecuteAsync(id, args, ct),
-        _ => throw new NotSupportedException($"Unknown tool: {name}"),
-    },
+    tools,
     model: "deepseek-v4-flash",
     system: """
         You have four tools: bash, read, write, edit.

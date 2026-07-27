@@ -149,7 +149,7 @@ public class EditToolTests
         using var file = new TempFile("hello world\nfoo bar\nbaz");
         var tool = new EditTool();
         var args = JsonNode.Parse($$"""
-            {"path":"{{file.Path}}","old_string":"foo bar","new_string":"FOO BAR"}
+            {"path":"{{file.Path}}","oldString":"foo bar","newString":"FOO BAR"}
             """)!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
@@ -164,7 +164,7 @@ public class EditToolTests
         using var file = new TempFile("hello world");
         var tool = new EditTool();
         var args = JsonNode.Parse($$"""
-            {"path":"{{file.Path}}","old_string":"nonexistent","new_string":"X"}
+            {"path":"{{file.Path}}","oldString":"nonexistent","newString":"X"}
             """)!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
@@ -180,7 +180,7 @@ public class EditToolTests
         using var file = new TempFile("foo foo foo");
         var tool = new EditTool();
         var args = JsonNode.Parse($$"""
-            {"path":"{{file.Path}}","old_string":"foo","new_string":"bar"}
+            {"path":"{{file.Path}}","oldString":"foo","newString":"bar"}
             """)!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
@@ -198,7 +198,7 @@ public class EditToolTests
             $"phi-edit-missing-{Guid.NewGuid():N}");
         var tool = new EditTool();
         var args = JsonNode.Parse($$"""
-            {"path":"{{missing}}","old_string":"x","new_string":"y"}
+            {"path":"{{missing}}","oldString":"x","newString":"y"}
             """)!;
 
         var result = await tool.ExecuteAsync("c1", args, default);

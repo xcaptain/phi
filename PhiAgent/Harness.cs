@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Runtime.CompilerServices;
 
 namespace PhiAgent;
@@ -5,28 +6,27 @@ namespace PhiAgent;
 /// <summary>
 /// The agent harness: owns session state and runs the outer loop with
 /// steering and follow-up injection points. Delegates inner-loop work to
-/// <see cref="Loop"/>. Mirrors tau's <c>AgentHarness._run</c> with its
-/// <c>continue</c>-based steering/follow-up pattern.
+/// <see cref="Loop"/>. Accepts tools as <see cref="IHarnessTool"/> so
+/// application code registers typed tools directly without manual dispatch.
 /// </summary>
 public sealed class Harness
 {
     private readonly IPhiProvider _provider;
-    private readonly IReadOnlyList<Tool> _tools;
-    private readonly ToolExecutor _executeTool;
+    private readonly IReadOnlyList<Tool> _slimTools;
+    private readonly Dictionary<string, IHarnessTool> _toolMap;
     private readonly string _model;
     private readonly string _system;
     private readonly List<IAgentMessage> _messages = new();
 
     public Harness(
         IPhiProvider provider,
-        IReadOnlyList<Tool> tools,
-        ToolExecutor executeTool,
+        IReadOnlyList<IHarnessTool> tools,
         string model,
         string system = "")
     {
         _provider = provider;
-        _tools = tools;
-        _executeTool = executeTool;
+        _slimTools = tools.Select(t => t.Tool).ToList();
+        _toolMap = tools.ToDictionary(t => t.Tool.Name);
         _model = model;
         _system = system;
     }
@@ -39,8 +39,8 @@ public sealed class Harness
     /// optional <paramref name="getSteeringMessages"/> and
     /// <paramref name="getFollowUpMessages"/> callbacks are queried for
     /// new messages to inject; if either returns a non-empty list, the loop
-    /// continues with those messages pending — matching tau's
-    /// AgentHarness._run continue pattern.
+    /// continues with those messages pending — matching tau's AgentHarness._run
+    /// continue pattern.
     /// </summary>
     public async IAsyncEnumerable<HarnessEvent> RunAsync(
         string initialPrompt,
@@ -62,7 +62,8 @@ public sealed class Harness
             yield return new TurnStartEvent(turn);
 
             await foreach (var ev in Loop.RunTurnAsync(
-                _provider, _model, _system, _messages, _tools, _executeTool, cancellationToken))
+                _provider, _model, _system, _messages, _slimTools,
+                ExecuteToolByName, cancellationToken))
             {
                 yield return ev;
             }
@@ -89,5 +90,15 @@ public sealed class Harness
 
             yield break;
         }
+    }
+
+    private Task<ToolResult> ExecuteToolByName(string name, string id, JsonNode args, CancellationToken ct)
+    {
+        if (_toolMap.TryGetValue(name, out var tool))
+            return tool.ExecuteAsync(name, id, args, ct);
+
+        return Task.FromResult(new ToolResult(
+            [new TextBlock($"Unknown tool: {name}")],
+            IsError: true));
     }
 }

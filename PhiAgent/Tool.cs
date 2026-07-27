@@ -25,3 +25,14 @@ public delegate Task<ToolResult> ToolExecutor(
     string toolCallId,
     JsonNode arguments,
     CancellationToken cancellationToken = default);
+
+/// <summary>
+/// Non-generic bridge that lets a <see cref="TypedTool{TArgs}"/> be registered
+/// directly with the <see cref="Harness"/> — no manual <c>.ToTool()</c>
+/// conversion or dispatch switch required.
+/// </summary>
+public interface IHarnessTool
+{
+    Tool Tool { get; }
+    Task<ToolResult> ExecuteAsync(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken);
+}

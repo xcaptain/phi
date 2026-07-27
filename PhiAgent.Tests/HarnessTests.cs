@@ -7,11 +7,8 @@ namespace PhiAgent.Tests;
 
 public class HarnessTests
 {
-    private static ToolExecutor NeverCalledExecutor =>
-        (_, _, _, _) => throw new InvalidOperationException("Tool should not be called");
-
     private static Harness CreateHarness(FakePhiProvider fake) =>
-        new(fake, [], NeverCalledExecutor, "test-model");
+        new(fake, Array.Empty<IHarnessTool>(), "test-model");
 
     [Test]
     public async Task RunAsync_NoToolCalls_EmitsTurnStartThenTurnEnd()

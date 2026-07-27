@@ -1,38 +1,26 @@
+using System.ComponentModel;
 using System.Diagnostics;
-using System.Text.Json.Nodes;
 using PhiAgent;
 
 namespace PhiCoding;
 
-public sealed class BashTool
+public sealed record BashArgs
 {
-    public ToolDefinition Definition { get; } = new(
-        Name: "bash",
-        Description: "Run a shell command and return stdout/stderr/exit code.",
-        Parameters: new JsonObject
-        {
-            ["type"] = "object",
-            ["properties"] = new JsonObject
-            {
-                ["command"] = new JsonObject
-                {
-                    ["type"] = "string",
-                    ["description"] = "Shell command to execute",
-                },
-            },
-            ["required"] = new JsonArray { "command" },
-        },
-        PromptSnippet: "Execute shell commands",
-        PromptGuidelines: ["Prefer the read tool over cat for inspecting files."]);
+    [Description("Shell command to execute")]
+    public required string Command { get; init; }
+}
 
-    public async Task<ToolResult> ExecuteAsync(
-        string toolCallId,
-        JsonNode arguments,
-        CancellationToken cancellationToken)
+public sealed class BashTool : TypedTool<BashArgs>
+{
+    public override string Name => "bash";
+    public override string Description => "Run a shell command and return stdout/stderr/exit code.";
+    public override string? PromptSnippet => "Execute shell commands";
+    public override IReadOnlyList<string>? PromptGuidelines =>
+        ["Prefer the read tool over cat for inspecting files."];
+
+    public override async Task<ToolResult> ExecuteTypedAsync(BashArgs args, CancellationToken cancellationToken)
     {
-        var command = arguments["command"]?.GetValue<string>() ?? "";
-
-        var psi = new ProcessStartInfo("/bin/bash", ["-c", command])
+        var psi = new ProcessStartInfo("/bin/bash", ["-c", args.Command])
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -57,198 +45,154 @@ public sealed class BashTool
     }
 }
 
-public sealed class ReadTool
+public sealed record ReadArgs
 {
-    public ToolDefinition Definition { get; } = new(
-        Name: "read",
-        Description: "Read the contents of a text file at the given path.",
-        Parameters: new JsonObject
-        {
-            ["type"] = "object",
-            ["properties"] = new JsonObject
-            {
-                ["path"] = new JsonObject
-                {
-                    ["type"] = "string",
-                    ["description"] = "Path to the file to read",
-                },
-            },
-            ["required"] = new JsonArray { "path" },
-        },
-        PromptSnippet: "Read file contents",
-        PromptGuidelines: ["Use read to examine files instead of cat or sed."]);
+    [Description("Path to the file to read")]
+    public required string Path { get; init; }
+}
 
-    public async Task<ToolResult> ExecuteAsync(
-        string toolCallId,
-        JsonNode arguments,
-        CancellationToken cancellationToken)
+public sealed class ReadTool : TypedTool<ReadArgs>
+{
+    public override string Name => "read";
+    public override string Description => "Read the contents of a text file at the given path.";
+    public override string? PromptSnippet => "Read file contents";
+    public override IReadOnlyList<string>? PromptGuidelines =>
+        ["Use read to examine files instead of cat or sed."];
+
+    public override async Task<ToolResult> ExecuteTypedAsync(ReadArgs args, CancellationToken cancellationToken)
     {
-        var path = arguments["path"]?.GetValue<string>() ?? "";
-
         try
         {
-            if (Directory.Exists(path))
+            if (Directory.Exists(args.Path))
                 return new ToolResult(
-                    [new TextBlock($"Path is a directory, not a file: {path}")],
+                    [new TextBlock($"Path is a directory, not a file: {args.Path}")],
                     IsError: true);
 
-            if (!File.Exists(path))
+            if (!File.Exists(args.Path))
                 return new ToolResult(
-                    [new TextBlock($"File not found: {path}")],
+                    [new TextBlock($"File not found: {args.Path}")],
                     IsError: true);
 
-            var content = await File.ReadAllTextAsync(path, cancellationToken);
+            var content = await File.ReadAllTextAsync(args.Path, cancellationToken);
             return new ToolResult([new TextBlock(content)]);
         }
         catch (UnauthorizedAccessException)
         {
             return new ToolResult(
-                [new TextBlock($"Permission denied reading: {path}")],
+                [new TextBlock($"Permission denied reading: {args.Path}")],
                 IsError: true);
         }
         catch (Exception ex)
         {
             return new ToolResult(
-                [new TextBlock($"Error reading {path}: {ex.Message}")],
+                [new TextBlock($"Error reading {args.Path}: {ex.Message}")],
                 IsError: true);
         }
     }
 }
 
-public sealed class WriteTool
+public sealed record WriteArgs
 {
-    public ToolDefinition Definition { get; } = new(
-        Name: "write",
-        Description: "Write content to a file at the given path, overwriting if it exists. Creates parent directories as needed.",
-        Parameters: new JsonObject
-        {
-            ["type"] = "object",
-            ["properties"] = new JsonObject
-            {
-                ["path"] = new JsonObject
-                {
-                    ["type"] = "string",
-                    ["description"] = "File path to write to",
-                },
-                ["content"] = new JsonObject
-                {
-                    ["type"] = "string",
-                    ["description"] = "Content to write to the file",
-                },
-            },
-            ["required"] = new JsonArray { "path", "content" },
-        },
-        PromptSnippet: "Write file contents");
+    [Description("File path to write to")]
+    public required string Path { get; init; }
 
-    public async Task<ToolResult> ExecuteAsync(
-        string toolCallId,
-        JsonNode arguments,
-        CancellationToken cancellationToken)
+    [Description("Content to write to the file")]
+    public required string Content { get; init; }
+}
+
+public sealed class WriteTool : TypedTool<WriteArgs>
+{
+    public override string Name => "write";
+    public override string Description =>
+        "Write content to a file at the given path, overwriting if it exists. Creates parent directories as needed.";
+    public override string? PromptSnippet => "Write file contents";
+
+    public override async Task<ToolResult> ExecuteTypedAsync(WriteArgs args, CancellationToken cancellationToken)
     {
-        var path = arguments["path"]?.GetValue<string>() ?? "";
-        var content = arguments["content"]?.GetValue<string>() ?? "";
-
         try
         {
-            var dir = Path.GetDirectoryName(path);
+            var dir = Path.GetDirectoryName(args.Path);
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            await File.WriteAllTextAsync(path, content, cancellationToken);
+            await File.WriteAllTextAsync(args.Path, args.Content, cancellationToken);
             return new ToolResult(
-                [new TextBlock($"Wrote {content.Length} chars to {path}")]);
+                [new TextBlock($"Wrote {args.Content.Length} chars to {args.Path}")]);
         }
         catch (UnauthorizedAccessException)
         {
             return new ToolResult(
-                [new TextBlock($"Permission denied writing to: {path}")],
+                [new TextBlock($"Permission denied writing to: {args.Path}")],
                 IsError: true);
         }
         catch (Exception ex)
         {
             return new ToolResult(
-                [new TextBlock($"Error writing {path}: {ex.Message}")],
+                [new TextBlock($"Error writing {args.Path}: {ex.Message}")],
                 IsError: true);
         }
     }
 }
 
-public sealed class EditTool
+public sealed record EditArgs
 {
-    public ToolDefinition Definition { get; } = new(
-        Name: "edit",
-        Description: "Find old_string in the file and replace it with new_string. The old_string must appear exactly once.",
-        Parameters: new JsonObject
-        {
-            ["type"] = "object",
-            ["properties"] = new JsonObject
-            {
-                ["path"] = new JsonObject
-                {
-                    ["type"] = "string",
-                    ["description"] = "File path to edit",
-                },
-                ["old_string"] = new JsonObject
-                {
-                    ["type"] = "string",
-                    ["description"] = "Exact string to find (must be unique in the file)",
-                },
-                ["new_string"] = new JsonObject
-                {
-                    ["type"] = "string",
-                    ["description"] = "Replacement string",
-                },
-            },
-            ["required"] = new JsonArray { "path", "old_string", "new_string" },
-        },
-        PromptSnippet: "Surgical edits",
-        PromptGuidelines: ["old_string must be unique — include surrounding context if it's not."]);
+    [Description("File path to edit")]
+    public required string Path { get; init; }
 
-    public async Task<ToolResult> ExecuteAsync(
-        string toolCallId,
-        JsonNode arguments,
-        CancellationToken cancellationToken)
+    [Description("Exact string to find (must be unique in the file)")]
+    public required string OldString { get; init; }
+
+    [Description("Replacement string")]
+    public required string NewString { get; init; }
+}
+
+public sealed class EditTool : TypedTool<EditArgs>
+{
+    public override string Name => "edit";
+    public override string Description =>
+        "Find old_string in the file and replace it with new_string. The old_string must appear exactly once.";
+    public override string? PromptSnippet => "Surgical edits";
+    public override IReadOnlyList<string>? PromptGuidelines =>
+        ["old_string must be unique — include surrounding context if it's not."];
+
+    public override async Task<ToolResult> ExecuteTypedAsync(EditArgs args, CancellationToken cancellationToken)
     {
-        var path = arguments["path"]?.GetValue<string>() ?? "";
-        var oldString = arguments["old_string"]?.GetValue<string>() ?? "";
-        var newString = arguments["new_string"]?.GetValue<string>() ?? "";
-
         try
         {
-            if (!File.Exists(path))
+            if (!File.Exists(args.Path))
                 return new ToolResult(
-                    [new TextBlock($"File not found: {path}")],
+                    [new TextBlock($"File not found: {args.Path}")],
                     IsError: true);
 
-            var content = await File.ReadAllTextAsync(path, cancellationToken);
-            var occurrences = CountOccurrences(content, oldString);
+            var content = await File.ReadAllTextAsync(args.Path, cancellationToken);
+            var occurrences = CountOccurrences(content, args.OldString);
 
             if (occurrences == 0)
                 return new ToolResult(
-                    [new TextBlock($"old_string not found in {path}")],
+                    [new TextBlock($"old_string not found in {args.Path}")],
                     IsError: true);
 
             if (occurrences > 1)
                 return new ToolResult(
-                    [new TextBlock($"old_string appears {occurrences} times in {path} — must be unique")],
+                    [new TextBlock($"old_string appears {occurrences} times in {args.Path} — must be unique")],
                     IsError: true);
 
-            var newContent = content.Replace(oldString, newString);
-            await File.WriteAllTextAsync(path, newContent, cancellationToken);
+            var newContent = content.Replace(args.OldString, args.NewString);
+            await File.WriteAllTextAsync(args.Path, newContent, cancellationToken);
 
             return new ToolResult(
-                [new TextBlock($"Edited {path} ({oldString.Length} → {newString.Length} chars)")]);
+                [new TextBlock($"Edited {args.Path} ({args.OldString.Length} → {args.NewString.Length} chars)")]);
         }
         catch (UnauthorizedAccessException)
         {
             return new ToolResult(
-                [new TextBlock($"Permission denied editing: {path}")],
+                [new TextBlock($"Permission denied editing: {args.Path}")],
                 IsError: true);
         }
         catch (Exception ex)
         {
             return new ToolResult(
-                [new TextBlock($"Error editing {path}: {ex.Message}")],
+                [new TextBlock($"Error editing {args.Path}: {ex.Message}")],
                 IsError: true);
         }
     }
