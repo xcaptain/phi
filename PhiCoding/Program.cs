@@ -42,10 +42,10 @@ var editTool = new EditTool();
 
 var tools = new List<Tool>
 {
-    bashTool.Definition,
-    readTool.Definition,
-    writeTool.Definition,
-    editTool.Definition,
+    bashTool.Definition.ToTool(),
+    readTool.Definition.ToTool(),
+    writeTool.Definition.ToTool(),
+    editTool.Definition.ToTool(),
 };
 
 var harness = new Harness(

@@ -31,13 +31,13 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
-                new Tool("bash", "Run a shell command", new Dictionary<string, JsonNode>
+                new Tool("bash", "Run a shell command", new JsonObject
                 {
-                    ["type"] = JsonValue.Create("object"),
+                    ["type"] = "object",
                 }),
-                new Tool("read", "Read a file", new Dictionary<string, JsonNode>
+                new Tool("read", "Read a file", new JsonObject
                 {
-                    ["type"] = JsonValue.Create("object"),
+                    ["type"] = "object",
                 }),
             ]))
         {
@@ -77,8 +77,8 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
-                new Tool("bash", "Run a shell command", new Dictionary<string, JsonNode>()),
-                new Tool("read", "Read a file", new Dictionary<string, JsonNode>()),
+                new Tool("bash", "Run a shell command", new JsonObject()),
+                new Tool("read", "Read a file", new JsonObject()),
             ]))
         {
             events.Add(ev);
@@ -117,10 +117,13 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check" }],
             tools: [
-                new Tool("bash", "Run a shell command", new Dictionary<string, JsonNode>
+                new Tool("bash", "Run a shell command", new JsonObject
                 {
-                    ["type"] = JsonValue.Create("object"),
-                    ["properties"] = JsonNode.Parse("""{"command":{"type":"string"}}"""),
+                    ["type"] = "object",
+                    ["properties"] = new JsonObject
+                    {
+                        ["command"] = new JsonObject { ["type"] = "string" },
+                    },
                 }),
             ]));
 

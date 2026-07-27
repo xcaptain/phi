@@ -6,17 +6,24 @@ namespace PhiCoding;
 
 public sealed class BashTool
 {
-    public Tool Definition { get; } = new(
+    public ToolDefinition Definition { get; } = new(
         Name: "bash",
         Description: "Run a shell command and return stdout/stderr/exit code.",
-        Parameters: new Dictionary<string, JsonNode>
+        Parameters: new JsonObject
         {
-            ["type"] = JsonValue.Create("object"),
-            ["properties"] = JsonNode.Parse("""
-                {"command":{"type":"string","description":"Shell command to execute"}}
-                """),
-            ["required"] = JsonNode.Parse("""["command"]"""),
-        });
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["command"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["description"] = "Shell command to execute",
+                },
+            },
+            ["required"] = new JsonArray { "command" },
+        },
+        PromptSnippet: "Execute shell commands",
+        PromptGuidelines: ["Prefer the read tool over cat for inspecting files."]);
 
     public async Task<ToolResult> ExecuteAsync(
         string toolCallId,
@@ -52,17 +59,24 @@ public sealed class BashTool
 
 public sealed class ReadTool
 {
-    public Tool Definition { get; } = new(
+    public ToolDefinition Definition { get; } = new(
         Name: "read",
         Description: "Read the contents of a text file at the given path.",
-        Parameters: new Dictionary<string, JsonNode>
+        Parameters: new JsonObject
         {
-            ["type"] = JsonValue.Create("object"),
-            ["properties"] = JsonNode.Parse("""
-                {"path":{"type":"string","description":"Path to the file to read"}}
-                """),
-            ["required"] = JsonNode.Parse("""["path"]"""),
-        });
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["path"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["description"] = "Path to the file to read",
+                },
+            },
+            ["required"] = new JsonArray { "path" },
+        },
+        PromptSnippet: "Read file contents",
+        PromptGuidelines: ["Use read to examine files instead of cat or sed."]);
 
     public async Task<ToolResult> ExecuteAsync(
         string toolCallId,
@@ -103,17 +117,28 @@ public sealed class ReadTool
 
 public sealed class WriteTool
 {
-    public Tool Definition { get; } = new(
+    public ToolDefinition Definition { get; } = new(
         Name: "write",
         Description: "Write content to a file at the given path, overwriting if it exists. Creates parent directories as needed.",
-        Parameters: new Dictionary<string, JsonNode>
+        Parameters: new JsonObject
         {
-            ["type"] = JsonValue.Create("object"),
-            ["properties"] = JsonNode.Parse("""
-                {"path":{"type":"string","description":"File path to write to"},"content":{"type":"string","description":"Content to write to the file"}}
-                """),
-            ["required"] = JsonNode.Parse("""["path","content"]"""),
-        });
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["path"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["description"] = "File path to write to",
+                },
+                ["content"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["description"] = "Content to write to the file",
+                },
+            },
+            ["required"] = new JsonArray { "path", "content" },
+        },
+        PromptSnippet: "Write file contents");
 
     public async Task<ToolResult> ExecuteAsync(
         string toolCallId,
@@ -150,17 +175,34 @@ public sealed class WriteTool
 
 public sealed class EditTool
 {
-    public Tool Definition { get; } = new(
+    public ToolDefinition Definition { get; } = new(
         Name: "edit",
         Description: "Find old_string in the file and replace it with new_string. The old_string must appear exactly once.",
-        Parameters: new Dictionary<string, JsonNode>
+        Parameters: new JsonObject
         {
-            ["type"] = JsonValue.Create("object"),
-            ["properties"] = JsonNode.Parse("""
-                {"path":{"type":"string","description":"File path to edit"},"old_string":{"type":"string","description":"Exact string to find (must be unique)"},"new_string":{"type":"string","description":"Replacement string"}}
-                """),
-            ["required"] = JsonNode.Parse("""["path","old_string","new_string"]"""),
-        });
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                ["path"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["description"] = "File path to edit",
+                },
+                ["old_string"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["description"] = "Exact string to find (must be unique in the file)",
+                },
+                ["new_string"] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["description"] = "Replacement string",
+                },
+            },
+            ["required"] = new JsonArray { "path", "old_string", "new_string" },
+        },
+        PromptSnippet: "Surgical edits",
+        PromptGuidelines: ["old_string must be unique — include surrounding context if it's not."]);
 
     public async Task<ToolResult> ExecuteAsync(
         string toolCallId,

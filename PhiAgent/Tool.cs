@@ -2,11 +2,12 @@ using System.Text.Json.Nodes;
 
 namespace PhiAgent;
 
-/// <summary>A tool the model can call: just its definition. Execution lives in the application layer.</summary>
+/// <summary>Tool definition used by the agent loop. Slim form: just what's needed
+/// to advertise the tool to the LLM and dispatch tool calls back to an executor.</summary>
 public sealed record Tool(
     string Name,
     string Description,
-    IReadOnlyDictionary<string, JsonNode> Parameters);
+    JsonObject Parameters);
 
 /// <summary>What a tool execution returns back to the agent loop.</summary>
 public sealed record ToolResult(

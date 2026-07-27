@@ -200,22 +200,12 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
                 {
                     ["name"] = t.Name,
                     ["description"] = t.Description,
-                    ["parameters"] = ParametersToJson(t.Parameters),
+                    ["parameters"] = t.Parameters,
                 },
             }).ToArray());
         }
 
         return payload;
-    }
-
-    private static JsonNode ParametersToJson(IReadOnlyDictionary<string, JsonNode> parameters)
-    {
-        var obj = new JsonObject();
-        foreach (var (key, value) in parameters)
-        {
-            obj[key] = value?.DeepClone();
-        }
-        return obj;
     }
 
     private static JsonObject MessageToOpenAi(IAgentMessage message) => message switch

@@ -41,10 +41,16 @@ public class AgentToolTests
         var tool = new Tool(
             Name: "bash",
             Description: "Run a shell command",
-            Parameters: new Dictionary<string, System.Text.Json.Nodes.JsonNode>
+            Parameters: new System.Text.Json.Nodes.JsonObject
             {
-                ["type"] = System.Text.Json.Nodes.JsonValue.Create("object"),
-                ["properties"] = System.Text.Json.Nodes.JsonNode.Parse("""{"command":{"type":"string"}}"""),
+                ["type"] = "object",
+                ["properties"] = new System.Text.Json.Nodes.JsonObject
+                {
+                    ["command"] = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["type"] = "string",
+                    },
+                },
             });
 
         await Assert.That(tool.Name).IsEqualTo("bash");
