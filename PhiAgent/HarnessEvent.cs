@@ -25,3 +25,6 @@ public sealed record ToolExecutionEndEvent(ToolCall ToolCall, ToolResult Result)
 
 /// <summary>A turn has ended; the model produced a final message with no more tool calls.</summary>
 public sealed record TurnEndEvent(AssistantMessage FinalMessage) : HarnessEvent;
+
+/// <summary>The harness or agent loop encountered an exception; surfaces unrecoverable failures.</summary>
+public sealed record HarnessErrorEvent(string Message) : HarnessEvent;

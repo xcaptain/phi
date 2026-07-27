@@ -16,4 +16,8 @@
     <ProjectReference Include="..\PhiProvider\PhiProvider.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="PhiCoding.Tests" />
+  </ItemGroup>
+
 </Project>
