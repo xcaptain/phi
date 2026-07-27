@@ -38,7 +38,7 @@ public class AgentToolTests
     [Test]
     public async Task RoundTripJson_PreservesNameAndParameters()
     {
-        var tool = new AgentTool(
+        var tool = new Tool(
             Name: "bash",
             Description: "Run a shell command",
             Parameters: new Dictionary<string, System.Text.Json.Nodes.JsonNode>

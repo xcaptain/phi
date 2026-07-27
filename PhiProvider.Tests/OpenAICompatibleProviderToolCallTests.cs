@@ -31,11 +31,11 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
-                new AgentTool("bash", "Run a shell command", new Dictionary<string, JsonNode>
+                new Tool("bash", "Run a shell command", new Dictionary<string, JsonNode>
                 {
                     ["type"] = JsonValue.Create("object"),
                 }),
-                new AgentTool("read", "Read a file", new Dictionary<string, JsonNode>
+                new Tool("read", "Read a file", new Dictionary<string, JsonNode>
                 {
                     ["type"] = JsonValue.Create("object"),
                 }),
@@ -77,8 +77,8 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
-                new AgentTool("bash", "Run a shell command", new Dictionary<string, JsonNode>()),
-                new AgentTool("read", "Read a file", new Dictionary<string, JsonNode>()),
+                new Tool("bash", "Run a shell command", new Dictionary<string, JsonNode>()),
+                new Tool("read", "Read a file", new Dictionary<string, JsonNode>()),
             ]))
         {
             events.Add(ev);
@@ -117,7 +117,7 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check" }],
             tools: [
-                new AgentTool("bash", "Run a shell command", new Dictionary<string, JsonNode>
+                new Tool("bash", "Run a shell command", new Dictionary<string, JsonNode>
                 {
                     ["type"] = JsonValue.Create("object"),
                     ["properties"] = JsonNode.Parse("""{"command":{"type":"string"}}"""),

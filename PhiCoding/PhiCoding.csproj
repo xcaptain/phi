@@ -7,4 +7,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <PackageReference Include="XenoAtom.Terminal.UI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PhiAgent\PhiAgent.csproj" />
+    <ProjectReference Include="..\PhiProvider\PhiProvider.csproj" />
+  </ItemGroup>
+
 </Project>

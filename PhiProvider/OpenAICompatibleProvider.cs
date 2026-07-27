@@ -28,7 +28,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
         string model,
         string system,
         IReadOnlyList<IAgentMessage> messages,
-        IReadOnlyList<AgentTool> tools,
+        IReadOnlyList<Tool> tools,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var payload = BuildPayload(model, system, messages, tools);
@@ -168,7 +168,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
         string model,
         string system,
         IReadOnlyList<IAgentMessage> messages,
-        IReadOnlyList<AgentTool> tools)
+        IReadOnlyList<Tool> tools)
     {
         var messagesArray = new JsonArray();
         if (!string.IsNullOrEmpty(system))
@@ -225,11 +225,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
             ["role"] = "user",
             ["content"] = u.Text,
         },
-        AssistantMessage a => new JsonObject
-        {
-            ["role"] = "assistant",
-            ["content"] = a.Text,
-        },
+        AssistantMessage a => BuildAssistantJson(a),
         ToolResultMessage t => new JsonObject
         {
             ["role"] = "tool",
@@ -240,4 +236,29 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
         _ => throw new NotSupportedException(
             $"Message type {message.GetType().Name} not supported by the basic OpenAI compatible provider yet"),
     };
+
+    private static JsonObject BuildAssistantJson(AssistantMessage a)
+    {
+        var obj = new JsonObject
+        {
+            ["role"] = "assistant",
+            ["content"] = a.Text,
+        };
+
+        if (a.ToolCalls.Count > 0)
+        {
+            obj["tool_calls"] = new JsonArray(a.ToolCalls.Select(tc => new JsonObject
+            {
+                ["id"] = tc.Id,
+                ["type"] = "function",
+                ["function"] = new JsonObject
+                {
+                    ["name"] = tc.Name,
+                    ["arguments"] = tc.Arguments.ToJsonString(),
+                },
+            }).ToArray());
+        }
+
+        return obj;
+    }
 }

@@ -1,11 +1,9 @@
-using PhiAgent;
-
-namespace PhiProvider;
+namespace PhiAgent;
 
 /// <summary>
 /// Provider-neutral streaming interface for any OpenAI-compatible chat API.
-/// Mirrors tau's <c>ModelProvider</c> protocol; <c>IAgentMessage</c> is the
-/// marker that lets a heterogeneous list round-trip without a union type.
+/// Lives in <c>PhiAgent</c> because the agent harness is the consumer;
+/// concrete implementations live in <c>PhiProvider</c>.
 /// </summary>
 public interface IPhiProvider
 {
@@ -13,6 +11,6 @@ public interface IPhiProvider
         string model,
         string system,
         IReadOnlyList<IAgentMessage> messages,
-        IReadOnlyList<AgentTool> tools,
+        IReadOnlyList<Tool> tools,
         CancellationToken cancellationToken = default);
 }
