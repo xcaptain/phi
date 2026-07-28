@@ -17,14 +17,14 @@ public class OpenAICompatibleProviderTests
             new OpenAICompatibleConfig
             {
                 ApiKey = "test-key",
-                BaseUrl = "https://api.deepseek.com/v1",
+                BaseUrl = "https://api.deepseek.com",
                 Provider = "deepseek",
             },
             http);
 
         var events = new List<ProviderEvent>();
         await foreach (var ev in provider.StreamResponseAsync(
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             system: "You are helpful",
             messages: [new UserMessage { Content = "Hi" }],
             tools: []))
@@ -37,7 +37,7 @@ public class OpenAICompatibleProviderTests
 
         var end = events.OfType<ProviderResponseEndEvent>().Single();
         await Assert.That(end.Message.Text).IsEqualTo("Hello! How can I help you today?");
-        await Assert.That(end.Message.Model).IsEqualTo("deepseek-chat");
+        await Assert.That(end.Message.Model).IsEqualTo("deepseek-v4-flash");
         await Assert.That(end.Message.Provider).IsEqualTo("deepseek");
         await Assert.That(end.FinishReason).IsEqualTo(StopReasons.Stop);
     }
@@ -51,21 +51,21 @@ public class OpenAICompatibleProviderTests
             new OpenAICompatibleConfig
             {
                 ApiKey = "test-key",
-                BaseUrl = "https://api.deepseek.com/v1",
+                BaseUrl = "https://api.deepseek.com",
                 Provider = "deepseek",
             },
             http);
 
         _ = await CollectEvents(provider.StreamResponseAsync(
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             system: "system-prompt",
             messages: [new UserMessage { Content = "Hi" }],
             tools: []));
 
         await Assert.That(handler.LastRequestUri)
-            .IsEqualTo("https://api.deepseek.com/v1/chat/completions");
+            .IsEqualTo("https://api.deepseek.com/chat/completions");
         await Assert.That(handler.LastRequestBody).IsNotNull();
-        await Assert.That(handler.LastRequestBody!).Contains("\"model\":\"deepseek-chat\"");
+        await Assert.That(handler.LastRequestBody!).Contains("\"model\":\"deepseek-v4-flash\"");
         await Assert.That(handler.LastRequestBody!).Contains("\"stream\":true");
         await Assert.That(handler.LastRequestBody!).Contains("\"role\":\"system\"");
         await Assert.That(handler.LastRequestBody!).Contains("\"content\":\"system-prompt\"");
@@ -91,14 +91,14 @@ public class OpenAICompatibleProviderTests
             new OpenAICompatibleConfig
             {
                 ApiKey = "test-key",
-                BaseUrl = "https://api.deepseek.com/v1",
+                BaseUrl = "https://api.deepseek.com",
                 Provider = "deepseek",
             },
             http);
 
         var events = new List<ProviderEvent>();
         await foreach (var ev in provider.StreamResponseAsync(
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             system: "",
             messages: [new UserMessage { Content = "Hi" }],
             tools: []))
@@ -122,7 +122,7 @@ public class OpenAICompatibleProviderTests
             new OpenAICompatibleConfig
             {
                 ApiKey = "test-key",
-                BaseUrl = "https://api.deepseek.com/v1",
+                BaseUrl = "https://api.deepseek.com",
                 Provider = "deepseek",
             },
             new HttpClient(handler));

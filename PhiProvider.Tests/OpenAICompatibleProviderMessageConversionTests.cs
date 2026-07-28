@@ -13,7 +13,7 @@ public class OpenAICompatibleProviderMessageConversionTests
             new OpenAICompatibleConfig
             {
                 ApiKey = "test-key",
-                BaseUrl = "https://api.deepseek.com/v1",
+                BaseUrl = "https://api.deepseek.com",
                 Provider = "deepseek",
             },
             new HttpClient(handler));
@@ -34,7 +34,7 @@ public class OpenAICompatibleProviderMessageConversionTests
         };
 
         _ = await CollectEvents(provider.StreamResponseAsync(
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             system: "you are helpful",
             messages: [
                 new UserMessage { Content = "Check system" },
@@ -83,7 +83,7 @@ public class OpenAICompatibleProviderMessageConversionTests
         };
 
         _ = await CollectEvents(provider.StreamResponseAsync(
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             system: "...",
             messages: [
                 new UserMessage { Content = "Hi" },

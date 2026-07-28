@@ -1,9 +1,5 @@
 using System.Text.Json.Nodes;
 using PhiAgent;
-using PhiProvider;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
-using TUnit.Core;
 
 namespace PhiProvider.Tests;
 
@@ -14,7 +10,7 @@ public class OpenAICompatibleProviderToolCallTests
             new OpenAICompatibleConfig
             {
                 ApiKey = "test-key",
-                BaseUrl = "https://api.deepseek.com/v1",
+                BaseUrl = "https://api.deepseek.com",
                 Provider = "deepseek",
             },
             new HttpClient(handler));
@@ -27,7 +23,7 @@ public class OpenAICompatibleProviderToolCallTests
 
         var events = new List<ProviderEvent>();
         await foreach (var ev in provider.StreamResponseAsync(
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
@@ -47,8 +43,8 @@ public class OpenAICompatibleProviderToolCallTests
         // 1 text delta + 2 tool call events + 1 response end = 4 events
         await Assert.That(events.OfType<ProviderTextDeltaEvent>().Count()).IsEqualTo(1);
         var toolCallEvents = events.OfType<ProviderToolCallEvent>().ToList();
-        await Assert.That(toolCallEvents).HasCount(2);
-        await Assert.That(events.OfType<ProviderResponseEndEvent>()).HasCount(1);
+        await Assert.That(toolCallEvents.Count).IsEqualTo(2);
+        await Assert.That(events.OfType<ProviderResponseEndEvent>().Count).IsEqualTo(1);
 
         // First text delta
         var firstText = events.OfType<ProviderTextDeltaEvent>().Single();
@@ -73,7 +69,7 @@ public class OpenAICompatibleProviderToolCallTests
 
         var events = new List<ProviderEvent>();
         await foreach (var ev in provider.StreamResponseAsync(
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
@@ -86,7 +82,7 @@ public class OpenAICompatibleProviderToolCallTests
 
         var end = events.OfType<ProviderResponseEndEvent>().Single();
         await Assert.That(end.FinishReason).IsEqualTo(StopReasons.ToolUse);
-        await Assert.That(end.Message.Content).HasCount(3);
+        await Assert.That(end.Message.Content.Count).IsEqualTo(3);
 
         // Order: TextBlock first, then ToolCalls in stream index order
         var textBlock = end.Message.Content[0];
@@ -103,7 +99,7 @@ public class OpenAICompatibleProviderToolCallTests
 
         // AssistantMessage computed properties still work
         await Assert.That(end.Message.Text).IsEqualTo("Let me check.");
-        await Assert.That(end.Message.ToolCalls).HasCount(2);
+        await Assert.That(end.Message.ToolCalls.Count).IsEqualTo(2);
     }
 
     [Test]
@@ -113,7 +109,7 @@ public class OpenAICompatibleProviderToolCallTests
         var provider = CreateProvider(handler);
 
         _ = await CollectEvents(provider.StreamResponseAsync(
-            model: "deepseek-chat",
+            model: "deepseek-v4-flash",
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check" }],
             tools: [

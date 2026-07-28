@@ -24,11 +24,11 @@ public class OpenAICompatibleConfigTests
         var config = new OpenAICompatibleConfig
         {
             ApiKey = "test",
-            BaseUrl = "https://api.deepseek.com/v1",
+            BaseUrl = "https://api.deepseek.com",
             Provider = "deepseek",
         };
 
-        await Assert.That(config.BaseUrl).IsEqualTo("https://api.deepseek.com/v1");
+        await Assert.That(config.BaseUrl).IsEqualTo("https://api.deepseek.com");
         await Assert.That(config.Provider).IsEqualTo("deepseek");
     }
 }

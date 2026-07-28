@@ -53,7 +53,7 @@ var harness = new Harness(
         Use bash for shell inspection and commands.
         Be concise.
         """,
-    maxTurns: 5);
+    maxTurns: 50);
 
 new PhiTuiApp(harness, model).Run();
 return 0;
