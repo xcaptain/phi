@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using PhiAgent;
+using PhiCoding.Tools.Details;
 
 namespace PhiCoding.Tools;
 
@@ -26,9 +27,16 @@ public sealed class WriteTool : TypedTool<WriteArgs>
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
+            var existed = File.Exists(args.Path);
             await File.WriteAllTextAsync(args.Path, args.Content, cancellationToken);
+
+            var details = new WriteDetails(
+                Path: args.Path,
+                BytesWritten: System.Text.Encoding.UTF8.GetByteCount(args.Content),
+                Mode: existed ? "overwrote" : "created");
             return new ToolResult(
-                [new TextBlock($"Wrote {args.Content.Length} chars to {args.Path}")]);
+                [new TextBlock($"Wrote {args.Content.Length} chars to {args.Path} ({details.Mode})")],
+                Details: ToolDetails.Node(details));
         }
         catch (UnauthorizedAccessException)
         {

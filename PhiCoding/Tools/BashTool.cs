@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using PhiAgent;
+using PhiCoding.Tools.Details;
 
 namespace PhiCoding.Tools;
 
@@ -25,19 +26,28 @@ public sealed class BashTool : TypedTool<BashArgs>
         };
 
         using var process = Process.Start(psi)!;
+        var stopwatch = Stopwatch.StartNew();
         await process.WaitForExitAsync(cancellationToken);
+        stopwatch.Stop();
 
         var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
         var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
+
+        var details = new BashDetails(
+            Command: args.Command,
+            ExitCode: process.ExitCode,
+            DurationMs: stopwatch.ElapsedMilliseconds,
+            Stdout: stdout,
+            Stderr: stderr);
 
         var content = new List<ContentBlock>();
         if (!string.IsNullOrEmpty(stdout))
             content.Add(new TextBlock(stdout));
         if (!string.IsNullOrEmpty(stderr))
-            content.Add(new TextBlock("[stderr] " + stderr));
+            content.Add(new TextBlock(stderr));
         if (content.Count == 0)
             content.Add(new TextBlock($"<no output, exit={process.ExitCode}>"));
 
-        return new ToolResult(content, IsError: process.ExitCode != 0);
+        return new ToolResult(content, Details: ToolDetails.Node(details), IsError: process.ExitCode != 0);
     }
 }

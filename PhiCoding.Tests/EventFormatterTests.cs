@@ -1,5 +1,6 @@
 using PhiAgent;
 using PhiCoding.Tui;
+using System.Text.Json.Nodes;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
@@ -23,12 +24,25 @@ public class EventFormatterTests
     }
 
     [Test]
-    public async Task Format_ToolCall_IncludesNameAndId()
+    public async Task Format_ToolCall_BashWithCommand_ShowsDollarPrefix()
     {
-        var result = EventFormatter.Format(new AssistantToolCallEvent(
-            new ToolCall("call_abc", "bash")));
-        await Assert.That(result).Contains("bash");
-        await Assert.That(result).Contains("call_abc");
+        var call = new ToolCall("call_abc", "bash")
+        {
+            Arguments = (JsonObject)JsonNode.Parse("""{"command":"ls -la"}""")!,
+        };
+        var result = EventFormatter.Format(new AssistantToolCallEvent(call));
+        await Assert.That(result).Contains("$ ls -la");
+    }
+
+    [Test]
+    public async Task Format_ToolCall_EditWithPath_ShowsArrowPrefix()
+    {
+        var call = new ToolCall("call_abc", "edit")
+        {
+            Arguments = (JsonObject)JsonNode.Parse("""{"path":"/tmp/foo.cs"}""")!,
+        };
+        var result = EventFormatter.Format(new AssistantToolCallEvent(call));
+        await Assert.That(result).Contains("→ edit /tmp/foo.cs");
     }
 
     [Test]

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using PhiAgent;
+using PhiCoding.Tools.Details;
 
 namespace PhiCoding.Tools;
 
@@ -29,7 +30,13 @@ public sealed class ReadTool : TypedTool<ReadArgs>
                     IsError: true);
 
             var content = await File.ReadAllTextAsync(args.Path, cancellationToken);
-            return new ToolResult([new TextBlock(content)]);
+            var details = new ReadDetails(
+                Path: args.Path,
+                LineCount: CountLines(content),
+                ByteCount: System.Text.Encoding.UTF8.GetByteCount(content));
+            return new ToolResult(
+                [new TextBlock(content)],
+                Details: ToolDetails.Node(details));
         }
         catch (UnauthorizedAccessException)
         {
@@ -44,4 +51,7 @@ public sealed class ReadTool : TypedTool<ReadArgs>
                 IsError: true);
         }
     }
+
+    private static int CountLines(string content)
+        => content.Length == 0 ? 0 : content.Split('\n').Length;
 }

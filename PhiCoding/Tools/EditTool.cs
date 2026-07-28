@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using DiffPlex.Renderer;
 using PhiAgent;
+using PhiCoding.Tools.Details;
 
 namespace PhiCoding.Tools;
 
@@ -46,8 +48,19 @@ public sealed class EditTool : TypedTool<EditArgs>
             var newContent = content.Replace(args.OldString, args.NewString);
             await File.WriteAllTextAsync(args.Path, newContent, cancellationToken);
 
+            var patch = UnidiffRenderer.GenerateUnidiff(
+                oldText: args.OldString,
+                newText: args.NewString,
+                oldFileName: args.Path,
+                newFileName: args.Path);
+            var details = new EditDetails(
+                Path: args.Path,
+                OldString: args.OldString,
+                NewString: args.NewString,
+                Patch: patch);
             return new ToolResult(
-                [new TextBlock($"Edited {args.Path} ({args.OldString.Length} → {args.NewString.Length} chars)")]);
+                [new TextBlock($"Edited {args.Path} ({args.OldString.Length} → {args.NewString.Length} chars)")],
+                Details: ToolDetails.Node(details));
         }
         catch (UnauthorizedAccessException)
         {
