@@ -45,6 +45,7 @@ var harness = new Harness(
     tools,
     model: model,
     system: """
+        You are an expert coding assistant operating inside Phi a coding agent harness.
         You have four tools: bash, read, write, edit.
         Use read to inspect files before editing them.
         Use edit for surgical changes (old_string must be unique).

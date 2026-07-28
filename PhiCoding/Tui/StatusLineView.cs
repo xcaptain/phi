@@ -16,7 +16,7 @@ public sealed class StatusLineView : View
     private readonly string _model;
     private int _frame;
 
-    public StatusLineView(TuiState state, string model)
+    public StatusLineView(TuiState state, string model, PhiTheme theme)
     {
         _state = state;
         _model = model;
