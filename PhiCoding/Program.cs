@@ -27,11 +27,11 @@ if (string.IsNullOrWhiteSpace(apiKey))
     return 1;
 }
 
-var provider = new OpenAICompatibleProvider(
-    new OpenAICompatibleConfig
+var provider = new AnthropicProvider(
+    new AnthropicConfig
     {
         ApiKey = apiKey,
-        BaseUrl = "https://api.deepseek.com",
+        BaseUrl = "https://api.deepseek.com/anthropic",
         Provider = "deepseek",
     },
     new HttpClient());

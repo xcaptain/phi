@@ -1,7 +1,4 @@
 using PhiAgent;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
-using TUnit.Core;
 
 namespace PhiProvider.Tests;
 
@@ -66,7 +63,7 @@ public class ProviderEventTests
     {
         var ev = new ProviderTextDeltaEvent("hello");
 
-        await Assert.That(ev.Kind).IsEqualTo("textDelta");
+        await Assert.That(ev.Kind).IsEqualTo("TextDelta");
         await Assert.That(ev.Delta).IsEqualTo("hello");
     }
 
@@ -75,7 +72,7 @@ public class ProviderEventTests
     {
         var ev = new ProviderErrorEvent("boom");
 
-        await Assert.That(ev.Kind).IsEqualTo("error");
+        await Assert.That(ev.Kind).IsEqualTo("Error");
         await Assert.That(ev.Data).IsNull();
     }
 }

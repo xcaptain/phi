@@ -69,6 +69,15 @@ public static class Loop
                     case ProviderTextDeltaEvent t:
                         yield return new AssistantTextDeltaEvent(t.Delta);
                         break;
+                    case ProviderThinkingStartEvent:
+                        yield return new AssistantThinkingStartEvent();
+                        break;
+                    case ProviderThinkingDeltaEvent t:
+                        yield return new AssistantThinkingDeltaEvent(t.Delta);
+                        break;
+                    case ProviderThinkingEndEvent end:
+                        yield return new AssistantThinkingEndEvent(end.Block);
+                        break;
                     case ProviderToolCallEvent tc:
                         yield return new AssistantToolCallEvent(tc.ToolCall);
                         break;

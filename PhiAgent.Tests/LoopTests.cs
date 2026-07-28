@@ -1,8 +1,4 @@
 using System.Text.Json.Nodes;
-using PhiAgent;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
-using TUnit.Core;
 
 namespace PhiAgent.Tests;
 
@@ -34,15 +30,15 @@ public class LoopTests
     [Test]
     public async Task RunTurnAsync_NoToolCalls_EmitsTextDeltasAndTurnEnd()
     {
-        var fake = new FakePhiProvider(new[]
-        {
+        var fake = new FakePhiProvider(
+        [
             new ProviderEvent[]
             {
                 new ProviderTextDeltaEvent("Hello"),
                 new ProviderTextDeltaEvent(" world"),
                 new ProviderResponseEndEvent(FinalMessage("Hello world"), StopReasons.Stop),
             },
-        });
+        ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
 
@@ -72,20 +68,18 @@ public class LoopTests
             Arguments = JsonNode.Parse("""{"command":"ls"}""")!.AsObject(),
         };
 
-        var fake = new FakePhiProvider(new[]
-        {
-            new ProviderEvent[]
-            {
+        var fake = new FakePhiProvider(
+        [
+            [
                 new ProviderTextDeltaEvent("Let me check"),
                 new ProviderToolCallEvent(toolCall),
                 new ProviderResponseEndEvent(ToolUseMessage(toolCall, "Let me check"), StopReasons.ToolUse),
-            },
-            new ProviderEvent[]
-            {
+            ],
+            [
                 new ProviderTextDeltaEvent("3 files"),
                 new ProviderResponseEndEvent(FinalMessage("3 files"), StopReasons.Stop),
-            },
-        });
+            ],
+        ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "list files" } };
 
@@ -103,7 +97,7 @@ public class LoopTests
             events.Add(ev);
         }
 
-        await Assert.That(executed).IsEquivalentTo(new[] { "ls" });
+        await Assert.That(executed).IsEquivalentTo(["ls"]);
 
         await Assert.That(events.OfType<AssistantToolCallEvent>().Count()).IsEqualTo(1);
         await Assert.That(events.OfType<ToolExecutionStartEvent>().Count()).IsEqualTo(1);
@@ -112,15 +106,15 @@ public class LoopTests
 
         // Event order check
         var kinds = events.Select(e => e.GetType().Name).ToList();
-        await Assert.That(kinds).IsEquivalentTo(new[]
-        {
+        await Assert.That(kinds).IsEquivalentTo(
+        [
             "AssistantTextDeltaEvent",
             "AssistantToolCallEvent",
             "ToolExecutionStartEvent",
             "ToolExecutionEndEvent",
             "AssistantTextDeltaEvent",
             "TurnEndEvent",
-        });
+        ]);
 
         // Messages: user + assistant(tool call) + tool_result + assistant(final) = 4
         await Assert.That(messages.Count).IsEqualTo(4);
@@ -131,13 +125,12 @@ public class LoopTests
     [Test]
     public async Task RunTurnAsync_NoFinalResponse_ThrowsWithProviderError()
     {
-        var fake = new FakePhiProvider(new[]
-        {
-            new ProviderEvent[]
-            {
+        var fake = new FakePhiProvider(
+        [
+            [
                 new ProviderErrorEvent("HTTP 401: invalid key"),
-            },
-        });
+            ],
+        ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "hi" } };
 
@@ -158,26 +151,25 @@ public class LoopTests
             Arguments = JsonNode.Parse("""{"command":"ls"}""")!.AsObject(),
         };
 
-        var fake = new FakePhiProvider(new[]
-        {
-            new ProviderEvent[]
-            {
+        var fake = new FakePhiProvider(
+        [
+            [
                 new ProviderToolCallEvent(toolCall),
                 new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
-            },
-            new ProviderEvent[]
-            {
+            ],
+            [
                 new ProviderResponseEndEvent(FinalMessage("done"), StopReasons.Stop),
-            },
-        });
+            ],
+        ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
 
-        ToolExecutor boom = (_, _, _, _) => throw new InvalidOperationException("kaboom");
+        static Task<ToolResult> Boom(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+            => throw new InvalidOperationException("kaboom");
 
         var events = new List<HarnessEvent>();
         await foreach (var ev in Loop.RunTurnAsync(
-            fake, "test", "", messages, [], boom))
+            fake, "test", "", messages, [], Boom))
         {
             events.Add(ev);
         }
@@ -199,26 +191,24 @@ public class LoopTests
             Arguments = JsonNode.Parse("""{}""")!.AsObject(),
         };
 
-        var fake = new FakePhiProvider(new[]
-        {
-            new ProviderEvent[]
-            {
+        var fake = new FakePhiProvider(
+        [
+            [
                 new ProviderToolCallEvent(toolCall),
                 new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
-            },
-            new ProviderEvent[]
-            {
+            ],
+            [
                 new ProviderResponseEndEvent(FinalMessage("ok"), StopReasons.Stop),
-            },
-        });
+            ],
+        ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
 
-        ToolExecutor missing = (_, _, _, _) =>
-            Task.FromResult(new ToolResult([new TextBlock("Unknown tool: mystery")], IsError: true));
+        static Task<ToolResult> Missing(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+            => Task.FromResult(new ToolResult([new TextBlock("Unknown tool: mystery")], IsError: true));
 
         await foreach (var _ in Loop.RunTurnAsync(
-            fake, "test", "", messages, [], missing)) { }
+            fake, "test", "", messages, [], Missing)) { }
 
         var result = (ToolResultMessage)messages[2];
         await Assert.That(result.IsError).IsTrue();
@@ -233,27 +223,25 @@ public class LoopTests
             Arguments = JsonNode.Parse("""{}""")!.AsObject(),
         };
 
-        var fake = new FakePhiProvider(new[]
-        {
-            new ProviderEvent[]
-            {
+        var fake = new FakePhiProvider(
+        [
+            [
                 new ProviderToolCallEvent(toolCall),
                 new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
-            },
-            new ProviderEvent[]
-            {
+            ],
+            [
                 new ProviderResponseEndEvent(FinalMessage("done"), StopReasons.Stop),
-            },
-        });
+            ],
+        ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
         var details = JsonNode.Parse("""{"path":"/tmp/x","lines":42}""")!;
 
-        ToolExecutor withDetails = (_, _, _, _) =>
-            Task.FromResult(new ToolResult([new TextBlock("ok")], Details: details));
+        Task<ToolResult> WithDetails(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+            => Task.FromResult(new ToolResult([new TextBlock("ok")], Details: details));
 
         await foreach (var _ in Loop.RunTurnAsync(
-            fake, "test", "", messages, [], withDetails)) { }
+            fake, "test", "", messages, [], WithDetails)) { }
 
         var result = (ToolResultMessage)messages[2];
         await Assert.That(result.Details).IsNotNull();
@@ -269,20 +257,21 @@ public class LoopTests
             Arguments = JsonNode.Parse("""{}""")!.AsObject(),
         };
 
-        var fake = new FakePhiProvider(Enumerable.Range(0, 5).Select(_ =>
-            (IEnumerable<ProviderEvent>)new ProviderEvent[]
-            {
+        var fake = new FakePhiProvider([.. Enumerable.Range(0, 5).Select(_ =>
+            (IEnumerable<ProviderEvent>)
+            [
                 new ProviderToolCallEvent(toolCall),
                 new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
-            }).ToArray());
+            ])]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
 
-        ToolExecutor loopForever = (_, _, _, _) => Task.FromResult(new ToolResult([new TextBlock("ok")]));
+        static Task<ToolResult> LoopForever(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+            => Task.FromResult(new ToolResult([new TextBlock("ok")]));
 
         var events = new List<HarnessEvent>();
         await foreach (var ev in Loop.RunTurnAsync(
-            fake, "test", "", messages, [], loopForever, maxTurns: 2))
+            fake, "test", "", messages, [], LoopForever, maxTurns: 2))
         {
             events.Add(ev);
         }
@@ -305,26 +294,87 @@ public class LoopTests
             Arguments = JsonNode.Parse("""{}""")!.AsObject(),
         };
 
-        var fake = new FakePhiProvider(new[]
-        {
-            new ProviderEvent[]
-            {
+        var fake = new FakePhiProvider(
+        [
+            [
                 new ProviderToolCallEvent(toolCall),
                 new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
-            },
-        });
+            ],
+        ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        ToolExecutor cancellable = (_, _, _, ct) =>
-            Task.FromCanceled<ToolResult>(ct);
+        static Task<ToolResult> Cancellable(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+            => Task.FromCanceled<ToolResult>(cancellationToken);
 
         await Assert.That(async () =>
         {
             await foreach (var _ in Loop.RunTurnAsync(
-                fake, "test", "", messages, [], cancellable, cancellationToken: cts.Token)) { }
+                fake, "test", "", messages, [], Cancellable, cancellationToken: cts.Token)) { }
         }).Throws<OperationCanceledException>();
+    }
+
+    [Test]
+    public async Task RunTurnAsync_ThinkingLifecycle_IsTranslatedToStartDeltaEndEvents()
+    {
+        var consolidated = new ThinkingBlock("reasoning about...so my answer is 42.")
+        {
+            ThinkingSignature = "sig-xyz",
+        };
+        var final = new AssistantMessage
+        {
+            Api = "test",
+            Provider = "fake",
+            Model = "test",
+            Content = [consolidated, new TextBlock("The answer is 42.")],
+            StopReason = StopReasons.Stop,
+        };
+
+        var fake = new FakePhiProvider(
+        [
+            [
+                new ProviderThinkingStartEvent(),
+                new ProviderThinkingDeltaEvent("reasoning about..."),
+                new ProviderThinkingDeltaEvent("so my answer is 42."),
+                new ProviderThinkingEndEvent(consolidated),
+                new ProviderTextDeltaEvent("The answer is 42."),
+                new ProviderResponseEndEvent(final, StopReasons.Stop),
+            ],
+        ]);
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
+
+        var events = new List<HarnessEvent>();
+        await foreach (var ev in Loop.RunTurnAsync(
+            fake, "test", "", messages, [], NeverCalledExecutor))
+        {
+            events.Add(ev);
+        }
+
+        // Start appears exactly once, before any delta.
+        var starts = events.OfType<AssistantThinkingStartEvent>().ToList();
+        await Assert.That(starts.Count).IsEqualTo(1);
+        var firstStartIdx = events.IndexOf(starts[0]);
+
+        var deltas = events.OfType<AssistantThinkingDeltaEvent>().ToList();
+        await Assert.That(deltas.Count).IsEqualTo(2);
+        await Assert.That(deltas[0].Delta).IsEqualTo("reasoning about...");
+        await Assert.That(deltas[1].Delta).IsEqualTo("so my answer is 42.");
+        await Assert.That(events.IndexOf(deltas[0])).IsGreaterThan(firstStartIdx);
+
+        // End carries the consolidated block with signature.
+        var ends = events.OfType<AssistantThinkingEndEvent>().ToList();
+        await Assert.That(ends.Count).IsEqualTo(1);
+        await Assert.That(ends[0].Block.Thinking)
+            .IsEqualTo("reasoning about...so my answer is 42.");
+        await Assert.That(ends[0].Block.ThinkingSignature).IsEqualTo("sig-xyz");
+        await Assert.That(events.IndexOf(ends[0])).IsGreaterThan(events.IndexOf(deltas[1]));
+
+        // Final message still carries the ThinkingBlock.
+        var turnEnd = events.OfType<TurnEndEvent>().Single();
+        await Assert.That(turnEnd.FinalMessage.Content.OfType<ThinkingBlock>().Single())
+            .IsEquivalentTo(consolidated);
     }
 }
