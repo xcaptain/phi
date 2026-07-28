@@ -49,7 +49,8 @@ var harness = new Harness(
         Use write for new files or full rewrites.
         Use bash for shell inspection and commands.
         Be concise.
-        """);
+        """,
+    maxTurns: 5);
 
 new PhiTuiApp(harness).Run();
 return 0;

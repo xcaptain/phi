@@ -203,3 +203,19 @@ public class EditToolTests
         await Assert.That(result.Text).Contains("File not found");
     }
 }
+
+public class TypedToolTests
+{
+    [Test]
+    public async Task ExecuteAsync_WrongArgumentType_ReturnsValidationError()
+    {
+        var tool = new ReadTool();
+        var args = JsonNode.Parse("""{"path":123}""")!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsTrue();
+        await Assert.That(result.Text).Contains("validation error");
+        await Assert.That(result.Text).Contains("$.path");
+    }
+}

@@ -16,19 +16,22 @@ public sealed class Harness
     private readonly Dictionary<string, IHarnessTool> _toolMap;
     private readonly string _model;
     private readonly string _system;
+    private readonly int? _maxTurns;
     private readonly List<IAgentMessage> _messages = new();
 
     public Harness(
         IPhiProvider provider,
         IReadOnlyList<IHarnessTool> tools,
         string model,
-        string system = "")
+        string system = "",
+        int? maxTurns = null)
     {
         _provider = provider;
         _slimTools = tools.Select(t => t.Tool).ToList();
         _toolMap = tools.ToDictionary(t => t.Tool.Name);
         _model = model;
         _system = system;
+        _maxTurns = maxTurns;
     }
 
     /// <summary>All messages accumulated across this session (user, assistant, tool results).</summary>
@@ -63,7 +66,7 @@ public sealed class Harness
 
             await foreach (var ev in Loop.RunTurnAsync(
                 _provider, _model, _system, _messages, _slimTools,
-                ExecuteToolByName, cancellationToken))
+                ExecuteToolByName, _maxTurns, cancellationToken))
             {
                 yield return ev;
             }

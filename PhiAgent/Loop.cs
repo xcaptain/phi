@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json.Nodes;
 
 namespace PhiAgent;
 
@@ -18,6 +19,11 @@ public static class Loop
     /// <see cref="ToolExecutionEndEvent"/>, and one terminating
     /// <see cref="TurnEndEvent"/>.
     /// </summary>
+    /// <param name="maxTurns">
+    /// Optional cap on the number of provider rounds inside one call.
+    /// When the cap is exceeded, the loop synthesizes an error assistant
+    /// message and stops. Mirrors tau's <c>max_turns</c> semantics.
+    /// </param>
     public static async IAsyncEnumerable<HarnessEvent> RunTurnAsync(
         IPhiProvider provider,
         string model,
@@ -25,13 +31,33 @@ public static class Loop
         IList<IAgentMessage> messages,
         IReadOnlyList<Tool> tools,
         ToolExecutor executeTool,
+        int? maxTurns = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         AssistantMessage? final = null;
         ProviderErrorEvent? lastError = null;
 
+        var turn = 0;
         while (true)
         {
+            turn++;
+
+            if (maxTurns is not null && turn > maxTurns)
+            {
+                var overrun = new AssistantMessage
+                {
+                    Api = provider.GetType().Name,
+                    Provider = "agent",
+                    Model = model,
+                    Content = [new TextBlock($"Agent stopped after max_turns={maxTurns}")],
+                    StopReason = StopReasons.Error,
+                };
+                messages.Add(overrun);
+                yield return new HarnessErrorEvent(overrun.Text);
+                yield return new TurnEndEvent(overrun);
+                yield break;
+            }
+
             final = null;
             lastError = null;
 
@@ -76,19 +102,44 @@ public static class Loop
             {
                 yield return new ToolExecutionStartEvent(call.Id, call.Name);
 
-                var result = await executeTool(call.Name, call.Id, call.Arguments, cancellationToken);
+                var result = await ExecuteToolSafelyAsync(
+                    executeTool, call.Name, call.Id, call.Arguments, cancellationToken);
 
                 var toolResultMessage = new ToolResultMessage
                 {
                     ToolCallId = call.Id,
                     ToolName = call.Name,
                     Content = result.Content,
+                    Details = result.Details,
                     IsError = result.IsError,
                 };
                 messages.Add(toolResultMessage);
 
                 yield return new ToolExecutionEndEvent(call, result);
             }
+        }
+    }
+
+    private static async Task<ToolResult> ExecuteToolSafelyAsync(
+        ToolExecutor executeTool,
+        string name,
+        string id,
+        JsonNode arguments,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await executeTool(name, id, arguments, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return new ToolResult(
+                [new TextBlock($"Tool '{name}' failed: {ex.Message}")],
+                IsError: true);
         }
     }
 }

@@ -11,6 +11,26 @@ public class LoopTests
     private static ToolExecutor NeverCalledExecutor =>
         (_, _, _, _) => throw new InvalidOperationException("Tool should not be called");
 
+    private static AssistantMessage FinalMessage(string text) =>
+        new()
+        {
+            Api = "test",
+            Provider = "fake",
+            Model = "test",
+            Content = [new TextBlock(text)],
+            StopReason = StopReasons.Stop,
+        };
+
+    private static AssistantMessage ToolUseMessage(ToolCall call, string prefix = "") =>
+        new()
+        {
+            Api = "test",
+            Provider = "fake",
+            Model = "test",
+            Content = [new TextBlock(prefix), call],
+            StopReason = StopReasons.ToolUse,
+        };
+
     [Test]
     public async Task RunTurnAsync_NoToolCalls_EmitsTextDeltasAndTurnEnd()
     {
@@ -20,14 +40,7 @@ public class LoopTests
             {
                 new ProviderTextDeltaEvent("Hello"),
                 new ProviderTextDeltaEvent(" world"),
-                new ProviderResponseEndEvent(
-                    new AssistantMessage
-                    {
-                        Api = "test", Provider = "fake", Model = "test",
-                        Content = [new TextBlock("Hello world")],
-                        StopReason = StopReasons.Stop,
-                    },
-                    StopReasons.Stop),
+                new ProviderResponseEndEvent(FinalMessage("Hello world"), StopReasons.Stop),
             },
         });
 
@@ -65,26 +78,12 @@ public class LoopTests
             {
                 new ProviderTextDeltaEvent("Let me check"),
                 new ProviderToolCallEvent(toolCall),
-                new ProviderResponseEndEvent(
-                    new AssistantMessage
-                    {
-                        Api = "test", Provider = "fake", Model = "test",
-                        Content = [new TextBlock("Let me check"), toolCall],
-                        StopReason = StopReasons.ToolUse,
-                    },
-                    StopReasons.ToolUse),
+                new ProviderResponseEndEvent(ToolUseMessage(toolCall, "Let me check"), StopReasons.ToolUse),
             },
             new ProviderEvent[]
             {
                 new ProviderTextDeltaEvent("3 files"),
-                new ProviderResponseEndEvent(
-                    new AssistantMessage
-                    {
-                        Api = "test", Provider = "fake", Model = "test",
-                        Content = [new TextBlock("3 files")],
-                        StopReason = StopReasons.Stop,
-                    },
-                    StopReasons.Stop),
+                new ProviderResponseEndEvent(FinalMessage("3 files"), StopReasons.Stop),
             },
         });
 
@@ -149,5 +148,183 @@ public class LoopTests
         }).Throws<InvalidOperationException>();
 
         await Assert.That(ex!.Message).Contains("HTTP 401");
+    }
+
+    [Test]
+    public async Task RunTurnAsync_ToolThrows_LoopCatchesAndSurfacesAsIsError()
+    {
+        var toolCall = new ToolCall("c1", "bash")
+        {
+            Arguments = JsonNode.Parse("""{"command":"ls"}""")!.AsObject(),
+        };
+
+        var fake = new FakePhiProvider(new[]
+        {
+            new ProviderEvent[]
+            {
+                new ProviderToolCallEvent(toolCall),
+                new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
+            },
+            new ProviderEvent[]
+            {
+                new ProviderResponseEndEvent(FinalMessage("done"), StopReasons.Stop),
+            },
+        });
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
+
+        ToolExecutor boom = (_, _, _, _) => throw new InvalidOperationException("kaboom");
+
+        var events = new List<HarnessEvent>();
+        await foreach (var ev in Loop.RunTurnAsync(
+            fake, "test", "", messages, [], boom))
+        {
+            events.Add(ev);
+        }
+
+        var result = (ToolResultMessage)messages[2];
+        await Assert.That(result.IsError).IsTrue();
+        await Assert.That(result.Text).Contains("kaboom");
+
+        await Assert.That(messages.Count).IsEqualTo(4);
+        await Assert.That(messages.Last()).IsTypeOf<AssistantMessage>();
+        await Assert.That(((TurnEndEvent)events.Last()).FinalMessage.Text).IsEqualTo("done");
+    }
+
+    [Test]
+    public async Task RunTurnAsync_UnknownTool_ReturnsErrorResultWithoutThrowing()
+    {
+        var toolCall = new ToolCall("c1", "mystery")
+        {
+            Arguments = JsonNode.Parse("""{}""")!.AsObject(),
+        };
+
+        var fake = new FakePhiProvider(new[]
+        {
+            new ProviderEvent[]
+            {
+                new ProviderToolCallEvent(toolCall),
+                new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
+            },
+            new ProviderEvent[]
+            {
+                new ProviderResponseEndEvent(FinalMessage("ok"), StopReasons.Stop),
+            },
+        });
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
+
+        ToolExecutor missing = (_, _, _, _) =>
+            Task.FromResult(new ToolResult([new TextBlock("Unknown tool: mystery")], IsError: true));
+
+        await foreach (var _ in Loop.RunTurnAsync(
+            fake, "test", "", messages, [], missing)) { }
+
+        var result = (ToolResultMessage)messages[2];
+        await Assert.That(result.IsError).IsTrue();
+        await Assert.That(result.Text).IsEqualTo("Unknown tool: mystery");
+    }
+
+    [Test]
+    public async Task RunTurnAsync_PreservesToolResultDetails()
+    {
+        var toolCall = new ToolCall("c1", "bash")
+        {
+            Arguments = JsonNode.Parse("""{}""")!.AsObject(),
+        };
+
+        var fake = new FakePhiProvider(new[]
+        {
+            new ProviderEvent[]
+            {
+                new ProviderToolCallEvent(toolCall),
+                new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
+            },
+            new ProviderEvent[]
+            {
+                new ProviderResponseEndEvent(FinalMessage("done"), StopReasons.Stop),
+            },
+        });
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
+        var details = JsonNode.Parse("""{"path":"/tmp/x","lines":42}""")!;
+
+        ToolExecutor withDetails = (_, _, _, _) =>
+            Task.FromResult(new ToolResult([new TextBlock("ok")], Details: details));
+
+        await foreach (var _ in Loop.RunTurnAsync(
+            fake, "test", "", messages, [], withDetails)) { }
+
+        var result = (ToolResultMessage)messages[2];
+        await Assert.That(result.Details).IsNotNull();
+        await Assert.That(result.Details!["path"]!.GetValue<string>()).IsEqualTo("/tmp/x");
+        await Assert.That(result.Details!["lines"]!.GetValue<int>()).IsEqualTo(42);
+    }
+
+    [Test]
+    public async Task RunTurnAsync_MaxTurnsExceeded_StopsWithErrorMessage()
+    {
+        var toolCall = new ToolCall("c1", "bash")
+        {
+            Arguments = JsonNode.Parse("""{}""")!.AsObject(),
+        };
+
+        var fake = new FakePhiProvider(Enumerable.Range(0, 5).Select(_ =>
+            (IEnumerable<ProviderEvent>)new ProviderEvent[]
+            {
+                new ProviderToolCallEvent(toolCall),
+                new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
+            }).ToArray());
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
+
+        ToolExecutor loopForever = (_, _, _, _) => Task.FromResult(new ToolResult([new TextBlock("ok")]));
+
+        var events = new List<HarnessEvent>();
+        await foreach (var ev in Loop.RunTurnAsync(
+            fake, "test", "", messages, [], loopForever, maxTurns: 2))
+        {
+            events.Add(ev);
+        }
+
+        await Assert.That(events.OfType<TurnEndEvent>().Count()).IsEqualTo(1);
+        var final = ((TurnEndEvent)events.Last()).FinalMessage;
+        await Assert.That(final.StopReason).IsEqualTo(StopReasons.Error);
+        await Assert.That(final.Text).Contains("max_turns=2");
+
+        // messages: user + assistant(tool call) + tool_result + assistant(tool call) + tool_result + assistant(error)
+        await Assert.That(messages.Count).IsEqualTo(6);
+        await Assert.That(messages.Last()).IsTypeOf<AssistantMessage>();
+    }
+
+    [Test]
+    public async Task RunTurnAsync_Cancellation_Propagates()
+    {
+        var toolCall = new ToolCall("c1", "bash")
+        {
+            Arguments = JsonNode.Parse("""{}""")!.AsObject(),
+        };
+
+        var fake = new FakePhiProvider(new[]
+        {
+            new ProviderEvent[]
+            {
+                new ProviderToolCallEvent(toolCall),
+                new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
+            },
+        });
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        ToolExecutor cancellable = (_, _, _, ct) =>
+            Task.FromCanceled<ToolResult>(ct);
+
+        await Assert.That(async () =>
+        {
+            await foreach (var _ in Loop.RunTurnAsync(
+                fake, "test", "", messages, [], cancellable, cancellationToken: cts.Token)) { }
+        }).Throws<OperationCanceledException>();
     }
 }
