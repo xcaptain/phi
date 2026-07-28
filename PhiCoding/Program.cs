@@ -3,6 +3,7 @@ using PhiCoding;
 using PhiCoding.Tui;
 using PhiProvider;
 
+// TODO: 应该使用一个更通用的办法来加载模型，也许是一个 yaml 文件
 // Load .env from cwd (dotnet does not auto-load .env files)
 if (File.Exists(".env"))
 {
@@ -35,13 +36,7 @@ var provider = new OpenAICompatibleProvider(
     },
     new HttpClient());
 
-var tools = new IHarnessTool[]
-{
-    new BashTool(),
-    new ReadTool(),
-    new WriteTool(),
-    new EditTool(),
-};
+var tools = BuiltInTools.CreateDefault();
 
 var harness = new Harness(
     provider,

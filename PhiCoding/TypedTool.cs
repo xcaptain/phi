@@ -18,19 +18,8 @@ public abstract class TypedTool<TArgs> : IHarnessTool
 {
     public abstract string Name { get; }
     public abstract string Description { get; }
-    public virtual string? PromptSnippet => null;
-    public virtual IReadOnlyList<string>? PromptGuidelines => null;
 
-    public ToolDefinition Definition => new(
-        Name: Name,
-        Description: Description,
-        Parameters: TypedSchema.For<TArgs>(),
-        PromptSnippet: PromptSnippet,
-        PromptGuidelines: PromptGuidelines);
-
-    public Tool ToTool() => Definition.ToTool();
-
-    Tool IHarnessTool.Tool => Definition.ToTool();
+    public Tool Tool => new(Name, Description, TypedSchema.For<TArgs>());
 
     async Task<ToolResult> IHarnessTool.ExecuteAsync(string toolName, string toolCallId, JsonNode arguments, CancellationToken ct)
         => await ExecuteAsync(toolCallId, arguments, ct);

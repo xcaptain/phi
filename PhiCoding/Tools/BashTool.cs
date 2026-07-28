@@ -1,0 +1,43 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using PhiAgent;
+
+namespace PhiCoding.Tools;
+
+public sealed record BashArgs
+{
+    [Description("Shell command to execute")]
+    public required string Command { get; init; }
+}
+
+public sealed class BashTool : TypedTool<BashArgs>
+{
+    public override string Name => "bash";
+    public override string Description => "Run a shell command and return stdout/stderr/exit code.";
+
+    public override async Task<ToolResult> ExecuteTypedAsync(BashArgs args, CancellationToken cancellationToken)
+    {
+        var psi = new ProcessStartInfo("/bin/bash", ["-c", args.Command])
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+
+        using var process = Process.Start(psi)!;
+        await process.WaitForExitAsync(cancellationToken);
+
+        var stdout = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+        var stderr = await process.StandardError.ReadToEndAsync(cancellationToken);
+
+        var content = new List<ContentBlock>();
+        if (!string.IsNullOrEmpty(stdout))
+            content.Add(new TextBlock(stdout));
+        if (!string.IsNullOrEmpty(stderr))
+            content.Add(new TextBlock("[stderr] " + stderr));
+        if (content.Count == 0)
+            content.Add(new TextBlock($"<no output, exit={process.ExitCode}>"));
+
+        return new ToolResult(content, IsError: process.ExitCode != 0);
+    }
+}
