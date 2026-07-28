@@ -200,7 +200,9 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
                 {
                     ["name"] = t.Name,
                     ["description"] = t.Description,
-                    ["parameters"] = t.Parameters,
+                    // DeepClone: Tool instances are reused across requests;
+                    // a JsonNode can only have one parent.
+                    ["parameters"] = t.Parameters.DeepClone(),
                 },
             }).ToArray());
         }

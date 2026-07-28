@@ -38,10 +38,12 @@ var provider = new OpenAICompatibleProvider(
 
 var tools = BuiltInTools.CreateDefault();
 
+const string model = "deepseek-v4-flash";
+
 var harness = new Harness(
     provider,
     tools,
-    model: "deepseek-v4-flash",
+    model: model,
     system: """
         You have four tools: bash, read, write, edit.
         Use read to inspect files before editing them.
@@ -52,5 +54,5 @@ var harness = new Harness(
         """,
     maxTurns: 5);
 
-new PhiTuiApp(harness).Run();
+new PhiTuiApp(harness, model).Run();
 return 0;

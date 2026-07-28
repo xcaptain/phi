@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="DiffPlex" />
-    <PackageReference Include="XenoAtom.Terminal.UI" />
+    <PackageReference Include="Terminal.Gui" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,4 +1,3 @@
-using System.Text;
 using System.Text.Json.Nodes;
 using PhiAgent;
 using PhiCoding.Tools.Details;
@@ -6,78 +5,82 @@ using PhiCoding.Tools.Details;
 namespace PhiCoding.Tui;
 
 /// <summary>
-/// Renders one tool call's invocation line and result body for the TUI
-/// transcript. Per-tool dispatch — reads the typed <c>Details</c> payload
-/// emitted by each <see cref="PhiCoding.Tools.TypedTool{TArgs}"/> and
-/// shapes the output accordingly (e.g. unified diff for edit).
+/// Renders one tool call's invocation line and result body as styled
+/// transcript lines. Per-tool dispatch — reads the typed <c>Details</c>
+/// payload emitted by each <see cref="PhiCoding.Tools.TypedTool{TArgs}"/>
+/// (e.g. unified diff for edit, rendered with per-line diff styles).
 /// </summary>
 internal static class ToolBlockRenderer
 {
-    private const int ResultTruncateLength = 500;
+    private const int PreviewMaxLines = 8;
+    private const int PreviewMaxChars = 2000;
 
-    public static string RenderInvocation(string name, ToolCall call)
+    public static List<TranscriptLine> RenderInvocationLines(ToolCall call)
     {
         var args = call.Arguments;
-        return name switch
+        var text = call.Name switch
         {
             "read" => $"→ read {GetString(args, "path")}",
             "write" => $"→ write {GetString(args, "path")}",
             "edit" => $"→ edit {GetString(args, "path")}",
             "bash" => $"$ {GetString(args, "command")}",
-            _ => $"→ {name}",
+            _ => $"→ {call.Name}",
         };
+        return [new TranscriptLine(text, TranscriptStyle.ToolCall)];
     }
 
-    public static string RenderResult(string name, ToolResult result)
+    public static List<TranscriptLine> RenderResultLines(string name, ToolResult result)
     {
-        var body = name switch
-        {
-            "read" => RenderRead(result),
-            "write" => RenderWrite(result),
-            "edit" => RenderEdit(result),
-            "bash" => RenderBash(result),
-            _ => $"    {Truncate(result.Text, ResultTruncateLength)}",
-        };
-
+        var style = result.IsError ? TranscriptStyle.ToolError : TranscriptStyle.ToolOk;
         var status = result.IsError ? "✗" : "✓";
-        var firstLineEnd = body.IndexOf('\n');
-        var first = firstLineEnd < 0 ? body : body[..firstLineEnd];
-        var rest = firstLineEnd < 0 ? "" : body[firstLineEnd..];
-        return $"  {status} {first}{rest}";
+        var summary = Summarize(name, result);
+        var lines = new List<TranscriptLine> { new($"  {status} {summary}", style) };
+
+        if (!result.IsError && name == "edit" && ToolDetails.Read<EditDetails>(result.Details) is { } edit)
+        {
+            foreach (var line in DiffFormatter.Parse(edit.Patch))
+                lines.Add(new TranscriptLine($"    {line.Text}", DiffStyle(line.Kind)));
+            return lines;
+        }
+
+        lines.AddRange(PreviewLines(result.Text, result.IsError));
+        return lines;
     }
 
-    private static string RenderRead(ToolResult r)
+    private static string Summarize(string name, ToolResult result) => name switch
     {
-        if (ToolDetails.Read<ReadDetails>(r.Details) is { } d)
-            return $"read — {d.LineCount} lines · {FormatBytes(d.ByteCount)}\n    {Truncate(r.Text, ResultTruncateLength)}";
-        return $"    {Truncate(r.Text, ResultTruncateLength)}";
-    }
+        "read" when ToolDetails.Read<ReadDetails>(result.Details) is { } d
+            => $"read — {d.LineCount} lines · {FormatBytes(d.ByteCount)}",
+        "write" when ToolDetails.Read<WriteDetails>(result.Details) is { } d
+            => $"write — {d.BytesWritten} bytes ({d.Mode})",
+        "edit" when ToolDetails.Read<EditDetails>(result.Details) is { } d
+            => $"edit {d.Path}",
+        "bash" when ToolDetails.Read<BashDetails>(result.Details) is { } d
+            => $"bash — exit={d.ExitCode} in {d.DurationMs}ms",
+        _ => name,
+    };
 
-    private static string RenderWrite(ToolResult r)
+    private static IEnumerable<TranscriptLine> PreviewLines(string text, bool isError)
     {
-        if (ToolDetails.Read<WriteDetails>(r.Details) is { } d)
-            return $"write — {d.BytesWritten} bytes ({d.Mode})";
-        return $"    {Truncate(r.Text, ResultTruncateLength)}";
+        var style = isError ? TranscriptStyle.ToolError : TranscriptStyle.ToolOutput;
+        var truncated = text.Length > PreviewMaxChars ? text[..PreviewMaxChars] : text;
+        var all = truncated.Replace("\r\n", "\n").Split('\n');
+        var shown = all.Length > PreviewMaxLines ? all[..PreviewMaxLines] : all;
+        foreach (var line in shown)
+            yield return new TranscriptLine($"    {line}", style);
+        var hidden = all.Length - shown.Length;
+        if (hidden > 0 || truncated.Length < text.Length)
+            yield return new TranscriptLine(
+                $"    … ({(hidden > 0 ? $"{hidden} more lines" : "output")} hidden)", TranscriptStyle.DiffMeta);
     }
 
-    private static string RenderEdit(ToolResult r)
+    private static TranscriptStyle DiffStyle(DiffLineKind kind) => kind switch
     {
-        if (ToolDetails.Read<EditDetails>(r.Details) is not { } d)
-            return $"    {Truncate(r.Text, ResultTruncateLength)}";
-
-        var sb = new StringBuilder();
-        sb.AppendLine($"edit {d.Path}");
-        foreach (var line in DiffFormatter.Parse(d.Patch))
-            sb.AppendLine($"    {line.Text}");
-        return sb.ToString().TrimEnd('\n', '\r');
-    }
-
-    private static string RenderBash(ToolResult r)
-    {
-        if (ToolDetails.Read<BashDetails>(r.Details) is { } d)
-            return $"bash — exit={d.ExitCode} in {d.DurationMs}ms\n    {Truncate(r.Text, ResultTruncateLength)}";
-        return $"    {Truncate(r.Text, ResultTruncateLength)}";
-    }
+        DiffLineKind.Added => TranscriptStyle.DiffAdded,
+        DiffLineKind.Removed => TranscriptStyle.DiffRemoved,
+        DiffLineKind.Context => TranscriptStyle.Default,
+        _ => TranscriptStyle.DiffMeta,
+    };
 
     private static string GetString(JsonNode? args, string key)
     {
@@ -95,7 +98,4 @@ internal static class ToolBlockRenderer
         < 1024 * 1024 => $"{n / 1024.0:F1}KB",
         _ => $"{n / 1024.0 / 1024.0:F1}MB",
     };
-
-    private static string Truncate(string s, int max) =>
-        s.Length <= max ? s : s[..max] + "...";
 }

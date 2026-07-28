@@ -113,6 +113,38 @@ public class OpenAICompatibleProviderTests
         await Assert.That(end.FinishReason).IsEqualTo(StopReasons.Stop);
     }
 
+    [Test]
+    public async Task StreamResponseAsync_CalledTwiceWithSameTools_DoesNotThrowNodeHasParent()
+    {
+        var sse = "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+        var handler = new InlineSseHandler(sse);
+        var provider = new OpenAICompatibleProvider(
+            new OpenAICompatibleConfig
+            {
+                ApiKey = "test-key",
+                BaseUrl = "https://api.deepseek.com/v1",
+                Provider = "deepseek",
+            },
+            new HttpClient(handler));
+
+        var tools = new List<Tool>
+        {
+            new("bash", "run a command", new System.Text.Json.Nodes.JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new System.Text.Json.Nodes.JsonObject(),
+            }),
+        };
+
+        var first = await CollectEvents(provider.StreamResponseAsync(
+            "m", "", [new UserMessage { Content = "hi" }], tools));
+        var second = await CollectEvents(provider.StreamResponseAsync(
+            "m", "", [new UserMessage { Content = "again" }], tools));
+
+        await Assert.That(first.OfType<ProviderResponseEndEvent>().Count()).IsEqualTo(1);
+        await Assert.That(second.OfType<ProviderResponseEndEvent>().Count()).IsEqualTo(1);
+    }
+
     private static async Task<List<ProviderEvent>> CollectEvents(
         IAsyncEnumerable<ProviderEvent> source)
     {

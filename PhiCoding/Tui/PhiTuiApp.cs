@@ -1,132 +1,98 @@
-using System.Collections.Concurrent;
-using XenoAtom.Terminal;
-using XenoAtom.Terminal.UI;
-using XenoAtom.Terminal.UI.Controls;
 using PhiAgent;
-using UITextBlock = XenoAtom.Terminal.UI.Controls.TextBlock;
+using Terminal.Gui.App;
+using Terminal.Gui.ViewBase;
+using Terminal.Gui.Views;
 
 namespace PhiCoding.Tui;
 
 /// <summary>
-/// Phi TUI: single-session, multi-turn terminal interface for the Phi harness.
-/// Layout:
+/// Phi TUI: single-session, turn-based, full-screen terminal interface for
+/// the Phi harness, built on Terminal.Gui v2. Layout:
 ///
-///   ┌─ status bar ─────────────────┐
-///   ├─ history (fills) ────────────┤
-///   ├─ input prompt ───────────────┘
+///   ┌─ status line (spinner · turn · model · cwd · tokens) ─┐
+///   ├─ transcript (scrollable, colored, follows output)     ┤
+///   ├─ prompt (multi-line; Enter submits, Shift+Enter NL)   ┤
+///   └─ key hints ───────────────────────────────────────────┘
 ///
-/// Streaming events from the agent task are pushed into <see cref="_pendingEvents"/>
-/// and drained on each UI tick; user input is pushed into <see cref="_pendingSteering"/>
-/// when the agent is busy (tau-style steering) or starts a new turn when idle.
+/// The agent runs on a background task; each <see cref="HarnessEvent"/> is
+/// marshaled to the UI thread via <c>IApplication.Invoke</c> and projected
+/// into <see cref="TuiState"/> by <see cref="TuiEventAdapter"/>. While the
+/// agent runs the prompt is read-only (turn-based input model).
 /// </summary>
 public sealed class PhiTuiApp
 {
     private readonly Harness _harness;
+    private readonly string _model;
+    private readonly TuiState _state = new();
 
-    private readonly State<string> _history = new("");
-    private readonly State<string> _status = new("ready");
-    private readonly State<bool> _exit = new(false);
-
-    private readonly ConcurrentQueue<HarnessEvent> _pendingEvents = new();
-    private readonly ConcurrentQueue<UserMessage> _pendingSteering = new();
-
-    private Task? _runTask;
-
-    public PhiTuiApp(Harness harness)
+    public PhiTuiApp(Harness harness, string model)
     {
         _harness = harness;
+        _model = model;
     }
 
     public void Run()
     {
-        var input = new State<string>("");
+        using IApplication app = Application.Create();
+        app.Init();
 
-        var historyBlock = new UITextBlock(() => _history.Value)
+        using var window = new Window { Title = "phi (Esc to quit)" };
+
+        var status = new StatusLineView(_state, _model)
         {
-            Wrap = true,
+            X = 0, Y = 0, Width = Dim.Fill(), Height = 1,
+        };
+        var transcript = new TranscriptView(_state)
+        {
+            X = 0, Y = 1, Width = Dim.Fill(), Height = Dim.Fill(5),
+        };
+        var prompt = new PromptInput
+        {
+            X = 0, Y = Pos.AnchorEnd(5), Width = Dim.Fill(), Height = 4,
+        };
+        var hint = new Label
+        {
+            X = 0, Y = Pos.AnchorEnd(1), Width = Dim.Fill(), Height = 1,
+            Text = "Enter submit · Shift+Enter newline · Tab switch focus · PgUp/PgDn scroll",
         };
 
-        var statusBlock = new UITextBlock(() => $"[{_status.Value}]");
+        window.Add(status, transcript, prompt, hint);
 
-        var inputEditor = new PromptEditor(input);
-        inputEditor.AcceptedRouted += (_, args) => OnSubmitted(args.Text, input);
-
-        var exitButton = new Button("Exit").Click(() => _exit.Value = true);
-
-        var statusBar = new HStack(statusBlock, exitButton);
-
-        var layout = new DockLayout(
-            top: statusBar,
-            content: historyBlock,
-            bottom: inputEditor);
-
-        Terminal.Run(
-            layout,
-            onUpdate: () =>
-            {
-                DrainEvents();
-                CheckRunCompletion();
-                return _exit.Value
-                    ? TerminalLoopResult.StopAndKeepVisual
-                    : TerminalLoopResult.Continue;
-            });
-    }
-
-    private void OnSubmitted(string text, State<string> inputState)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return;
-
-        _history.Value += $"\n> {text}\n";
-
-        if (_runTask is not null)
+        prompt.Submitted += text => OnSubmitted(app, prompt, text);
+        _state.Changed += () =>
         {
-            _pendingSteering.Enqueue(new UserMessage { Content = text });
-            _history.Value += "[queued — will steer next turn]\n";
-        }
-        else
-        {
-            _status.Value = "running";
-            _runTask = Task.Run(() => RunAgentAsync(text));
-        }
-        inputState.Value = "";
-    }
-
-    private void DrainEvents()
-    {
-        while (_pendingEvents.TryDequeue(out var ev))
-        {
-            _history.Value += EventFormatter.Format(ev);
-        }
-    }
-
-    private void CheckRunCompletion()
-    {
-        if (_runTask is { IsCompleted: true })
-        {
-            _runTask = null;
-            _status.Value = "ready";
-        }
-    }
-
-    private async Task RunAgentAsync(string prompt)
-    {
-        Func<IReadOnlyList<IAgentMessage>> getSteering = () =>
-        {
-            var list = new List<IAgentMessage>();
-            while (_pendingSteering.TryDequeue(out var msg)) list.Add(msg);
-            return list;
+            var running = _state.IsRunning;
+            if (prompt.ReadOnly != running) prompt.ReadOnly = running;
+            if (!running) prompt.SetFocus();
         };
 
+        app.AddTimeout(TimeSpan.FromMilliseconds(120), () =>
+        {
+            status.Tick();
+            return true;
+        });
+
+        prompt.SetFocus();
+        app.Run(window);
+    }
+
+    private void OnSubmitted(IApplication app, PromptInput prompt, string text)
+    {
+        if (_state.IsRunning) return;
+        _state.AddUserMessage(text);
+        _ = Task.Run(() => RunAgentAsync(app, text));
+    }
+
+    private async Task RunAgentAsync(IApplication app, string prompt)
+    {
         try
         {
-            await foreach (var ev in _harness.RunAsync(prompt, getSteeringMessages: getSteering))
-            {
-                _pendingEvents.Enqueue(ev);
-            }
+            await foreach (var ev in _harness.RunAsync(prompt))
+                app.Invoke(() => TuiEventAdapter.Apply(_state, ev));
         }
         catch (Exception ex)
         {
-            _pendingEvents.Enqueue(new HarnessErrorEvent(ex.Message));
+            app.Invoke(() => _state.AddError(ex.Message));
         }
     }
 }
