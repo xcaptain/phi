@@ -9,8 +9,8 @@
 
   <ItemGroup>
     <PackageReference Include="DiffPlex" />
-    <PackageReference Include="Terminal.Gui" />
-    <PackageReference Include="Terminal.Gui.Editor" />
+    <PackageReference Include="XenoAtom.Terminal.UI" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
   </ItemGroup>
 
   <ItemGroup>
