@@ -4,42 +4,84 @@ using System.Text.Json.Nodes;
 namespace PhiAgent;
 
 /// <summary>
-/// Inner loop logic: one turn's worth of model ↔ tool interactions.
-/// Pure function — no session state, no outer-loop concerns. Appends the
-/// assistant turn and any tool results to a fresh copy of the input
-/// messages list (the caller observes the appended messages via
-/// <c>Harness.Messages</c>). Mirrors tau's <c>run_agent_loop()</c>.
+/// The agent loop: drives the multi-turn model ↔ tool ↔ tool-result cycle
+/// for one session, draining steering/follow-up queues at turn boundaries
+/// so queued user prompts land as soon as the current direction finishes.
+/// Mirrors tau's <c>run_agent_loop()</c> in <c>tau_agent.loop</c> — including
+/// the steering-first / follow-up-second injection order, the
+/// tool-call-driven turn continuation, and the <c>max_turns</c> safety cap.
+/// <para>
+/// <b>Note on naming</b>: this method is named <see cref="RunAgentAsync"/>
+/// (not <c>RunTurnAsync</c>) because the loop drives <i>multiple</i> turns
+/// per call — each iteration is one model round-trip plus any tool
+/// executions. The loop terminates when the model emits a message with no
+/// tool calls, when <paramref name="maxTurns"/> is exceeded, or when
+/// <paramref name="cancellationToken"/> fires. <see cref="Harness"/>
+/// delegates here and only adds session-level concerns (initial prompt,
+/// cancel handling, interrupted-tool placeholders).
+/// </para>
 /// </summary>
 public static class Loop
 {
     /// <summary>
-    /// Runs the inner loop until the model produces a final message with no
-    /// tool calls. Yields <see cref="AssistantTextDeltaEvent"/>,
-    /// <see cref="AssistantToolCallEvent"/>, <see cref="ToolExecutionStartEvent"/>,
-    /// <see cref="ToolExecutionEndEvent"/>, and one terminating
-    /// <see cref="TurnEndEvent"/>.
+    /// Runs the agent loop until the model stops emitting tool calls,
+    /// <paramref name="maxTurns"/> is exceeded, or the cancellation token
+    /// fires. Yields <see cref="AssistantTextDeltaEvent"/>,
+    /// <see cref="AssistantThinkingStartEvent"/> /
+    /// <see cref="AssistantThinkingDeltaEvent"/> /
+    /// <see cref="AssistantThinkingEndEvent"/>,
+    /// <see cref="AssistantToolCallEvent"/>,
+    /// <see cref="ToolExecutionStartEvent"/>,
+    /// <see cref="ToolExecutionEndEvent"/>,
+    /// <see cref="HarnessErrorEvent"/> (on <c>max_turns</c>),
+    /// and one terminating <see cref="TurnEndEvent"/> per successful turn.
     /// </summary>
+    /// <param name="getSteeringMessages">
+    /// Called at the <b>start of every iteration</b> to drain queued
+    /// "redirect" messages. If it returns a non-empty list, the messages
+    /// are appended to <paramref name="messages"/> and the next turn starts
+    /// immediately without yielding a <see cref="TurnStartEvent"/> for the
+    /// empty iteration. Steering does <i>not</i> consume a turn slot.
+    /// </param>
+    /// <param name="getFollowUpMessages">
+    /// Called when a turn ends naturally (model produced no tool calls) to
+    /// drain queued "additional task" messages. Non-empty results append
+    /// to <paramref name="messages"/> and start a new turn.
+    /// </param>
     /// <param name="maxTurns">
     /// Optional cap on the number of provider rounds inside one call.
-    /// When the cap is exceeded, the loop synthesizes an error assistant
-    /// message and stops. Mirrors tau's <c>max_turns</c> semantics.
+    /// Steering iterations don't count toward this cap; only actual turns
+    /// do. When exceeded, the loop synthesizes an error assistant message
+    /// and stops.
     /// </param>
-    public static async IAsyncEnumerable<HarnessEvent> RunTurnAsync(
+    public static async IAsyncEnumerable<HarnessEvent> RunAgentAsync(
         IPhiProvider provider,
         string model,
         string system,
         IList<IAgentMessage> messages,
         IReadOnlyList<Tool> tools,
         ToolExecutor executeTool,
+        Func<IReadOnlyList<IAgentMessage>>? getSteeringMessages = null,
+        Func<IReadOnlyList<IAgentMessage>>? getFollowUpMessages = null,
         int? maxTurns = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        AssistantMessage? final = null;
-        ProviderErrorEvent? lastError = null;
-
         var turn = 0;
         while (true)
         {
+            // Steering is checked first, before incrementing the turn counter
+            // and before yielding TurnStartEvent — a pure redirect doesn't
+            // "start" a new turn from the caller's perspective.
+            if (getSteeringMessages is { } getSteering)
+            {
+                var steering = getSteering();
+                if (steering.Count > 0)
+                {
+                    foreach (var m in steering) messages.Add(m);
+                    continue;
+                }
+            }
+
             turn++;
 
             if (maxTurns is not null && turn > maxTurns)
@@ -58,8 +100,10 @@ public static class Loop
                 yield break;
             }
 
-            final = null;
-            lastError = null;
+            yield return new TurnStartEvent(turn);
+
+            AssistantMessage? final = null;
+            ProviderErrorEvent? lastError = null;
 
             await foreach (var ev in provider.StreamResponseAsync(
                 model, system, messages, tools, cancellationToken))
@@ -104,6 +148,32 @@ public static class Loop
             if (final.ToolCalls.Count == 0)
             {
                 yield return new TurnEndEvent(final);
+
+                // Turn ended naturally — drain the queues one last time.
+                // Follow-up is checked first (it's the natural "more work"
+                // channel after a turn ends). If empty, steering gets one
+                // final check too, so a message enqueued after the turn
+                // ended is still picked up before we give up.
+                if (getFollowUpMessages is { } getFollowUp)
+                {
+                    var followUp = getFollowUp();
+                    if (followUp.Count > 0)
+                    {
+                        foreach (var m in followUp) messages.Add(m);
+                        continue;
+                    }
+                }
+
+                if (getSteeringMessages is { } getSteeringFinal)
+                {
+                    var steeringFinal = getSteeringFinal();
+                    if (steeringFinal.Count > 0)
+                    {
+                        foreach (var m in steeringFinal) messages.Add(m);
+                        continue;
+                    }
+                }
+
                 yield break;
             }
 

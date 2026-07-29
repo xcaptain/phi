@@ -12,6 +12,7 @@ public sealed class PhiStatusBar
 {
     private readonly State<int> _turn = new(0);
     private readonly State<string> _tokens = new("");
+    private readonly State<int> _queuedCount = new(0);
 
     public PhiStatusBar(string model)
     {
@@ -19,7 +20,16 @@ public sealed class PhiStatusBar
 
         var left = new HStack(
                 new Spinner().IsActive(Running),
-                new Markup(() => Running.Value ? $"running · turn {_turn.Value}" : "ready"))
+                new Markup(() =>
+                {
+                    if (!Running.Value && _queuedCount.Value == 0)
+                        return "ready";
+                    if (Running.Value && _queuedCount.Value > 0)
+                        return $"running · turn {_turn.Value} · +{_queuedCount.Value} queued";
+                    if (_queuedCount.Value > 0)
+                        return $"ready · +{_queuedCount.Value} queued";
+                    return $"running · turn {_turn.Value}";
+                }))
             .Spacing(1);
 
         var right = new Markup(() =>
@@ -31,6 +41,13 @@ public sealed class PhiStatusBar
     public Visual Visual { get; }
 
     public State<bool> Running { get; }
+
+    /// <summary>
+    /// Bind to a <see cref="MessageQueue"/> (or a combined steering+follow-up
+    /// counter) so the bar shows how many user-submitted messages are waiting
+    /// to be drained.
+    /// </summary>
+    public State<int> QueuedCount => _queuedCount;
 
     public void Apply(HarnessEvent ev)
     {

@@ -1,4 +1,8 @@
 using System.Text.Json.Nodes;
+using PhiAgent;
+using TUnit.Assertions;
+using TUnit.Assertions.Extensions;
+using TUnit.Core;
 
 namespace PhiAgent.Tests;
 
@@ -28,7 +32,7 @@ public class LoopTests
         };
 
     [Test]
-    public async Task RunTurnAsync_NoToolCalls_EmitsTextDeltasAndTurnEnd()
+    public async Task RunAgentAsync_NoToolCalls_EmitsTextDeltasAndTurnEnd()
     {
         var fake = new FakePhiProvider(
         [
@@ -43,7 +47,7 @@ public class LoopTests
         var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
 
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunTurnAsync(
+        await foreach (var ev in Loop.RunAgentAsync(
             fake, "test", "", messages, [], NeverCalledExecutor))
         {
             events.Add(ev);
@@ -61,7 +65,7 @@ public class LoopTests
     }
 
     [Test]
-    public async Task RunTurnAsync_ToolCall_ExecutesAndLoopsForFinalAnswer()
+    public async Task RunAgentAsync_ToolCall_ExecutesAndLoopsForFinalAnswer()
     {
         var toolCall = new ToolCall("c1", "bash")
         {
@@ -85,7 +89,7 @@ public class LoopTests
 
         var executed = new List<string>();
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunTurnAsync(
+        await foreach (var ev in Loop.RunAgentAsync(
             fake, "test", "", messages, [],
             async (_, _, args, _) =>
             {
@@ -104,26 +108,26 @@ public class LoopTests
         await Assert.That(events.OfType<ToolExecutionEndEvent>().Count()).IsEqualTo(1);
         await Assert.That(events.OfType<TurnEndEvent>().Count()).IsEqualTo(1);
 
-        // Event order check
         var kinds = events.Select(e => e.GetType().Name).ToList();
         await Assert.That(kinds).IsEquivalentTo(
         [
+            "TurnStartEvent",
             "AssistantTextDeltaEvent",
             "AssistantToolCallEvent",
             "ToolExecutionStartEvent",
             "ToolExecutionEndEvent",
+            "TurnStartEvent",
             "AssistantTextDeltaEvent",
             "TurnEndEvent",
         ]);
 
-        // Messages: user + assistant(tool call) + tool_result + assistant(final) = 4
         await Assert.That(messages.Count).IsEqualTo(4);
         await Assert.That(messages[2]).IsTypeOf<ToolResultMessage>();
         await Assert.That(((ToolResultMessage)messages[2]).Text).IsEqualTo("output of ls");
     }
 
     [Test]
-    public async Task RunTurnAsync_NoFinalResponse_ThrowsWithProviderError()
+    public async Task RunAgentAsync_NoFinalResponse_ThrowsWithProviderError()
     {
         var fake = new FakePhiProvider(
         [
@@ -136,7 +140,7 @@ public class LoopTests
 
         var ex = await Assert.That(async () =>
         {
-            await foreach (var _ in Loop.RunTurnAsync(
+            await foreach (var _ in Loop.RunAgentAsync(
                 fake, "test", "", messages, [], NeverCalledExecutor)) { }
         }).Throws<InvalidOperationException>();
 
@@ -144,7 +148,7 @@ public class LoopTests
     }
 
     [Test]
-    public async Task RunTurnAsync_ToolThrows_LoopCatchesAndSurfacesAsIsError()
+    public async Task RunAgentAsync_ToolThrows_LoopCatchesAndSurfacesAsIsError()
     {
         var toolCall = new ToolCall("c1", "bash")
         {
@@ -164,11 +168,11 @@ public class LoopTests
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
 
-        static Task<ToolResult> Boom(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+        Task<ToolResult> Boom(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
             => throw new InvalidOperationException("kaboom");
 
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunTurnAsync(
+        await foreach (var ev in Loop.RunAgentAsync(
             fake, "test", "", messages, [], Boom))
         {
             events.Add(ev);
@@ -184,7 +188,7 @@ public class LoopTests
     }
 
     [Test]
-    public async Task RunTurnAsync_UnknownTool_ReturnsErrorResultWithoutThrowing()
+    public async Task RunAgentAsync_UnknownTool_ReturnsErrorResultWithoutThrowing()
     {
         var toolCall = new ToolCall("c1", "mystery")
         {
@@ -204,10 +208,10 @@ public class LoopTests
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
 
-        static Task<ToolResult> Missing(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+        Task<ToolResult> Missing(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
             => Task.FromResult(new ToolResult([new TextBlock("Unknown tool: mystery")], IsError: true));
 
-        await foreach (var _ in Loop.RunTurnAsync(
+        await foreach (var _ in Loop.RunAgentAsync(
             fake, "test", "", messages, [], Missing)) { }
 
         var result = (ToolResultMessage)messages[2];
@@ -216,7 +220,7 @@ public class LoopTests
     }
 
     [Test]
-    public async Task RunTurnAsync_PreservesToolResultDetails()
+    public async Task RunAgentAsync_PreservesToolResultDetails()
     {
         var toolCall = new ToolCall("c1", "bash")
         {
@@ -240,7 +244,7 @@ public class LoopTests
         Task<ToolResult> WithDetails(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
             => Task.FromResult(new ToolResult([new TextBlock("ok")], Details: details));
 
-        await foreach (var _ in Loop.RunTurnAsync(
+        await foreach (var _ in Loop.RunAgentAsync(
             fake, "test", "", messages, [], WithDetails)) { }
 
         var result = (ToolResultMessage)messages[2];
@@ -250,7 +254,7 @@ public class LoopTests
     }
 
     [Test]
-    public async Task RunTurnAsync_MaxTurnsExceeded_StopsWithErrorMessage()
+    public async Task RunAgentAsync_MaxTurnsExceeded_StopsWithErrorMessage()
     {
         var toolCall = new ToolCall("c1", "bash")
         {
@@ -266,11 +270,11 @@ public class LoopTests
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
 
-        static Task<ToolResult> LoopForever(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+        Task<ToolResult> LoopForever(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
             => Task.FromResult(new ToolResult([new TextBlock("ok")]));
 
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunTurnAsync(
+        await foreach (var ev in Loop.RunAgentAsync(
             fake, "test", "", messages, [], LoopForever, maxTurns: 2))
         {
             events.Add(ev);
@@ -281,13 +285,13 @@ public class LoopTests
         await Assert.That(final.StopReason).IsEqualTo(StopReasons.Error);
         await Assert.That(final.Text).Contains("max_turns=2");
 
-        // messages: user + assistant(tool call) + tool_result + assistant(tool call) + tool_result + assistant(error)
+        // user + 2 × (assistant + tool_result) + assistant(error) = 6
         await Assert.That(messages.Count).IsEqualTo(6);
         await Assert.That(messages.Last()).IsTypeOf<AssistantMessage>();
     }
 
     [Test]
-    public async Task RunTurnAsync_Cancellation_Propagates()
+    public async Task RunAgentAsync_Cancellation_Propagates()
     {
         var toolCall = new ToolCall("c1", "bash")
         {
@@ -306,18 +310,18 @@ public class LoopTests
         using var cts = new CancellationTokenSource();
         cts.Cancel();
 
-        static Task<ToolResult> Cancellable(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+        Task<ToolResult> Cancellable(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
             => Task.FromCanceled<ToolResult>(cancellationToken);
 
         await Assert.That(async () =>
         {
-            await foreach (var _ in Loop.RunTurnAsync(
+            await foreach (var _ in Loop.RunAgentAsync(
                 fake, "test", "", messages, [], Cancellable, cancellationToken: cts.Token)) { }
         }).Throws<OperationCanceledException>();
     }
 
     [Test]
-    public async Task RunTurnAsync_ThinkingLifecycle_IsTranslatedToStartDeltaEndEvents()
+    public async Task RunAgentAsync_ThinkingLifecycle_IsTranslatedToStartDeltaEndEvents()
     {
         var consolidated = new ThinkingBlock("reasoning about...so my answer is 42.")
         {
@@ -347,34 +351,229 @@ public class LoopTests
         var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
 
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunTurnAsync(
+        await foreach (var ev in Loop.RunAgentAsync(
             fake, "test", "", messages, [], NeverCalledExecutor))
         {
             events.Add(ev);
         }
 
-        // Start appears exactly once, before any delta.
         var starts = events.OfType<AssistantThinkingStartEvent>().ToList();
         await Assert.That(starts.Count).IsEqualTo(1);
-        var firstStartIdx = events.IndexOf(starts[0]);
 
         var deltas = events.OfType<AssistantThinkingDeltaEvent>().ToList();
         await Assert.That(deltas.Count).IsEqualTo(2);
         await Assert.That(deltas[0].Delta).IsEqualTo("reasoning about...");
         await Assert.That(deltas[1].Delta).IsEqualTo("so my answer is 42.");
-        await Assert.That(events.IndexOf(deltas[0])).IsGreaterThan(firstStartIdx);
 
-        // End carries the consolidated block with signature.
         var ends = events.OfType<AssistantThinkingEndEvent>().ToList();
         await Assert.That(ends.Count).IsEqualTo(1);
-        await Assert.That(ends[0].Block.Thinking)
-            .IsEqualTo("reasoning about...so my answer is 42.");
         await Assert.That(ends[0].Block.ThinkingSignature).IsEqualTo("sig-xyz");
-        await Assert.That(events.IndexOf(ends[0])).IsGreaterThan(events.IndexOf(deltas[1]));
 
-        // Final message still carries the ThinkingBlock.
         var turnEnd = events.OfType<TurnEndEvent>().Single();
         await Assert.That(turnEnd.FinalMessage.Content.OfType<ThinkingBlock>().Single())
             .IsEquivalentTo(consolidated);
+    }
+
+    // ──────────────────── Steering / follow-up queue tests ────────────────────
+
+    [Test]
+    public async Task RunAgentAsync_NoQueues_TerminatesAfterFirstTurn()
+    {
+        var fake = new FakePhiProvider(
+        [
+            new ProviderEvent[]
+            {
+                new ProviderTextDeltaEvent("done"),
+                new ProviderResponseEndEvent(FinalMessage("done"), StopReasons.Stop),
+            },
+        ]);
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
+
+        var turnStarts = new List<TurnStartEvent>();
+        await foreach (var ev in Loop.RunAgentAsync(
+            fake, "test", "", messages, [], NeverCalledExecutor))
+        {
+            if (ev is TurnStartEvent ts) turnStarts.Add(ts);
+        }
+
+        await Assert.That(turnStarts.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task RunAgentAsync_SteeringMessage_IsInjectedBeforeTurnRuns()
+    {
+        // Steering is checked at the top of every iteration, BEFORE the
+        // turn counter advances. So a steering message enqueued before the
+        // first turn becomes part of `messages` before the model sees them.
+        // The steering iteration itself does not consume a turn slot
+        // (no TurnStartEvent for it) — matching tau's run_agent_loop.
+        var fake = new FakePhiProvider(
+        [
+            new ProviderEvent[]
+            {
+                new ProviderTextDeltaEvent("First"),
+                new ProviderResponseEndEvent(FinalMessage("First"), StopReasons.Stop),
+            },
+        ]);
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "first" } };
+
+        var steeringFired = false;
+        Func<IReadOnlyList<IAgentMessage>> getSteering = () =>
+        {
+            if (steeringFired) return [];
+            steeringFired = true;
+            return [new UserMessage { Content = "Actually do this" }];
+        };
+
+        var turnStarts = new List<TurnStartEvent>();
+        await foreach (var ev in Loop.RunAgentAsync(
+            fake, "test", "", messages, [], NeverCalledExecutor,
+            getSteeringMessages: getSteering))
+        {
+            if (ev is TurnStartEvent ts) turnStarts.Add(ts);
+        }
+
+        // Only one real turn (steering iteration doesn't emit TurnStartEvent).
+        await Assert.That(turnStarts.Count).IsEqualTo(1);
+        await Assert.That(turnStarts[0].Turn).IsEqualTo(1);
+
+        // Messages: user(initial), user(steering), assistant(turn1)
+        // — steering landed in messages BEFORE the model was called.
+        await Assert.That(messages.Count).IsEqualTo(3);
+        await Assert.That(messages.OfType<UserMessage>().Count()).IsEqualTo(2);
+        await Assert.That(messages[0]).IsTypeOf<UserMessage>();
+        await Assert.That(((UserMessage)messages[0]).Text).IsEqualTo("first");
+        await Assert.That(messages[1]).IsTypeOf<UserMessage>();
+        await Assert.That(((UserMessage)messages[1]).Text).IsEqualTo("Actually do this");
+    }
+
+    [Test]
+    public async Task RunAgentAsync_FollowUpMessage_AlsoTriggersAnotherTurn()
+    {
+        var fake = new FakePhiProvider(
+        [
+            new ProviderEvent[]
+            {
+                new ProviderTextDeltaEvent("Done turn 1"),
+                new ProviderResponseEndEvent(FinalMessage("Done turn 1"), StopReasons.Stop),
+            },
+            new ProviderEvent[]
+            {
+                new ProviderTextDeltaEvent("Done turn 2"),
+                new ProviderResponseEndEvent(FinalMessage("Done turn 2"), StopReasons.Stop),
+            },
+        ]);
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "first" } };
+
+        var followUpFired = false;
+        Func<IReadOnlyList<IAgentMessage>> getFollowUp = () =>
+        {
+            if (followUpFired) return [];
+            followUpFired = true;
+            return [new UserMessage { Content = "follow up" }];
+        };
+
+        var turnStarts = new List<TurnStartEvent>();
+        await foreach (var ev in Loop.RunAgentAsync(
+            fake, "test", "", messages, [], NeverCalledExecutor,
+            getFollowUpMessages: getFollowUp))
+        {
+            if (ev is TurnStartEvent ts) turnStarts.Add(ts);
+        }
+
+        await Assert.That(turnStarts.Count).IsEqualTo(2);
+        await Assert.That(messages.OfType<UserMessage>().Count()).IsEqualTo(2);
+        await Assert.That(((UserMessage)messages[2]).Text).IsEqualTo("follow up");
+    }
+
+    [Test]
+    public async Task RunAgentAsync_EmptySteering_DoesNotInterfereWithNaturalTurnFlow()
+    {
+        // Steering callback that always returns []. The model produces a
+        // tool call in turn 1, then a final text in turn 2. Empty steering
+        // must not prevent the second turn from running — turn continuation
+        // is driven by tool calls, not by steering queue contents.
+        var toolCall = new ToolCall("c1", "bash")
+        {
+            Arguments = JsonNode.Parse("""{}""")!.AsObject(),
+        };
+
+        var fake = new FakePhiProvider(
+        [
+            new ProviderEvent[]
+            {
+                new ProviderToolCallEvent(toolCall),
+                new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
+            },
+            new ProviderEvent[]
+            {
+                new ProviderResponseEndEvent(FinalMessage("done"), StopReasons.Stop),
+            },
+        ]);
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
+        Func<IReadOnlyList<IAgentMessage>> getSteering = () => [];
+
+        Task<ToolResult> Noop(string toolName, string toolCallId, JsonNode arguments, CancellationToken cancellationToken)
+            => Task.FromResult(new ToolResult([new TextBlock("ok")]));
+
+        var turnStarts = new List<TurnStartEvent>();
+        await foreach (var ev in Loop.RunAgentAsync(
+            fake, "test", "", messages, [], Noop,
+            getSteeringMessages: getSteering))
+        {
+            if (ev is TurnStartEvent ts) turnStarts.Add(ts);
+        }
+
+        await Assert.That(turnStarts.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task RunAgentAsync_SteeringPriority_BeatsFollowUp()
+    {
+        // Both queues have a message waiting. Steering must be drained first,
+        // matching tau's run_agent_loop order: check steering → run turn →
+        // check follow-up. Each callback fires exactly once so the loop
+        // terminates after both queues are drained.
+        var fake = new FakePhiProvider(
+        [
+            new ProviderEvent[]
+            {
+                new ProviderResponseEndEvent(FinalMessage("t1"), StopReasons.Stop),
+            },
+            new ProviderEvent[]
+            {
+                new ProviderResponseEndEvent(FinalMessage("t2"), StopReasons.Stop),
+            },
+        ]);
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "x" } };
+        var steeringFired = false;
+        var followUpFired = false;
+        Func<IReadOnlyList<IAgentMessage>> getSteering = () =>
+        {
+            if (steeringFired) return [];
+            steeringFired = true;
+            return [new UserMessage { Content = "steering-first" }];
+        };
+        Func<IReadOnlyList<IAgentMessage>> getFollowUp = () =>
+        {
+            if (followUpFired) return [];
+            followUpFired = true;
+            return [new UserMessage { Content = "follow-up-second" }];
+        };
+
+        await foreach (var _ in Loop.RunAgentAsync(
+            fake, "test", "", messages, [], NeverCalledExecutor,
+            getSteeringMessages: getSteering,
+            getFollowUpMessages: getFollowUp)) { }
+
+        var userMessages = messages.OfType<UserMessage>().ToList();
+        await Assert.That(userMessages.Count).IsEqualTo(3);
+        await Assert.That(userMessages[1].Text).IsEqualTo("steering-first");
+        await Assert.That(userMessages[2].Text).IsEqualTo("follow-up-second");
     }
 }

@@ -12,9 +12,19 @@ namespace PhiCoding.Tui;
 /// bar) and the agent pump. Harness events are applied on the UI thread —
 /// the dispatcher synchronization context installed by the terminal loop
 /// brings <c>await foreach</c> continuations back onto it.
+/// <para>
+/// The editor stays enabled while the agent is running: a submitted prompt
+/// during a run enqueues into <see cref="MessageQueue"/> as a steering
+/// message and surfaces as <c>+N queued</c> on the status bar. The harness
+/// drains the queue at turn boundaries, so the next turn picks up the
+/// redirect automatically. Esc cancels the in-flight turn — the harness
+/// appends synthetic interrupted tool placeholders so the next prompt sees
+/// a well-formed history.
+/// </para>
 /// </summary>
 public sealed class PhiTuiApp(Harness harness, string model)
 {
+    private readonly MessageQueue _queue = new();
     private CancellationTokenSource? _runCts;
 
     public void Run()
@@ -25,12 +35,15 @@ public sealed class PhiTuiApp(Harness harness, string model)
         var status = new PhiStatusBar(model);
         var inputText = new State<string?>(string.Empty);
 
+        // Bind queue counters to the status bar so the user always sees how
+        // many messages are waiting to be picked up.
+        _ = BindQueueCountToStatusBar(status);
+
         var editor = new PromptEditor()
             .Prompt(new Markup("[primary]❯[/] "))
             .ContinuationPromptMarkup("[dim]·[/]")
             .Text(inputText)
             .Placeholder("Ask Phi anything… (Enter submit · Shift+Enter newline · Esc cancel · Ctrl+Q quit)")
-            .IsEnabled(() => !status.Running.Value)
             .CompletionPresentation(PromptEditorCompletionPresentation.PopupList)
             .CompletionHandler(CompleteSlashCommand)
             .MinHeight(3)
@@ -56,20 +69,20 @@ public sealed class PhiTuiApp(Harness harness, string model)
         {
             var text = e.Text.Trim();
             inputText.Value = string.Empty;
-            if (text.Length == 0 || status.Running.Value)
-            {
-                return;
-            }
+            if (text.Length == 0) return;
 
             if (SlashCommands.Match(text) is { } command)
             {
-                switch (command)
-                {
-                    case "/exit":
-                        editor.App?.Stop();
-                        break;
-                }
+                if (command == "/exit") editor.App?.Stop();
+                return;
+            }
 
+            // While the agent is running, queue the prompt as steering so it
+            // lands on the next turn boundary instead of being silently dropped.
+            if (status.Running.Value)
+            {
+                _queue.EnqueueSteering(new UserMessage { Content = text });
+                transcript.AddUserMessage($"[queued · steering] {text}");
                 return;
             }
 
@@ -77,9 +90,28 @@ public sealed class PhiTuiApp(Harness harness, string model)
             _ = RunAgentAsync(transcript, status, editor, text);
         });
 
+        // Esc cancels the in-flight turn. Harness handles the cancel by
+        // appending interrupted tool placeholders, so the next prompt sees
+        // a coherent history and the session stays alive.
         editor.Canceled((_, _) => _runCts?.Cancel());
 
         Terminal.Run(root, () => TerminalLoopResult.Continue);
+    }
+
+    private System.Threading.Tasks.Task BindQueueCountToStatusBar(PhiStatusBar status)
+    {
+        // Lightweight polling binder: the MessageQueue doesn't expose events,
+        // so we sample every 200ms. Cheap, and avoids complicating the queue
+        // with INotifyPropertyChanged just for this single consumer.
+        return System.Threading.Tasks.Task.Run(async () =>
+        {
+            while (true)
+            {
+                status.QueuedCount.Value = _queue.SteeringCount + _queue.FollowUpCount;
+                try { await System.Threading.Tasks.Task.Delay(200); }
+                catch (System.Threading.Tasks.TaskCanceledException) { return; }
+            }
+        });
     }
 
     private static PromptEditorCompletion CompleteSlashCommand(in PromptEditorCompletionRequest request)
@@ -116,15 +148,15 @@ public sealed class PhiTuiApp(Harness harness, string model)
         _runCts = new CancellationTokenSource();
         try
         {
-            await foreach (var ev in harness.RunAsync(prompt, cancellationToken: _runCts.Token))
+            await foreach (var ev in harness.RunAsync(
+                prompt,
+                getSteeringMessages: () => _queue.DrainSteering(),
+                getFollowUpMessages: () => _queue.DrainFollowUp(),
+                cancellationToken: _runCts.Token))
             {
                 status.Apply(ev);
                 transcript.Apply(ev);
             }
-        }
-        catch (OperationCanceledException)
-        {
-            transcript.AddError("cancelled");
         }
         catch (Exception ex)
         {
