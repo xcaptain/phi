@@ -55,5 +55,13 @@ var harness = new Harness(
         """,
     maxTurns: 50);
 
-new PhiTuiApp(harness, model).Run();
+// Create a new session each startup. The session id is a random GUID
+// so every run starts fresh. Messages are persisted in real time so
+// even a crash leaves the conversation on disk.
+var session = CodingSession.Create(
+    cwd: Environment.CurrentDirectory,
+    model: model,
+    root: SessionPaths.DefaultRoot);
+
+new PhiTuiApp(harness, model, session).Run();
 return 0;

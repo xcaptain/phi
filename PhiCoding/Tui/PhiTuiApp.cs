@@ -1,3 +1,4 @@
+using System.Text;
 using PhiAgent;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
@@ -12,31 +13,21 @@ namespace PhiCoding.Tui;
 /// bar) and the agent pump. Harness events are applied on the UI thread —
 /// the dispatcher synchronization context installed by the terminal loop
 /// brings <c>await foreach</c> continuations back onto it.
-/// <para>
-/// The editor stays enabled while the agent is running: a submitted prompt
-/// during a run enqueues into <see cref="MessageQueue"/> as a steering
-/// message and surfaces as <c>+N queued</c> on the status bar. The harness
-/// drains the queue at turn boundaries, so the next turn picks up the
-/// redirect automatically. Esc cancels the in-flight turn — the harness
-/// appends synthetic interrupted tool placeholders so the next prompt sees
-/// a well-formed history.
-/// </para>
 /// </summary>
-public sealed class PhiTuiApp(Harness harness, string model)
+public sealed class PhiTuiApp(Harness harness, string model, CodingSession session)
 {
     private readonly MessageQueue _queue = new();
     private CancellationTokenSource? _runCts;
+    private int _lastMessageCount;
 
     public void Run()
     {
-        using var session = Terminal.Open();
+        using var terminal = Terminal.Open();
 
         var transcript = new ChatTranscript();
         var status = new PhiStatusBar(model);
         var inputText = new State<string?>(string.Empty);
 
-        // Bind queue counters to the status bar so the user always sees how
-        // many messages are waiting to be picked up.
         _ = BindQueueCountToStatusBar(status);
 
         var editor = new PromptEditor()
@@ -73,12 +64,18 @@ public sealed class PhiTuiApp(Harness harness, string model)
 
             if (SlashCommands.Match(text) is { } command)
             {
-                if (command == "/exit") editor.App?.Stop();
+                switch (command)
+                {
+                    case "/sessions":
+                        ShowSessionsDialog(transcript, editor);
+                        break;
+                    case "/exit":
+                        _ = SummarizeAndExitAsync(transcript, editor);
+                        break;
+                }
                 return;
             }
 
-            // While the agent is running, queue the prompt as steering so it
-            // lands on the next turn boundary instead of being silently dropped.
             if (status.Running.Value)
             {
                 _queue.EnqueueSteering(new UserMessage { Content = text });
@@ -86,60 +83,179 @@ public sealed class PhiTuiApp(Harness harness, string model)
                 return;
             }
 
-            transcript.AddUserMessage(text);
+            AppendUserMessage(transcript, text);
             _ = RunAgentAsync(transcript, status, editor, text);
         });
 
-        // Esc cancels the in-flight turn. Harness handles the cancel by
-        // appending interrupted tool placeholders, so the next prompt sees
-        // a coherent history and the session stays alive.
         editor.Canceled((_, _) => _runCts?.Cancel());
 
         Terminal.Run(root, () => TerminalLoopResult.Continue);
     }
 
-    private System.Threading.Tasks.Task BindQueueCountToStatusBar(PhiStatusBar status)
+    // ──────────────────── Session message tracking ────────────────────
+
+    private void AppendUserMessage(ChatTranscript transcript, string text)
     {
-        // Lightweight polling binder: the MessageQueue doesn't expose events,
-        // so we sample every 200ms. Cheap, and avoids complicating the queue
-        // with INotifyPropertyChanged just for this single consumer.
-        return System.Threading.Tasks.Task.Run(async () =>
+        transcript.AddUserMessage(text);
+        session.AppendMessage(new UserMessage { Content = text });
+        _lastMessageCount = harness.Messages.Count;
+    }
+
+    private void FlushNewMessages(ChatTranscript _)
+    {
+        var all = harness.Messages;
+        for (var i = _lastMessageCount; i < all.Count; i++)
         {
-            while (true)
+            session.AppendMessage(all[i]);
+        }
+        _lastMessageCount = all.Count;
+    }
+
+    // ──────────────────── /sessions dialog ────────────────────
+
+    private void ShowSessionsDialog(ChatTranscript transcript, PromptEditor editor)
+    {
+        var index = new SessionIndex(SessionPaths.IndexFileIn(SessionPaths.DefaultRoot));
+        var sessions = ListRecentSessions(index, days: 7);
+        if (sessions.Count == 0)
+        {
+            transcript.AddError("No sessions in the last 7 days");
+            return;
+        }
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var grouped = sessions
+            .GroupBy(r => DateOnly.FromDateTime(
+                DateTimeOffset.FromUnixTimeMilliseconds(r.UpdatedAt).DateTime))
+            .OrderByDescending(g => g.Key)
+            .ToList();
+
+        // Build the dialog content.
+        var content = new VStack().Spacing(1);
+        foreach (var group in grouped)
+        {
+            var label = group.Key == today
+                ? "Today"
+                : group.Key == today.AddDays(-1)
+                    ? "Yesterday"
+                    : group.Key.ToString("MMM d");
+            var items = new VStack().Spacing(0);
+            foreach (var r in group)
             {
-                status.QueuedCount.Value = _queue.SteeringCount + _queue.FollowUpCount;
-                try { await System.Threading.Tasks.Task.Delay(200); }
-                catch (System.Threading.Tasks.TaskCanceledException) { return; }
+                var time = DateTimeOffset.FromUnixTimeMilliseconds(r.UpdatedAt)
+                    .ToLocalTime().ToString("HH:mm");
+                var title = r.Title ?? r.Id[..8];
+                items.Add(new Markup(
+                    $"  [primary]{ToolCardRenderer.Escape(title)}[/] [dim]{time} · {r.Model}[/]")
+                { Wrap = false });
             }
-        });
+            content.Add(new Group(
+                new Markup($"[bold][dim]{label}[/][/]"), items)
+            .HorizontalAlignment(Align.Stretch)
+            .VerticalAlignment(Align.Start));
+        }
+
+        var dialog = new Dialog(
+            new Markup("[bold]Sessions (last 7 days)[/]"),
+            content)
+        {
+            IsResizable = false,
+            IsDraggable = true,
+            IsModal = true,
+        };
+        dialog.Show();
     }
 
-    private static PromptEditorCompletion CompleteSlashCommand(in PromptEditorCompletionRequest request)
+    private static List<SessionRecord> ListRecentSessions(SessionIndex index, int days)
     {
-        var snapshot = request.Snapshot;
-        var caret = Math.Clamp(request.CaretIndex, 0, snapshot.Length);
-        var text = string.Create(snapshot.Length, snapshot, static (span, s) => s.CopyTo(0, span));
-
-        var prefix = text[..caret];
-        if (prefix.Contains(' ') || prefix.Contains('\n'))
-        {
-            return new PromptEditorCompletion(false, null, 0, 0);
-        }
-
-        var candidates = SlashCommands.Complete(prefix);
-        if (candidates.Count == 0)
-        {
-            return new PromptEditorCompletion(false, null, 0, 0);
-        }
-
-        string? ghost = null;
-        if (caret == text.Length && candidates[0].Length > prefix.Length)
-        {
-            ghost = candidates[0][prefix.Length..];
-        }
-
-        return new PromptEditorCompletion(true, candidates, 0, caret, 0, ghost);
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-days).ToUnixTimeMilliseconds();
+        return index.ListAll().Where(r => r.UpdatedAt >= cutoff).ToList();
     }
+
+    // ──────────────────── /exit summary ────────────────────
+
+    private async Task SummarizeAndExitAsync(ChatTranscript transcript, PromptEditor editor)
+    {
+        transcript.AddUserMessage("Summarizing session…");
+        FlushNewMessages(transcript);
+
+        var messages = harness.Messages;
+        if (messages.Count < 2)
+        {
+            var first = messages.OfType<UserMessage>().FirstOrDefault();
+            if (first is not null)
+            {
+                var t = first.Text.Length > 60 ? first.Text[..60] + "…" : first.Text;
+                session.Rename(t);
+            }
+            editor.App?.Stop();
+            return;
+        }
+
+        try
+        {
+            var summary = await SummarizeAsync();
+            if (summary is { Length: > 0 }) session.Rename(summary);
+        }
+        catch
+        {
+            var first = messages.OfType<UserMessage>().FirstOrDefault();
+            if (first is not null)
+            {
+                var t = first.Text.Length > 60 ? first.Text[..60] + "…" : first.Text;
+                session.Rename(t);
+            }
+        }
+
+        editor.App?.Stop();
+    }
+
+    private async Task<string?> SummarizeAsync()
+    {
+        // Build a slim summarisation prompt from the minimal provider
+        // configuration. We reuse the same harness provider to avoid
+        // constructing a new one.
+        var providerField = typeof(Harness).GetField("_provider",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        if (providerField?.GetValue(harness) is not IPhiProvider provider)
+            return null;
+
+        var sb = new StringBuilder();
+        sb.AppendLine("Summarise this coding session in one short sentence (max 60 chars).");
+        sb.AppendLine();
+        foreach (var msg in harness.Messages)
+        {
+            switch (msg)
+            {
+                case UserMessage u: sb.AppendLine($"User: {u.Text}"); break;
+                case AssistantMessage a: sb.AppendLine($"Assistant: {a.Text[..Math.Min(a.Text.Length, 100)]}"); break;
+                case ToolResultMessage t:
+                    var status = t.IsError ? "error" : "ok";
+                    sb.AppendLine($"Tool ({t.ToolName}): {status}");
+                    break;
+            }
+        }
+
+        var summary = "";
+        var messages = new List<IAgentMessage> { new UserMessage { Content = sb.ToString() } };
+
+        try
+        {
+            await foreach (var ev in provider.StreamResponseAsync(
+                model, "You are a session summariser.", messages, [], default))
+            {
+                if (ev is ProviderTextDeltaEvent t) summary += t.Delta;
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        return summary.Trim();
+    }
+
+    // ──────────────────── Agent loop ────────────────────
 
     private async Task RunAgentAsync(
         ChatTranscript transcript, PhiStatusBar status, PromptEditor editor, string prompt)
@@ -156,6 +272,7 @@ public sealed class PhiTuiApp(Harness harness, string model)
             {
                 status.Apply(ev);
                 transcript.Apply(ev);
+                FlushNewMessages(transcript);
             }
         }
         catch (Exception ex)
@@ -165,9 +282,44 @@ public sealed class PhiTuiApp(Harness harness, string model)
         finally
         {
             status.Running.Value = false;
+            FlushNewMessages(transcript);
             _runCts.Dispose();
             _runCts = null;
             editor.App?.Focus(editor);
         }
+    }
+
+    private Task BindQueueCountToStatusBar(PhiStatusBar status)
+    {
+        return System.Threading.Tasks.Task.Run(async () =>
+        {
+            while (true)
+            {
+                status.QueuedCount.Value = _queue.SteeringCount + _queue.FollowUpCount;
+                try { await Task.Delay(200); }
+                catch (TaskCanceledException) { return; }
+            }
+        });
+    }
+
+    private static PromptEditorCompletion CompleteSlashCommand(in PromptEditorCompletionRequest request)
+    {
+        var snapshot = request.Snapshot;
+        var caret = Math.Clamp(request.CaretIndex, 0, snapshot.Length);
+        var text = string.Create(snapshot.Length, snapshot, static (span, s) => s.CopyTo(0, span));
+
+        var prefix = text[..caret];
+        if (prefix.Contains(' ') || prefix.Contains('\n'))
+            return new PromptEditorCompletion(false, null, 0, 0);
+
+        var candidates = SlashCommands.Complete(prefix);
+        if (candidates.Count == 0)
+            return new PromptEditorCompletion(false, null, 0, 0);
+
+        string? ghost = null;
+        if (caret == text.Length && candidates[0].Length > prefix.Length)
+            ghost = candidates[0][prefix.Length..];
+
+        return new PromptEditorCompletion(true, candidates, 0, caret, 0, ghost);
     }
 }
