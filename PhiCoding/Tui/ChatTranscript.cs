@@ -11,14 +11,22 @@ namespace PhiCoding.Tui;
 /// The scrolling conversation view: a <see cref="DocumentFlow"/> of chat cards.
 /// Assistant text streams into a per-turn <see cref="MarkdownControl"/>;
 /// tool calls render as bordered cards that update in place when the
-/// tool result arrives. Mirrors the XenoAtom Playground sample.
+/// tool result arrives. Reasoning streams into its own dim-styled block
+/// ahead of the assistant text so the user can follow the model's thinking.
+/// Mirrors the XenoAtom Playground sample.
 /// </summary>
 public sealed class ChatTranscript
 {
+    private enum StreamMode { None, Thinking, Text }
+
     private readonly DocumentFlow _flow;
     private readonly Dictionary<string, ToolCard> _toolCards = new();
+    private StreamMode _streamMode = StreamMode.None;
     private StringBuilder? _streamText;
     private MarkdownControl? _streamControl;
+    private Markup? _thinkingTitleMarkup;
+    private Markup? _thinkingMarkup;
+    private DateTime _thinkingStartTime;
 
     public ChatTranscript()
     {
@@ -39,10 +47,20 @@ public sealed class ChatTranscript
     {
         switch (ev)
         {
+            case AssistantThinkingStartEvent:
+                StartThinkingStream();
+                break;
+            case AssistantThinkingDeltaEvent d:
+                AppendThinkingDelta(d.Delta);
+                break;
+            case AssistantThinkingEndEvent:
+                EndThinkingStream();
+                break;
             case AssistantTextDeltaEvent d:
-                AppendDelta(d.Delta);
+                AppendTextDelta(d.Delta);
                 break;
             case AssistantToolCallEvent tc:
+                FinishStreaming();
                 AddToolCall(tc.ToolCall);
                 break;
             case ToolExecutionEndEvent te:
@@ -72,10 +90,55 @@ public sealed class ChatTranscript
         Add(new Markup($"[red]✗ {ToolCardRenderer.Escape(message)}[/]") { Wrap = true });
     }
 
-    private void AppendDelta(string delta)
+    private void StartThinkingStream()
     {
+        // Close any in-flight stream (text or a previous thinking block).
+        FinishStreaming();
+
+        _streamMode = StreamMode.Thinking;
+        _streamText = new StringBuilder();
+        _thinkingStartTime = DateTime.UtcNow;
+
+        _thinkingTitleMarkup = new Markup("[dim]💭 Thinking…[/]") { Wrap = false };
+        _thinkingMarkup = new Markup(string.Empty) { Wrap = true };
+        Add(new Group(_thinkingTitleMarkup, _thinkingMarkup)
+            .HorizontalAlignment(Align.Stretch)
+            .VerticalAlignment(Align.Start));
+    }
+
+    private void AppendThinkingDelta(string delta)
+    {
+        if (_streamMode != StreamMode.Thinking) return;
+        if (_streamText is null || _thinkingMarkup is null) return;
+
+        _streamText.Append(delta);
+        _thinkingMarkup.Text = FormatThinkingText(_streamText.ToString());
+    }
+
+    private void EndThinkingStream()
+    {
+        if (_thinkingTitleMarkup is null) return;
+
+        var elapsed = DateTime.UtcNow - _thinkingStartTime;
+        _thinkingTitleMarkup.Text = $"[dim]💭 Thought {FormatThinkingDuration(elapsed)}[/]";
+
+        // The block stays visible — we only stop accumulating. Next event
+        // (text delta, tool call, turn end) will close it via FinishStreaming.
+    }
+
+    private void AppendTextDelta(string delta)
+    {
+        // Close a still-open thinking stream, but NOT a text stream — text
+        // deltas must accumulate into the same MarkdownControl or each delta
+        // would render as its own DocumentFlowItem.
+        if (_streamMode != StreamMode.Text)
+        {
+            FinishStreaming();
+        }
+
         if (_streamControl is null)
         {
+            _streamMode = StreamMode.Text;
             _streamText = new StringBuilder();
             _streamControl = new MarkdownControl(string.Empty)
             {
@@ -123,8 +186,11 @@ public sealed class ChatTranscript
 
     private void FinishStreaming()
     {
+        _streamMode = StreamMode.None;
         _streamText = null;
         _streamControl = null;
+        _thinkingTitleMarkup = null;
+        _thinkingMarkup = null;
     }
 
     private void Add(Visual content) => _flow.Items.Add(new DocumentFlowItem
@@ -132,6 +198,32 @@ public sealed class ChatTranscript
         Content = new FlowDocument().Add(content),
         Alignment = DocumentFlowAlignment.Stretch,
     });
+
+    /// <summary>
+    /// Renders raw reasoning text as dim ANSI markup, one [dim]…[/] wrapper
+    /// per line. Bracket characters in the source are escaped so the markup
+    /// parser doesn't choke on `[dim]`-like tokens the model might emit.
+    /// </summary>
+    internal static string FormatThinkingText(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Split('\n');
+        return string.Join('\n', lines.Select(l => $"[dim]{ToolCardRenderer.Escape(l)}[/]"));
+    }
+
+    /// <summary>
+    /// Formats a thinking-block duration for the "Thought Xs" header.
+    /// Sub-second → ms, sub-minute → one decimal seconds, otherwise m+s.
+    /// </summary>
+    internal static string FormatThinkingDuration(TimeSpan elapsed)
+    {
+        if (elapsed.TotalSeconds < 1)
+            return $"{(int)elapsed.TotalMilliseconds}ms";
+        if (elapsed.TotalSeconds < 60)
+            return $"{elapsed.TotalSeconds:F1}s";
+        var minutes = (int)elapsed.TotalMinutes;
+        var seconds = (int)(elapsed.TotalSeconds - minutes * 60);
+        return $"{minutes}m{seconds}s";
+    }
 
     private sealed record ToolCard(ToolCall Call, Markup Title, Markup Body);
 }
