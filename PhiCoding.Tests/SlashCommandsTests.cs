@@ -32,7 +32,7 @@ public class SlashCommandsTests
     public async Task Complete_BareSlash_ReturnsAll()
     {
         var candidates = SlashCommands.Complete("/");
-        await Assert.That(candidates).IsEquivalentTo(new[] { "/exit" });
+        await Assert.That(candidates).IsEquivalentTo(SlashCommands.All);
     }
 
     [Test]

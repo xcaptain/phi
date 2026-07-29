@@ -6,7 +6,7 @@ namespace PhiCoding.Tui;
 /// </summary>
 internal static class SlashCommands
 {
-    public static readonly IReadOnlyList<string> All = ["/exit"];
+    public static readonly IReadOnlyList<string> All = ["/exit", "/sessions"];
 
     /// <summary>
     /// Returns the canonical command when the whole input is exactly a known

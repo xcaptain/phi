@@ -36,4 +36,6 @@ public sealed record AnthropicConfig
     public bool BearerAuth { get; init; }
 
     public TimeSpan Timeout { get; init; } = TimeSpan.FromMinutes(2);
+
+
 }

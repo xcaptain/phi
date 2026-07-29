@@ -49,8 +49,27 @@ public sealed class AnthropicProvider : IPhiProvider
         request.Headers.Add("anthropic-version", _config.AnthropicVersion);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
-        using var response = await _http.SendAsync(
-            request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        // We use a flag + break to work around CS1631 (no yield in catch).
+        ProviderErrorEvent? sendError = null;
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        }
+        catch (HttpRequestException ex)
+        {
+            sendError = new ProviderErrorEvent(
+                $"HTTP request failed: {ex.Message}" +
+                (ex.InnerException is not null ? $" ({ex.InnerException.Message})" : ""));
+            yield break;
+        }
+
+        if (sendError is not null)
+        {
+            yield return sendError;
+            yield break;
+        }
 
         if (!response.IsSuccessStatusCode)
         {
@@ -390,12 +409,7 @@ public sealed class AnthropicProvider : IPhiProvider
             payload["system"] = system;
         }
 
-        var messagesArray = new JsonArray();
-        foreach (var msg in messages)
-        {
-            messagesArray.Add(MessageToAnthropic(msg));
-        }
-        payload["messages"] = messagesArray;
+        payload["messages"] = BuildMessages(messages);
 
         if (tools.Count > 0)
         {
@@ -435,6 +449,48 @@ public sealed class AnthropicProvider : IPhiProvider
         _ => throw new NotSupportedException(
             $"Message type {message.GetType().Name} not supported by the Anthropic provider yet"),
     };
+
+    /// <summary>
+    /// Builds the messages JSON array. Consecutive <see cref="ToolResultMessage"/>
+    /// entries are merged into a single user message with multiple
+    /// <c>tool_result</c> content blocks. DeepSeek's Anthropic-compatible
+    /// endpoint requires ALL tool results for one assistant turn to be in
+    /// a single user message immediately after the assistant message.
+    /// </summary>
+    private static JsonArray BuildMessages(IList<IAgentMessage> messages)
+    {
+        var result = new JsonArray();
+        var i = 0;
+        while (i < messages.Count)
+        {
+            if (messages[i] is ToolResultMessage)
+            {
+                var blocks = new JsonArray();
+                while (i < messages.Count && messages[i] is ToolResultMessage tr)
+                {
+                    blocks.Add(new JsonObject
+                    {
+                        ["type"] = "tool_result",
+                        ["tool_use_id"] = tr.ToolCallId,
+                        ["content"] = tr.Text,
+                        ["is_error"] = tr.IsError,
+                    });
+                    i++;
+                }
+                result.Add(new JsonObject
+                {
+                    ["role"] = "user",
+                    ["content"] = blocks,
+                });
+            }
+            else
+            {
+                result.Add(MessageToAnthropic(messages[i]));
+                i++;
+            }
+        }
+        return result;
+    }
 
     private static string ExtractUserContent(UserMessage u)
     {

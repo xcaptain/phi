@@ -33,6 +33,7 @@ var provider = new AnthropicProvider(
         ApiKey = apiKey,
         BaseUrl = "https://api.deepseek.com/anthropic",
         Provider = "deepseek",
+
     },
     new HttpClient());
 
