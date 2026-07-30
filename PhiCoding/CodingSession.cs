@@ -1,142 +1,185 @@
-using System.Text;
 using PhiAgent;
-using PhiProvider;
 
 namespace PhiCoding;
 
 /// <summary>
-/// Application-level session: owns persistence (JSONL), the harness (agent
-/// dispatch), the provider (LLM), the message queue, and the agent loop.
-/// Published immutable <see cref="SessionState"/> snapshots via
-/// <see cref="StateChanged"/> so frontend layers can react.
-/// Implements <see cref="ISession"/> for UI binding.
+/// Application-level session: the runtime environment for one
+/// <see cref="Harness"/>. Owns the transcript (JSONL via
+/// <see cref="SessionStorage"/>), the message queue, and the agent run
+/// loop; publishes immutable <see cref="SessionState"/> snapshots via
+/// <see cref="StateChanged"/> so frontends can react. Implements
+/// <see cref="ISession"/> for UI binding.
+/// <para>
+/// Index bookkeeping is delegated to <see cref="SessionManager"/>.
+/// Persistence is lazy: a fresh session holds an allocated id but writes
+/// nothing until the first message (or explicit rename/touch) — see
+/// <see cref="IsPersisted"/>.
+/// </para>
 /// </summary>
 public sealed class CodingSession : ISession
 {
-    // ──────── Persistence (existing) ────────
-
-    private readonly SessionIndex _index;
+    private readonly SessionManager _manager;
     private readonly object _lock = new();
-    private string _cwd;
 
-    private CodingSession(SessionRecord record, SessionStorage storage, SessionIndex index, string cwd)
+    // Mutable: resume adopts the target session's storage and record.
+    private SessionStorage _storage;
+    private bool _persisted;
+
+    private CodingSession(
+        SessionRecord record, SessionStorage storage,
+        SessionManager manager, bool persisted)
     {
         Record = record;
-        Storage = storage;
-        _index = index;
-        _cwd = cwd;
+        _storage = storage;
+        _manager = manager;
+        _persisted = persisted;
     }
 
     public string Id => Record.Id;
-    public string Cwd => _cwd;
+    public string Cwd => _manager.Cwd;
     public string Model => Record.Model;
     public SessionRecord Record { get; private set; }
-    public SessionStorage Storage { get; }
+    public SessionStorage Storage => _storage;
 
+    /// <summary>
+    /// Whether this session has been written to disk yet. Fresh sessions
+    /// start unpersisted; the first <see cref="AppendMessage"/> (or
+    /// <see cref="Touch"/>/<see cref="Rename"/>) writes the index record.
+    /// </summary>
+    public bool IsPersisted => _persisted;
+
+    // ──────── Factories ────────
+
+    /// <summary>
+    /// Returns the project's stable default session, creating and indexing
+    /// it on first use.
+    /// </summary>
     public static CodingSession GetOrCreateDefault(string cwd, string model)
     {
-        SessionPaths.EnsureRootFor(cwd);
-        var index = new SessionIndex(SessionPaths.IndexFileFor(cwd));
-        var id = SessionPaths.DefaultSessionId(cwd);
-        var existing = index.Get(id);
-        if (existing is not null) return new(existing, OpenStorage(cwd, id), index, cwd);
-
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var record = new SessionRecord(id, cwd, model, "Default session", now, now);
-        index.Upsert(record);
-        return new(record, OpenStorage(cwd, id), index, cwd);
-    }
-
-    public static CodingSession Create(string cwd, string model, string? title = null)
-    {
-        SessionPaths.EnsureRootFor(cwd);
-        var index = new SessionIndex(SessionPaths.IndexFileFor(cwd));
-        var id = Guid.NewGuid().ToString("N");
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var record = new SessionRecord(id, cwd, model, title, now, now);
-        index.Upsert(record);
-        return new(record, OpenStorage(cwd, id), index, cwd);
+        var manager = new SessionManager(cwd);
+        var record = manager.GetOrCreateDefaultSession(model);
+        return new(record, OpenStorage(manager, record.Id), manager, persisted: true);
     }
 
     /// <summary>
-    /// Creates a fully initialized session from <see cref="SessionConfig"/>.
-    /// Builds the provider, tools, and harness internally; calls
-    /// <see cref="StartRuntime"/> automatically.
+    /// Creates a fresh session without writing anything to disk. The id is
+    /// allocated eagerly; the transcript file and index record appear on
+    /// the first persisted message.
+    /// </summary>
+    public static CodingSession Create(string cwd, string model, string? title = null)
+    {
+        var manager = new SessionManager(cwd);
+        var record = manager.PrepareSession(model, title);
+        return new(record, OpenStorage(manager, record.Id), manager, persisted: false);
+    }
+
+    /// <summary>
+    /// Creates a fresh, fully initialized session from
+    /// <see cref="SessionConfig"/>: builds the harness around the injected
+    /// provider and calls <see cref="StartRuntime"/>. Persistence stays
+    /// lazy — nothing hits disk until the first message.
     /// </summary>
     public static CodingSession Create(SessionConfig config)
     {
-        var httpClient = new HttpClient();
+        var session = Create(config.Cwd, config.Model);
+        session.StartRuntime(BuildHarness(config), config.Provider, config.Model);
+        return session;
+    }
 
-        var provider = config.ProviderType.ToLowerInvariant() switch
-        {
-            "anthropic" => new AnthropicProvider(
-                new AnthropicConfig
-                {
-                    ApiKey = config.ApiKey,
-                    BaseUrl = config.BaseUrl,
-                    Provider = config.ProviderName ?? config.ProviderType,
-                },
-                httpClient) as IPhiProvider,
+    /// <summary>
+    /// Opens an already-indexed session (persistence only — call
+    /// <see cref="StartRuntime"/> before submitting prompts). Throws when
+    /// the id is unknown.
+    /// </summary>
+    public static CodingSession Resume(string id, string cwd)
+    {
+        var manager = new SessionManager(cwd);
+        var record = manager.GetSession(id);
+        return new(record, OpenStorage(manager, id), manager, persisted: true);
+    }
 
-            _ => new OpenAICompatibleProvider(
-                new OpenAICompatibleConfig
-                {
-                    ApiKey = config.ApiKey,
-                    BaseUrl = config.BaseUrl,
-                    Provider = config.ProviderName ?? config.ProviderType,
-                },
-                httpClient) as IPhiProvider,
-        };
+    /// <summary>
+    /// Opens an already-indexed session with a full runtime: the stored
+    /// transcript is loaded into the harness so the conversation can
+    /// continue where it left off.
+    /// </summary>
+    public static CodingSession Resume(SessionConfig config, string id)
+    {
+        var session = Resume(id, config.Cwd);
+        var harness = BuildHarness(config);
+        harness.ReplaceMessages(session.LoadMessages());
+        session.StartRuntime(harness, config.Provider, config.Model);
+        return session;
+    }
 
-        var tools = BuiltInTools.CreateDefault();
-        var harness = new Harness(
-            provider,
-            tools,
+    private static Harness BuildHarness(SessionConfig config) =>
+        new(
+            config.Provider,
+            config.Tools ?? BuiltInTools.CreateDefault(),
             model: config.Model,
             system: config.SystemPrompt,
             maxTurns: config.MaxTurns);
 
-        var session = Create(config.Cwd, config.Model);
-        session.StartRuntime(harness, provider, config.Model);
-        return session;
-    }
+    private static SessionStorage OpenStorage(SessionManager manager, string id) =>
+        new(manager.SessionFileFor(id));
 
-    public static CodingSession Resume(string id, string cwd)
-    {
-        SessionPaths.EnsureRootFor(cwd);
-        var indexPath = SessionPaths.IndexFileFor(cwd);
-        var index = new SessionIndex(indexPath);
-        var record = index.Get(id) ?? throw new InvalidOperationException(
-            $"Session '{id}' not found for project '{cwd}'");
-        return new(record, OpenStorage(cwd, id), index, cwd);
-    }
+    // ──────── Persistence ────────
 
+    /// <summary>
+    /// Appends a message to the transcript. The first append on a fresh
+    /// session also writes the index record (lazy persistence).
+    /// </summary>
     public void AppendMessage(IAgentMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
         var entry = SessionEntryConverter.FromAgentMessage(message);
-        lock (_lock) Storage.Append(entry);
-        Touch();
+        lock (_lock)
+        {
+            _storage.Append(entry);
+            TouchRecord();
+        }
+        MarkPersisted();
     }
 
     public IReadOnlyList<IAgentMessage> LoadMessages()
     {
-        lock (_lock) return Storage.ReadAll().Select(SessionEntryConverter.ToAgentMessage).ToList();
+        lock (_lock)
+            return _storage.ReadAll()
+                .Select(SessionEntryConverter.ToAgentMessage)
+                .ToList();
     }
 
     public void Touch()
     {
-        var touched = Record with { UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() };
-        _index.Upsert(touched);
-        Record = touched;
+        lock (_lock) TouchRecord();
+        MarkPersisted();
     }
 
     public void Rename(string? newTitle)
     {
-        var renamed = Record with { Title = newTitle };
-        _index.Upsert(renamed);
-        Record = renamed;
+        lock (_lock)
+        {
+            Record = Record with { Title = newTitle };
+            _manager.Upsert(Record);
+            _persisted = true;
+        }
+        MarkPersisted();
     }
+
+    /// <summary>Bumps <c>UpdatedAt</c>, upserts the index, marks persisted.</summary>
+    private void TouchRecord()
+    {
+        Record = Record with
+        {
+            UpdatedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+        };
+        _manager.Upsert(Record);
+        _persisted = true;
+    }
+
+    /// <summary>Indexed sessions of this project, newest first.</summary>
+    public IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7) =>
+        _manager.ListSessions(days);
 
     // ──────── ISession explicit interface bridge ────────
 
@@ -148,16 +191,6 @@ public sealed class CodingSession : ISession
     IReadOnlyList<SessionRecord> ISession.ListRecentSessions(int days)
         => ListRecentSessions(days);
 
-    public static IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7)
-    {
-        var index = new SessionIndex(SessionPaths.IndexFileFor(Environment.CurrentDirectory));
-        var cutoff = DateTimeOffset.UtcNow.AddDays(-days).ToUnixTimeMilliseconds();
-        return index.ListAll().Where(r => r.UpdatedAt >= cutoff).ToList();
-    }
-
-    private static SessionStorage OpenStorage(string cwd, string id) =>
-        new(SessionPaths.SessionFileFor(cwd, id));
-
     // ──────── Runtime (reactive engine state) ────────
 
     private Harness? _harness;
@@ -165,6 +198,7 @@ public sealed class CodingSession : ISession
     private MessageQueue? _queue;
     private string _runtimeModel = "";
     private CancellationTokenSource? _runCts;
+    private Task? _currentRunTask;
     private int _lastMessageCount;
     private bool _autoNamed;
     private SessionState _state = SessionState.Empty;
@@ -198,6 +232,7 @@ public sealed class CodingSession : ISession
             SessionId = Id,
             Model = model,
             SessionTitle = Record.Title,
+            IsPersisted = _persisted,
         };
     }
 
@@ -207,7 +242,7 @@ public sealed class CodingSession : ISession
     {
         ThrowIfNoRuntime();
         if (_state.IsRunning) return;
-        _ = RunAgentCoreAsync(text);
+        _currentRunTask = RunAgentCoreAsync(text);
     }
 
     public void Cancel()
@@ -216,10 +251,23 @@ public sealed class CodingSession : ISession
         _runCts?.Cancel();
     }
 
-    public Task ResumeSessionById(string sessionId)
+    public async Task ResumeSessionById(string sessionId)
     {
         ThrowIfNoRuntime();
-        return ResumeSessionAsync(sessionId, Environment.CurrentDirectory);
+
+        // 如果当前有 run 正在进行，先 cancel 并等它完全退出，
+        // 避免 event loop 与 ResumeSessionCore 的 storage/harness 替换产生冲突。
+        // Awaiting a completed task is a no-op, so no IsRunning check is
+        // needed — and the task reference is cleared only after the run
+        // has fully settled (see the finally block in RunAgentCoreAsync).
+        var run = _currentRunTask;
+        if (run is not null)
+        {
+            _runCts?.Cancel();
+            await run;
+        }
+
+        ResumeSessionCore(sessionId);
     }
 
     public void EnqueueSteering(UserMessage message)
@@ -256,6 +304,11 @@ public sealed class CodingSession : ISession
             {
                 HarnessEvent?.Invoke(ev);
 
+                // Persist after every event: each completed message lands
+                // on disk immediately, so a crash mid-run loses at most
+                // the in-flight message.
+                FlushNewMessages();
+
                 if (ev is TurnEndEvent te)
                 {
                     UpdateState(s => s with
@@ -266,8 +319,6 @@ public sealed class CodingSession : ISession
                     });
                 }
             }
-
-            FlushNewMessages();
         }
         catch (Exception ex)
         {
@@ -279,38 +330,51 @@ public sealed class CodingSession : ISession
             _runCts?.Dispose();
             _runCts = null;
             UpdateState(s => s with { IsRunning = false });
+            _currentRunTask = null;
         }
     }
 
-    private async Task ResumeSessionAsync(string sessionId, string cwd)
+    /// <summary>
+    /// Adopts another session in place: loads its transcript and swaps
+    /// record + storage, keeping this object's identity (frontends hold a
+    /// single <see cref="ISession"/> reference across resumes).
+    /// </summary>
+    private void ResumeSessionCore(string sessionId)
     {
         FlushNewMessages();
-        CodingSession target;
-        try
+
+        var record = _manager.FindSession(sessionId);
+        if (record is null)
         {
-            target = CodingSession.Resume(sessionId, cwd);
-        }
-        catch
-        {
-            UpdateState(s => s with { LastError = $"Failed to load session '{sessionId}'" });
+            UpdateState(s => s with
+            {
+                LastError = $"Failed to load session '{sessionId}'",
+            });
             return;
         }
 
-        var loaded = target.LoadMessages();
+        IReadOnlyList<IAgentMessage> loaded;
+        lock (_lock)
+        {
+            _storage = OpenStorage(_manager, record.Id);
+            Record = record;
+            _persisted = true;
+            loaded = _storage.ReadAll()
+                .Select(SessionEntryConverter.ToAgentMessage)
+                .ToList();
+        }
+
         _harness!.ReplaceMessages(loaded);
         _lastMessageCount = loaded.Count;
-        _autoNamed = target.Record.Title is { Length: > 0 };
-
-        // Update this instance's record to match the loaded session.
-        Record = target.Record;
-        _cwd = target.Cwd;
+        _autoNamed = record.Title is { Length: > 0 };
 
         UpdateState(s => new SessionState
         {
             Messages = loaded,
-            SessionId = target.Id,
+            SessionId = record.Id,
             Model = _runtimeModel,
-            SessionTitle = target.Record.Title,
+            SessionTitle = record.Title,
+            IsPersisted = true,
         });
     }
 
@@ -348,6 +412,12 @@ public sealed class CodingSession : ISession
         for (var i = _lastMessageCount; i < all.Count; i++)
             AppendMessage(all[i]);
         _lastMessageCount = all.Count;
+    }
+
+    private void MarkPersisted()
+    {
+        if (_runtimeStarted && !_state.IsPersisted)
+            UpdateState(s => s with { IsPersisted = true });
     }
 
     private void UpdateState(Func<SessionState, SessionState> update)

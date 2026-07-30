@@ -1,5 +1,25 @@
-﻿using PhiCoding;
+﻿using PhiAgent;
+using PhiCoding;
 using PhiCoding.Tui;
+using PhiProvider;
+
+// ──────── CLI args ────────
+// phi                  → fresh session (persisted lazily on first message)
+// phi --session <id>   → resume an indexed session
+string? resumeSessionId = null;
+for (var i = 0; i < args.Length; i++)
+{
+    if (args[i] == "--session" && i + 1 < args.Length)
+    {
+        resumeSessionId = args[++i];
+    }
+    else
+    {
+        Console.Error.WriteLine($"Unknown argument: {args[i]}");
+        Console.Error.WriteLine("Usage: phi [--session <id>]");
+        return 1;
+    }
+}
 
 // TODO: 应该使用一个更通用的办法来加载模型，也许是一个 yaml 文件
 // Load .env from cwd (dotnet does not auto-load .env files)
@@ -27,14 +47,22 @@ if (string.IsNullOrWhiteSpace(apiKey))
 
 const string model = "deepseek-v4-flash";
 
-var session = CodingSession.Create(new SessionConfig
+// Composition root: build the concrete provider here so CodingSession
+// only ever sees the IPhiProvider abstraction.
+IPhiProvider provider = new AnthropicProvider(
+    new AnthropicConfig
+    {
+        ApiKey = apiKey,
+        BaseUrl = "https://api.deepseek.com/anthropic",
+        Provider = "deepseek",
+    },
+    new HttpClient());
+
+var config = new SessionConfig
 {
-    ProviderType = "anthropic",
-    ApiKey = apiKey,
-    BaseUrl = "https://api.deepseek.com/anthropic",
-    ProviderName = "deepseek",
-    Model = model,
     Cwd = Environment.CurrentDirectory,
+    Provider = provider,
+    Model = model,
     SystemPrompt = """
         You are an expert coding assistant operating inside Phi a coding agent harness.
         You have four tools: bash, read, write, edit.
@@ -45,7 +73,20 @@ var session = CodingSession.Create(new SessionConfig
         Be concise.
         """,
     MaxTurns = 50,
-});
+};
+
+CodingSession session;
+try
+{
+    session = resumeSessionId is null
+        ? CodingSession.Create(config)
+        : CodingSession.Resume(config, resumeSessionId);
+}
+catch (InvalidOperationException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    return 1;
+}
 
 new PhiTuiApp(session).Run();
 return 0;

@@ -20,5 +20,12 @@ public sealed record SessionState
     public string Model { get; init; } = "";
     public string? SessionTitle { get; init; }
 
+    /// <summary>
+    /// Whether this session has been written to disk (index + transcript).
+    /// Fresh TUI sessions start unpersisted — an id is allocated eagerly,
+    /// but nothing is written until the first message or explicit rename.
+    /// </summary>
+    public bool IsPersisted { get; init; }
+
     public static readonly SessionState Empty = new();
 }

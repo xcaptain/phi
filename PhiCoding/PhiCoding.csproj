@@ -11,6 +11,7 @@
     <PackageReference Include="DiffPlex" />
     <PackageReference Include="XenoAtom.Terminal.UI" />
     <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
+    <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 
   <ItemGroup>

@@ -91,12 +91,12 @@ public sealed class ChatTranscript
             case AssistantMessage a:
                 var thinking = a.ThinkingText;
                 if (thinking.Length > 0)
-                {
-                    Add(new Markup(FormatThinkingText(thinking))
-                    {
-                        Wrap = true, IsSelectable = true,
-                    });
-                }
+                    AddThinkingVisual(thinking);
+
+                // Same pending card as the streaming path.
+                foreach (var tc in a.ToolCalls)
+                    AddToolCall(tc);
+
                 var mdText = a.Text;
                 if (mdText.Length > 0)
                 {
@@ -113,11 +113,7 @@ public sealed class ChatTranscript
                 }
                 break;
             case ToolResultMessage tr:
-                var style = tr.IsError ? "red" : "dim";
-                Add(new Markup($"[{style}]✗ tool {tr.ToolName}: {ToolCardRenderer.Escape(tr.Text)}[/]")
-                {
-                    Wrap = true,
-                });
+                CompleteToolCallFromMessage(tr);
                 break;
         }
     }
@@ -164,6 +160,53 @@ public sealed class ChatTranscript
         }
     }
 
+    // ──────── Shared helpers (streaming + bulk) ────────
+
+    /// <summary>
+    /// Adds a finished thinking group — same layout as the streaming path's
+    /// <see cref="StartThinkingStream"/>/<see cref="EndThinkingStream"/>.
+    /// Title is "💭 Thought" (no duration, since we don't have timing for
+    /// stored messages).
+    /// </summary>
+    private void AddThinkingVisual(string text)
+    {
+        var title = new Markup("[dim]💭 Thought[/]") { Wrap = false };
+        var content = new Markup(FormatThinkingText(text)) { Wrap = true, IsSelectable = true };
+        Add(new Group(title, content)
+            .HorizontalAlignment(Align.Stretch)
+            .VerticalAlignment(Align.Start));
+    }
+
+    /// <summary>
+    /// Updates an existing tool card with the result from a
+    /// <see cref="ToolResultMessage"/>, or creates a completed card when
+    /// the card wasn't already added (edge case / incomplete data).
+    /// </summary>
+    private void CompleteToolCallFromMessage(ToolResultMessage tr)
+    {
+        var stubResult = new ToolResult(tr.Content, tr.Details, tr.IsError);
+
+        ToolCall call;
+        if (_toolCards.TryGetValue(tr.ToolCallId, out var card))
+        {
+            call = card.Call;
+        }
+        else
+        {
+            call = new ToolCall(tr.ToolCallId, tr.ToolName);
+            AddToolCall(call);
+            card = _toolCards[tr.ToolCallId];
+        }
+
+        var status = tr.IsError ? "[red]✗[/]" : "[green]✓[/]";
+        var invocation = ToolCardRenderer.Escape(ToolCardRenderer.FormatInvocation(call));
+        var summary = ToolCardRenderer.Escape(ToolCardRenderer.FormatSummary(tr.ToolName, stubResult));
+        card.Title.Text = $"{status} [primary]{invocation}[/] [dim]· {summary}[/]";
+        card.Body.Text = ToolCardRenderer.FormatResultBody(tr.ToolName, stubResult);
+    }
+
+    // ──────── User-facing helpers ────────
+
     public void AddUserMessage(string text)
     {
         FinishStreaming();
@@ -177,6 +220,8 @@ public sealed class ChatTranscript
         FinishStreaming();
         Add(new Markup($"[red]✗ {ToolCardRenderer.Escape(message)}[/]") { Wrap = true });
     }
+
+    // ──────── Streaming (thinking) ────────
 
     private void StartThinkingStream()
     {
@@ -214,6 +259,8 @@ public sealed class ChatTranscript
         // (text delta, tool call, turn end) will close it via FinishStreaming.
     }
 
+    // ──────── Streaming (text) ────────
+
     private void AppendTextDelta(string delta)
     {
         // Close a still-open thinking stream, but NOT a text stream — text
@@ -245,6 +292,8 @@ public sealed class ChatTranscript
         _streamControl.Markdown = _streamText.ToString();
     }
 
+    // ──────── Streaming (tool) ────────
+
     private void AddToolCall(ToolCall call)
     {
         FinishStreaming();
@@ -272,14 +321,7 @@ public sealed class ChatTranscript
         card.Body.Text = ToolCardRenderer.FormatResultBody(call.Name, result);
     }
 
-    private void FinishStreaming()
-    {
-        _streamMode = StreamMode.None;
-        _streamText = null;
-        _streamControl = null;
-        _thinkingTitleMarkup = null;
-        _thinkingMarkup = null;
-    }
+    // ──────── Bulk rebuild ────────
 
     /// <summary>
     /// Clears the transcript and rebuilds it from a message list. Used when
@@ -293,45 +335,16 @@ public sealed class ChatTranscript
         _toolCards.Clear();
 
         foreach (var msg in messages)
-        {
-            switch (msg)
-            {
-                case UserMessage u:
-                    AddUserMessage(u.Text);
-                    break;
-                case AssistantMessage a:
-                    var thinking = a.ThinkingText;
-                    if (thinking.Length > 0)
-                    {
-                        Add(new Markup(FormatThinkingText(thinking))
-                        {
-                            Wrap = true, IsSelectable = true,
-                        });
-                    }
-                    var mdText = a.Text;
-                    if (mdText.Length > 0)
-                    {
-                        Add(new MarkdownControl(mdText)
-                        {
-                            HorizontalAlignment = Align.Stretch,
-                            VerticalAlignment = Align.Start,
-                            Options = MarkdownRenderOptions.Default with
-                            {
-                                MaxCodeBlockHeight = 10,
-                                WrapText = true,
-                            },
-                        });
-                    }
-                    break;
-                case ToolResultMessage tr:
-                    var style = tr.IsError ? "red" : "dim";
-                    Add(new Markup($"[{style}]✗ tool {tr.ToolName}: {ToolCardRenderer.Escape(tr.Text)}[/]")
-                    {
-                        Wrap = true,
-                    });
-                    break;
-            }
-        }
+            AppendVisualForMessage(msg);
+    }
+
+    private void FinishStreaming()
+    {
+        _streamMode = StreamMode.None;
+        _streamText = null;
+        _streamControl = null;
+        _thinkingTitleMarkup = null;
+        _thinkingMarkup = null;
     }
 
     private void Add(Visual content) => _flow.Items.Add(new DocumentFlowItem
