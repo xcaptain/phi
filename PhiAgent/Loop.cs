@@ -145,6 +145,14 @@ public static class Loop
 
             messages.Add(final);
 
+            // If the provider signals an error or the request was aborted,
+            // stop immediately — don't attempt tool execution.
+            if (final.StopReason is StopReasons.Error or StopReasons.Aborted)
+            {
+                yield return new TurnEndEvent(final);
+                yield break;
+            }
+
             if (final.ToolCalls.Count == 0)
             {
                 yield return new TurnEndEvent(final);

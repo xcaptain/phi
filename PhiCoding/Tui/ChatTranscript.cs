@@ -27,6 +27,8 @@ public sealed class ChatTranscript
     private Markup? _thinkingTitleMarkup;
     private Markup? _thinkingMarkup;
     private DateTime _thinkingStartTime;
+    private int _renderedMessageCount;
+    private bool _isStreaming;
 
     public ChatTranscript()
     {
@@ -43,10 +45,99 @@ public sealed class ChatTranscript
 
     public Visual Visual => _flow;
 
+    /// <summary>
+    /// Binds this transcript to a <see cref="ISession"/>. Streaming events
+    /// (thinking, text deltas, tool calls) go through <see cref="Apply"/>
+    /// for incremental rendering. Session-level state changes (resume,
+    /// errors) go through <see cref="OnSessionState"/> for bulk rendering.
+    /// </summary>
+    public void Bind(ISession session)
+    {
+        session.HarnessEvent += Apply;
+        session.StateChanged += OnSessionState;
+        OnSessionState(session.State);
+    }
+
+    /// <summary>
+    /// Resets the rendered-message counter so the next
+    /// <see cref="OnSessionState"/> pass renders everything. Call before
+    /// switching sessions (resume).
+    /// </summary>
+    public void ResetRenderedCount() { _renderedMessageCount = 0; _isStreaming = false; }
+
+    private void OnSessionState(SessionState state)
+    {
+        // During streaming the harness events (Apply) handle all rendering.
+        // Only render messages from state when NOT streaming, i.e. on
+        // resume / initial load.
+        if (!_isStreaming)
+        {
+            for (var i = _renderedMessageCount; i < state.Messages.Count; i++)
+                AppendVisualForMessage(state.Messages[i]);
+            _renderedMessageCount = state.Messages.Count;
+        }
+
+        if (state.LastError is { Length: > 0 })
+            AddError(state.LastError);
+    }
+
+    private void AppendVisualForMessage(IAgentMessage msg)
+    {
+        switch (msg)
+        {
+            case UserMessage u:
+                AddUserMessage(u.Text);
+                break;
+            case AssistantMessage a:
+                var thinking = a.ThinkingText;
+                if (thinking.Length > 0)
+                {
+                    Add(new Markup(FormatThinkingText(thinking))
+                    {
+                        Wrap = true, IsSelectable = true,
+                    });
+                }
+                var mdText = a.Text;
+                if (mdText.Length > 0)
+                {
+                    Add(new MarkdownControl(mdText)
+                    {
+                        HorizontalAlignment = Align.Stretch,
+                        VerticalAlignment = Align.Start,
+                        Options = MarkdownRenderOptions.Default with
+                        {
+                            MaxCodeBlockHeight = 10,
+                            WrapText = true,
+                        },
+                    });
+                }
+                break;
+            case ToolResultMessage tr:
+                var style = tr.IsError ? "red" : "dim";
+                Add(new Markup($"[{style}]✗ tool {tr.ToolName}: {ToolCardRenderer.Escape(tr.Text)}[/]")
+                {
+                    Wrap = true,
+                });
+                break;
+        }
+    }
+
     public void Apply(HarnessEvent ev)
     {
         switch (ev)
         {
+            case TurnStartEvent:
+                _isStreaming = true;
+                _renderedMessageCount = 0;
+                break;
+            case TurnEndEvent:
+                FinishStreaming();
+                _isStreaming = false;
+                // After streaming, all messages are already rendered via
+                // AddUserMessage + streaming events. Advance the counter
+                // so OnSessionState doesn't re-render them.
+                _renderedMessageCount = int.MaxValue;
+                break;
             case AssistantThinkingStartEvent:
                 StartThinkingStream();
                 break;
@@ -65,9 +156,6 @@ public sealed class ChatTranscript
                 break;
             case ToolExecutionEndEvent te:
                 CompleteTool(te.ToolCall, te.Result);
-                break;
-            case TurnEndEvent:
-                FinishStreaming();
                 break;
             case HarnessErrorEvent he:
                 FinishStreaming();

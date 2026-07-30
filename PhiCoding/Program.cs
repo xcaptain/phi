@@ -1,7 +1,5 @@
-﻿using PhiAgent;
-using PhiCoding;
+﻿using PhiCoding;
 using PhiCoding.Tui;
-using PhiProvider;
 
 // TODO: 应该使用一个更通用的办法来加载模型，也许是一个 yaml 文件
 // Load .env from cwd (dotnet does not auto-load .env files)
@@ -27,25 +25,17 @@ if (string.IsNullOrWhiteSpace(apiKey))
     return 1;
 }
 
-var provider = new AnthropicProvider(
-    new AnthropicConfig
-    {
-        ApiKey = apiKey,
-        BaseUrl = "https://api.deepseek.com/anthropic",
-        Provider = "deepseek",
-
-    },
-    new HttpClient());
-
-var tools = BuiltInTools.CreateDefault();
-
 const string model = "deepseek-v4-flash";
 
-var harness = new Harness(
-    provider,
-    tools,
-    model: model,
-    system: """
+var session = CodingSession.Create(new SessionConfig
+{
+    ProviderType = "anthropic",
+    ApiKey = apiKey,
+    BaseUrl = "https://api.deepseek.com/anthropic",
+    ProviderName = "deepseek",
+    Model = model,
+    Cwd = Environment.CurrentDirectory,
+    SystemPrompt = """
         You are an expert coding assistant operating inside Phi a coding agent harness.
         You have four tools: bash, read, write, edit.
         Use read to inspect files before editing them.
@@ -54,14 +44,8 @@ var harness = new Harness(
         Use bash for shell inspection and commands.
         Be concise.
         """,
-    maxTurns: 50);
+    MaxTurns = 50,
+});
 
-// Create a new session each startup. The session id is a random GUID
-// so every run starts fresh. Messages are persisted in real time so
-// even a crash leaves the conversation on disk.
-var session = CodingSession.Create(
-    cwd: Environment.CurrentDirectory,
-    model: model);
-
-new PhiTuiApp(harness, model, session, provider).Run();
+new PhiTuiApp(session).Run();
 return 0;

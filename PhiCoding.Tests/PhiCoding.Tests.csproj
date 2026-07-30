@@ -12,6 +12,8 @@
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
+    <PackageReference Include="XenoAtom.Terminal.UI" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
   </ItemGroup>
 
   <ItemGroup>
