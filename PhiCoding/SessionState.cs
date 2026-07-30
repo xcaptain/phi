@@ -12,7 +12,7 @@ public sealed record SessionState
     public IReadOnlyList<IAgentMessage> Messages { get; init; } = [];
     public bool IsRunning { get; init; }
     public int Turn { get; init; }
-    public Usage Usage { get; init; } = new();
+    public SessionStats Stats { get; init; } = SessionStats.Zero;
     public string? LastError { get; init; }
     public int SteeringCount { get; init; }
     public int FollowUpCount { get; init; }

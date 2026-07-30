@@ -27,7 +27,8 @@ public sealed record UserSessionEntry(long Timestamp, string Content)
 public sealed record AssistantSessionEntry(
     long Timestamp,
     IReadOnlyList<ContentBlock> Content,
-    string StopReason)
+    string StopReason,
+    Usage Usage)
     : SessionEntry(Timestamp);
 
 public sealed record ToolResultSessionEntry(

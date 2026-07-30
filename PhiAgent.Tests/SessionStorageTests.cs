@@ -24,7 +24,7 @@ public class SessionStorageTests : IDisposable
 
     private static UserSessionEntry UserEntry(string content) => new(0, content);
     private static AssistantSessionEntry AssistantEntry(params ContentBlock[] blocks) =>
-        new(0, blocks, StopReasons.Stop);
+        new(0, blocks, StopReasons.Stop, new Usage());
     private static ToolResultSessionEntry ToolResultEntry(string toolCallId) =>
         new(0, toolCallId, "bash", [new TextBlock("ok")], IsError: false);
 

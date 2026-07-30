@@ -5,17 +5,21 @@ using XenoAtom.Terminal.UI.Controls;
 namespace PhiCoding.Tui;
 
 /// <summary>
-/// Bottom status bar: spinner + run state on the left, model/cwd/token usage
-/// on the right. Driven by harness events via <see cref="Apply"/>.
+/// Bottom status bar: spinner + run state on the left, model/cwd/cumulative
+/// token usage on the right. Driven by <see cref="ISession.StateChanged"/>
+/// through <see cref="UpdateStats"/>; the legacy <see cref="Apply"/> hook
+/// still handles <see cref="TurnStartEvent"/> for the run indicator.
 /// </summary>
 public sealed class PhiStatusBar
 {
+    private readonly string _model;
     private readonly State<int> _turn = new(0);
     private readonly State<string> _tokens = new("");
     private readonly State<int> _queuedCount = new(0);
 
     public PhiStatusBar(string model)
     {
+        _model = model;
         Running = new State<bool>(false);
 
         var left = new HStack(
@@ -33,7 +37,7 @@ public sealed class PhiStatusBar
             .Spacing(1);
 
         var right = new Markup(() =>
-            $"[dim]{model} · {ShortenPath(Environment.CurrentDirectory)}{_tokens.Value}[/]");
+            $"[dim]{_model} · {ShortenPath(Environment.CurrentDirectory)}{_tokens.Value}[/]");
 
         Visual = new StatusBar(left, right);
     }
@@ -49,6 +53,19 @@ public sealed class PhiStatusBar
     /// </summary>
     public State<int> QueuedCount => _queuedCount;
 
+    /// <summary>
+    /// Updates the cumulative token display. Called from the session's
+    /// <see cref="ISession.StateChanged"/> handler — invoked once on
+    /// resume / load (carrying prior usage) and again on each
+    /// <see cref="TurnEndEvent"/>.
+    /// </summary>
+    public void UpdateStats(SessionStats stats)
+    {
+        _tokens.Value = stats.TotalTokens > 0
+            ? $" · ↑{FormatCount(stats.InputTokens)} ↓{FormatCount(stats.OutputTokens)}"
+            : "";
+    }
+
     public void Apply(HarnessEvent ev)
     {
         switch (ev)
@@ -57,12 +74,11 @@ public sealed class PhiStatusBar
                 Running.Value = true;
                 _turn.Value = ts.Turn;
                 break;
-            case TurnEndEvent te:
+            case TurnEndEvent:
+                // Token counts come from StateChanged → UpdateStats so resume
+                // and ongoing turns share the same render path. The run
+                // indicator still toggles here for in-flight feedback.
                 Running.Value = false;
-                var usage = te.FinalMessage.Usage;
-                _tokens.Value = usage.TotalTokens > 0
-                    ? $" · ↑{FormatCount(usage.Input)} ↓{FormatCount(usage.Output)}"
-                    : "";
                 break;
             case HarnessErrorEvent:
                 Running.Value = false;

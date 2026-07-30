@@ -226,13 +226,15 @@ public sealed class CodingSession : ISession
         _lastMessageCount = harness.Messages.Count;
         _runtimeStarted = true;
 
+        var messages = harness.Messages.ToList();
         _state = new SessionState
         {
-            Messages = harness.Messages.ToList(),
+            Messages = messages,
             SessionId = Id,
             Model = model,
             SessionTitle = Record.Title,
             IsPersisted = _persisted,
+            Stats = SessionStatsCalculator.Calculate(messages),
         };
     }
 
@@ -319,7 +321,7 @@ public sealed class CodingSession : ISession
                     {
                         Messages = harness.Messages.ToList(),
                         Turn = s.Turn + 1,
-                        Usage = te.FinalMessage.Usage,
+                        Stats = SessionStatsCalculator.Calculate(harness.Messages),
                     });
                 }
             }
@@ -379,6 +381,7 @@ public sealed class CodingSession : ISession
             Model = _runtimeModel,
             SessionTitle = record.Title,
             IsPersisted = true,
+            Stats = SessionStatsCalculator.Calculate(loaded),
         });
     }
 

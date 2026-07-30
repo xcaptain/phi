@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using PhiAgent;
 using PhiCoding.Tests.Helpers;
 using TUnit.Assertions;
@@ -259,5 +260,116 @@ public class CodingSessionRuntimeTests : IDisposable
         await Assert.That(
             ((UserMessage)session.State.Messages[0]).Text).IsEqualTo("from disk");
         await Assert.That(session.IsPersisted).IsTrue();
+    }
+
+    // ──────────────────── Cumulative stats ────────────────────
+
+    [Test]
+    public async Task SubmitTurn_PopulatesCumulativeStats()
+    {
+        var usage = new Usage
+        {
+            Input = 50, Output = 20, CacheRead = 5, CacheWrite = 2,
+            TotalTokens = 77,
+        };
+        var turnEvents = new ProviderEvent[]
+        {
+            new ProviderTextDeltaEvent("hi"),
+            new ProviderResponseEndEvent(new AssistantMessage
+            {
+                Content = [new TextBlock("hi")],
+                Usage = usage,
+                StopReason = StopReasons.Stop,
+            }),
+        };
+        var session = CodingSession.Create(
+            ConfigWith(StubProvider.Echo(turnEvents)));
+
+        session.SubmitPrompt("hello");
+        await WaitForAsync(() => !session.State.IsRunning);
+
+        await Assert.That(session.State.Stats.TurnCount).IsEqualTo(1);
+        await Assert.That(session.State.Stats.InputTokens).IsEqualTo(50 + 5 + 2);
+        await Assert.That(session.State.Stats.OutputTokens).IsEqualTo(20);
+        await Assert.That(session.State.Stats.TotalTokens).IsEqualTo(77);
+    }
+
+    [Test]
+    public async Task Resume_RecoversCumulativeStatsFromHistory()
+    {
+        // Handcraft a stored session with non-zero usage + a tool call so
+        // the calculator has something to aggregate on reload.
+        var stored = CodingSession.Create(_cwd, "m");
+        stored.AppendMessage(new UserMessage { Content = "first prompt" });
+        stored.AppendMessage(new AssistantMessage
+        {
+            Content = [
+                new TextBlock("answer"),
+                new ToolCall("t1", "read") { Arguments = new JsonObject() },
+            ],
+            Usage = new Usage
+            {
+                Input = 100, Output = 40, CacheRead = 10, CacheWrite = 0,
+                TotalTokens = 150,
+            },
+            StopReason = StopReasons.ToolUse,
+        });
+        stored.AppendMessage(new ToolResultMessage
+        {
+            ToolCallId = "t1",
+            ToolName = "read",
+            Content = [new TextBlock("file body")],
+            IsError = false,
+        });
+        stored.AppendMessage(new AssistantMessage
+        {
+            Content = [new TextBlock("done")],
+            Usage = new Usage
+            {
+                Input = 30, Output = 15, TotalTokens = 45,
+            },
+            StopReason = StopReasons.Stop,
+        });
+        var storedId = stored.Id;
+
+        // Resume via the runtime factory — this is what the TUI does on
+        // popup resume or `phi --session <id>`.
+        var resumed = CodingSession.Resume(
+            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))), storedId);
+
+        await Assert.That(resumed.State.SessionId).IsEqualTo(storedId);
+        await Assert.That(resumed.State.Messages.Count).IsEqualTo(4);
+        var assistantMsgs = resumed.State.Messages.OfType<AssistantMessage>().ToList();
+        await Assert.That(assistantMsgs.Count).IsEqualTo(2);
+        await Assert.That(assistantMsgs[0].Usage.Input).IsEqualTo(100);
+        await Assert.That(assistantMsgs[1].Usage.Input).IsEqualTo(30);
+        await Assert.That(resumed.State.Stats.TurnCount).IsEqualTo(1);
+        await Assert.That(resumed.State.Stats.ToolCallCount).IsEqualTo(1);
+        await Assert.That(resumed.State.Stats.InputTokens).IsEqualTo(100 + 10 + 30);
+        await Assert.That(resumed.State.Stats.OutputTokens).IsEqualTo(40 + 15);
+        await Assert.That(resumed.State.Stats.TotalTokens).IsEqualTo(150 + 45);
+    }
+
+    [Test]
+    public async Task ResumeViaResumeSession_RecoversCumulativeStats()
+    {
+        // In-place resume (popup flow) must also surface the loaded stats.
+        var stored = CodingSession.Create(_cwd, "m");
+        stored.AppendMessage(new UserMessage { Content = "hi" });
+        stored.AppendMessage(new AssistantMessage
+        {
+            Content = [new TextBlock("hello")],
+            Usage = new Usage { Input = 10, Output = 5, TotalTokens = 15 },
+            StopReason = StopReasons.Stop,
+        });
+
+        var live = CodingSession.Create(
+            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
+
+        await ((ISession)live).ResumeSession(stored.Id);
+
+        await Assert.That(live.State.Stats.TurnCount).IsEqualTo(1);
+        await Assert.That(live.State.Stats.InputTokens).IsEqualTo(10);
+        await Assert.That(live.State.Stats.OutputTokens).IsEqualTo(5);
     }
 }

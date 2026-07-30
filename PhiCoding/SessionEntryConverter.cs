@@ -15,7 +15,7 @@ public static class SessionEntryConverter
     {
         UserMessage u => new UserSessionEntry(u.Timestamp, u.Text),
         AssistantMessage a => new AssistantSessionEntry(
-            a.Timestamp, a.Content, a.StopReason),
+            a.Timestamp, a.Content, a.StopReason, a.Usage),
         ToolResultMessage t => new ToolResultSessionEntry(
             t.Timestamp, t.ToolCallId, t.ToolName, t.Content, t.IsError),
         _ => throw new NotSupportedException(
@@ -34,6 +34,7 @@ public static class SessionEntryConverter
             Content = a.Content,
             StopReason = a.StopReason,
             Timestamp = a.Timestamp,
+            Usage = a.Usage,
         },
         ToolResultSessionEntry t => new ToolResultMessage
         {

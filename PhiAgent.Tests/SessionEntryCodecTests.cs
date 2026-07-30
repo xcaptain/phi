@@ -33,7 +33,8 @@ public class SessionEntryCodecTests
                     Arguments = System.Text.Json.Nodes.JsonNode.Parse("""{"command":"ls"}""")!.AsObject(),
                 },
             ],
-            StopReason: StopReasons.ToolUse);
+            StopReason: StopReasons.ToolUse,
+            Usage: new Usage { Input = 10, Output = 5, TotalTokens = 15 });
 
         var line = SessionEntryCodec.Serialize(entry).TrimEnd('\n');
         var back = SessionEntryCodec.Deserialize(line);
@@ -46,6 +47,9 @@ public class SessionEntryCodecTests
         await Assert.That(assistant.Content[1]).IsTypeOf<ToolCall>();
         await Assert.That(((ToolCall)assistant.Content[1]).Name).IsEqualTo("bash");
         await Assert.That(assistant.StopReason).IsEqualTo(StopReasons.ToolUse);
+        await Assert.That(assistant.Usage.Input).IsEqualTo(10);
+        await Assert.That(assistant.Usage.Output).IsEqualTo(5);
+        await Assert.That(assistant.Usage.TotalTokens).IsEqualTo(15);
     }
 
     [Test]
