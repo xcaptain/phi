@@ -61,8 +61,7 @@ var harness = new Harness(
 // even a crash leaves the conversation on disk.
 var session = CodingSession.Create(
     cwd: Environment.CurrentDirectory,
-    model: model,
-    root: SessionPaths.DefaultRoot);
+    model: model);
 
-new PhiTuiApp(harness, model, session).Run();
+new PhiTuiApp(harness, model, session, provider).Run();
 return 0;

@@ -56,6 +56,17 @@ public sealed class Harness
     public void AppendMessage(IAgentMessage message) => _messages.Add(message);
 
     /// <summary>
+    /// Replaces the entire message history. Used when loading a persisted
+    /// session from disk (resume). Callers should supply messages in
+    /// conversation order.
+    /// </summary>
+    public void ReplaceMessages(IReadOnlyList<IAgentMessage> messages)
+    {
+        _messages.Clear();
+        _messages.AddRange(messages);
+    }
+
+    /// <summary>
     /// Scans session history for assistant tool calls that have no matching
     /// <see cref="ToolResultMessage"/>, and appends a synthetic
     /// "Tool call interrupted by user" result for each. Returns the number of

@@ -8,17 +8,12 @@ using XenoAtom.Terminal.UI.Styling;
 
 namespace PhiCoding.Tui;
 
-/// <summary>
-/// Composition root: fullscreen layout (header / transcript / prompt / status
-/// bar) and the agent pump. Harness events are applied on the UI thread —
-/// the dispatcher synchronization context installed by the terminal loop
-/// brings <c>await foreach</c> continuations back onto it.
-/// </summary>
-public sealed class PhiTuiApp(Harness harness, string model, CodingSession session)
+public sealed class PhiTuiApp(Harness harness, string model, CodingSession session, IPhiProvider provider)
 {
     private readonly MessageQueue _queue = new();
     private CancellationTokenSource? _runCts;
     private int _lastMessageCount;
+    private bool _autoNamed;
 
     public void Run()
     {
@@ -70,7 +65,7 @@ public sealed class PhiTuiApp(Harness harness, string model, CodingSession sessi
                         ShowSessionsDialog(transcript, editor);
                         break;
                     case "/exit":
-                        _ = SummarizeAndExitAsync(transcript, editor);
+                        editor.App?.Stop();
                         break;
                 }
                 return;
@@ -92,22 +87,58 @@ public sealed class PhiTuiApp(Harness harness, string model, CodingSession sessi
         Terminal.Run(root, () => TerminalLoopResult.Continue);
     }
 
+    // ──────────────────── Auto‑naming on first message ────────────────────
+
+    private async Task TryAutoNameSessionAsync(string firstMessage)
+    {
+        if (_autoNamed) return;
+        _autoNamed = true;
+
+        try
+        {
+            var prompt = $"Create a concise session name in at most 4 words for this user message:\n\n{firstMessage}";
+            var name = "";
+            var msgs = new List<IAgentMessage> { new UserMessage { Content = prompt } };
+
+            await foreach (var ev in provider.StreamResponseAsync(
+                model, "You write concise session names.", msgs, [], default))
+            {
+                if (ev is ProviderTextDeltaEvent t) name += t.Delta;
+            }
+
+            var sanitized = SanitizeSessionName(name);
+            if (sanitized is { Length: > 0 })
+                session.Rename(sanitized);
+        }
+        catch
+        {
+            // Auto-naming must never disrupt the agent flow.
+        }
+    }
+
+    private static string SanitizeSessionName(string raw)
+    {
+        var trimmed = raw.Trim().Trim('"', '\'', '.', '!', '?');
+        return trimmed.Length > 60 ? trimmed[..57] + "…" : trimmed;
+    }
+
     // ──────────────────── Session message tracking ────────────────────
 
     private void AppendUserMessage(ChatTranscript transcript, string text)
     {
         transcript.AddUserMessage(text);
-        session.AppendMessage(new UserMessage { Content = text });
-        _lastMessageCount = harness.Messages.Count;
+        // Do NOT write to session here — FlushNewMessages in
+        // RunAgentAsync will pick up the prompt from harness.Messages
+        // after harness.RunAsync adds it. Writing here would duplicate
+        // the entry when FlushNewMessages runs moments later.
+        _ = TryAutoNameSessionAsync(text);
     }
 
     private void FlushNewMessages(ChatTranscript _)
     {
         var all = harness.Messages;
         for (var i = _lastMessageCount; i < all.Count; i++)
-        {
             session.AppendMessage(all[i]);
-        }
         _lastMessageCount = all.Count;
     }
 
@@ -115,23 +146,24 @@ public sealed class PhiTuiApp(Harness harness, string model, CodingSession sessi
 
     private void ShowSessionsDialog(ChatTranscript transcript, PromptEditor editor)
     {
-        var index = new SessionIndex(SessionPaths.IndexFileIn(SessionPaths.DefaultRoot));
-        var sessions = ListRecentSessions(index, days: 7);
-        if (sessions.Count == 0)
+        var index = new SessionIndex(SessionPaths.IndexFileFor(Environment.CurrentDirectory));
+        var cutoff = DateTimeOffset.UtcNow.AddDays(-7).ToUnixTimeMilliseconds();
+        var all = index.ListAll().Where(r => r.UpdatedAt >= cutoff).ToList();
+        if (all.Count == 0)
         {
             transcript.AddError("No sessions in the last 7 days");
             return;
         }
 
         var today = DateOnly.FromDateTime(DateTime.Now);
-        var grouped = sessions
+        var grouped = all
             .GroupBy(r => DateOnly.FromDateTime(
                 DateTimeOffset.FromUnixTimeMilliseconds(r.UpdatedAt).DateTime))
             .OrderByDescending(g => g.Key)
             .ToList();
 
-        // Build the dialog content.
-        var content = new VStack().Spacing(1);
+        var list = new OptionList<OptionListItem>().ActivateOnClick(true);
+
         foreach (var group in grouped)
         {
             var label = group.Key == today
@@ -139,120 +171,82 @@ public sealed class PhiTuiApp(Harness harness, string model, CodingSession sessi
                 : group.Key == today.AddDays(-1)
                     ? "Yesterday"
                     : group.Key.ToString("MMM d");
-            var items = new VStack().Spacing(0);
-            foreach (var r in group)
+            list.Items.Add(new OptionListItem(label) { IsEnabled = false });
+
+            foreach (var r in group.OrderByDescending(x => x.UpdatedAt))
             {
                 var time = DateTimeOffset.FromUnixTimeMilliseconds(r.UpdatedAt)
                     .ToLocalTime().ToString("HH:mm");
                 var title = r.Title ?? r.Id[..8];
-                items.Add(new Markup(
-                    $"  [primary]{ToolCardRenderer.Escape(title)}[/] [dim]{time} · {r.Model}[/]")
-                { Wrap = false });
+                list.Items.Add(new OptionListItem($"  {title} · {time} · {r.Model}"));
             }
-            content.Add(new Group(
-                new Markup($"[bold][dim]{label}[/][/]"), items)
-            .HorizontalAlignment(Align.Stretch)
-            .VerticalAlignment(Align.Start));
         }
 
-        var dialog = new Dialog(
-            new Markup("[bold]Sessions (last 7 days)[/]"),
-            content)
+        list.ItemActivated((_, e) =>
+        {
+            // Map list index back to session record, skipping disabled headers.
+            var idx = 0;
+            SessionRecord? target = null;
+            foreach (var g in grouped)
+            {
+                foreach (var r in g.OrderByDescending(x => x.UpdatedAt))
+                {
+                    idx++;
+                    if (idx == e.Index) { target = r; break; }
+                }
+                if (target is not null) break;
+            }
+
+            if (target is null) return;
+
+            if (list.Parent is Dialog d) d.Close();
+            _ = SwitchToSessionAsync(target, transcript, editor);
+        });
+
+        var dialog = new Dialog(new Markup("[bold]Sessions (last 7 days)[/]"), list)
         {
             IsResizable = false,
             IsDraggable = true,
             IsModal = true,
         };
+        dialog.KeyDownRouted += (_, ev) =>
+        {
+            if (ev.Key == TerminalKey.Escape)
+            {
+                dialog.Close();
+                editor.App?.Focus(editor);
+            }
+        };
         dialog.Show();
     }
 
-    private static List<SessionRecord> ListRecentSessions(SessionIndex index, int days)
+    private async Task SwitchToSessionAsync(
+        SessionRecord target, ChatTranscript transcript, PromptEditor editor)
     {
-        var cutoff = DateTimeOffset.UtcNow.AddDays(-days).ToUnixTimeMilliseconds();
-        return index.ListAll().Where(r => r.UpdatedAt >= cutoff).ToList();
-    }
-
-    // ──────────────────── /exit summary ────────────────────
-
-    private async Task SummarizeAndExitAsync(ChatTranscript transcript, PromptEditor editor)
-    {
-        transcript.AddUserMessage("Summarizing session…");
+        // Flush current session.
         FlushNewMessages(transcript);
 
-        var messages = harness.Messages;
-        if (messages.Count < 2)
+        // Load target.
+        CodingSession newSession;
+        try
         {
-            var first = messages.OfType<UserMessage>().FirstOrDefault();
-            if (first is not null)
-            {
-                var t = first.Text.Length > 60 ? first.Text[..60] + "…" : first.Text;
-                session.Rename(t);
-            }
-            editor.App?.Stop();
+            newSession = CodingSession.Resume(target.Id, Environment.CurrentDirectory);
+        }
+        catch
+        {
+            transcript.AddError($"Failed to load session '{target.Id}'");
             return;
         }
 
-        try
-        {
-            var summary = await SummarizeAsync();
-            if (summary is { Length: > 0 }) session.Rename(summary);
-        }
-        catch
-        {
-            var first = messages.OfType<UserMessage>().FirstOrDefault();
-            if (first is not null)
-            {
-                var t = first.Text.Length > 60 ? first.Text[..60] + "…" : first.Text;
-                session.Rename(t);
-            }
-        }
+        var loaded = newSession.LoadMessages();
+        harness.ReplaceMessages(loaded);
+        transcript.ClearAndLoad(loaded);
 
-        editor.App?.Stop();
-    }
+        session = newSession;
+        _lastMessageCount = loaded.Count;
+        _autoNamed = target.Title is { Length: > 0 };
 
-    private async Task<string?> SummarizeAsync()
-    {
-        // Build a slim summarisation prompt from the minimal provider
-        // configuration. We reuse the same harness provider to avoid
-        // constructing a new one.
-        var providerField = typeof(Harness).GetField("_provider",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        if (providerField?.GetValue(harness) is not IPhiProvider provider)
-            return null;
-
-        var sb = new StringBuilder();
-        sb.AppendLine("Summarise this coding session in one short sentence (max 60 chars).");
-        sb.AppendLine();
-        foreach (var msg in harness.Messages)
-        {
-            switch (msg)
-            {
-                case UserMessage u: sb.AppendLine($"User: {u.Text}"); break;
-                case AssistantMessage a: sb.AppendLine($"Assistant: {a.Text[..Math.Min(a.Text.Length, 100)]}"); break;
-                case ToolResultMessage t:
-                    var status = t.IsError ? "error" : "ok";
-                    sb.AppendLine($"Tool ({t.ToolName}): {status}");
-                    break;
-            }
-        }
-
-        var summary = "";
-        var messages = new List<IAgentMessage> { new UserMessage { Content = sb.ToString() } };
-
-        try
-        {
-            await foreach (var ev in provider.StreamResponseAsync(
-                model, "You are a session summariser.", messages, [], default))
-            {
-                if (ev is ProviderTextDeltaEvent t) summary += t.Delta;
-            }
-        }
-        catch
-        {
-            return null;
-        }
-
-        return summary.Trim();
+        editor.App?.Focus(editor);
     }
 
     // ──────────────────── Agent loop ────────────────────

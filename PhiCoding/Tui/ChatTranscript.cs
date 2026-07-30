@@ -193,6 +193,59 @@ public sealed class ChatTranscript
         _thinkingMarkup = null;
     }
 
+    /// <summary>
+    /// Clears the transcript and rebuilds it from a message list. Used when
+    /// switching to a resumed session (popup resume). Resets stream state
+    /// so the next <see cref="Apply"/> starts fresh.
+    /// </summary>
+    public void ClearAndLoad(IReadOnlyList<IAgentMessage> messages)
+    {
+        FinishStreaming();
+        _flow.Items.Clear();
+        _toolCards.Clear();
+
+        foreach (var msg in messages)
+        {
+            switch (msg)
+            {
+                case UserMessage u:
+                    AddUserMessage(u.Text);
+                    break;
+                case AssistantMessage a:
+                    var thinking = a.ThinkingText;
+                    if (thinking.Length > 0)
+                    {
+                        Add(new Markup(FormatThinkingText(thinking))
+                        {
+                            Wrap = true, IsSelectable = true,
+                        });
+                    }
+                    var mdText = a.Text;
+                    if (mdText.Length > 0)
+                    {
+                        Add(new MarkdownControl(mdText)
+                        {
+                            HorizontalAlignment = Align.Stretch,
+                            VerticalAlignment = Align.Start,
+                            Options = MarkdownRenderOptions.Default with
+                            {
+                                MaxCodeBlockHeight = 10,
+                                WrapText = true,
+                            },
+                        });
+                    }
+                    break;
+                case ToolResultMessage tr:
+                    var style = tr.IsError ? "red" : "dim";
+                    Add(new Markup($"[{style}]✗ tool {tr.ToolName}: {ToolCardRenderer.Escape(tr.Text)}[/]")
+                    {
+                        Wrap = true,
+                    });
+                    break;
+            }
+        }
+    }
+
     private void Add(Visual content) => _flow.Items.Add(new DocumentFlowItem
     {
         Content = new FlowDocument().Add(content),

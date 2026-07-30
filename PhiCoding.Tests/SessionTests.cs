@@ -6,52 +6,58 @@ using TUnit.Core;
 
 namespace PhiCoding.Tests;
 
-// SessionTests uses a per-test temp root and an exclusive parallel group
-// so concurrent tests don't trample each other's index files.
 [NotInParallel("session-tests")]
 public class SessionTests : IDisposable
 {
-    private readonly string _root;
+    // cwd is a unique temp directory that SessionPaths will compute a
+    // project key for. PHI_HOME is set to a per-test temp dir so sessions
+    // land in isolation.
+    private readonly string _cwd;
+    private readonly string _phiHome;
 
     public SessionTests()
     {
-        _root = Path.Combine(Path.GetTempPath(), "phi-coding-session-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(_root);
+        _cwd = Path.Combine(Path.GetTempPath(), "phi-coding-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(_cwd);
+        _phiHome = Path.Combine(Path.GetTempPath(), "phi-home-" + Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
     }
 
     public void Dispose()
     {
-        if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
+        Environment.SetEnvironmentVariable("PHI_HOME", null);
+        if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
+        if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
     }
 
     // ──────────────────── SessionPaths / default id ────────────────────
 
     [Test]
-    public async Task SessionPaths_EnsureRoot_CreatesDirectory()
+    public async Task ProjectKey_SamePath_ReturnsSameKey()
     {
-        SessionPaths.EnsureRoot(_root);
+        var k1 = SessionPaths.ProjectKey("/tmp/foo");
+        var k2 = SessionPaths.ProjectKey("/tmp/foo");
 
-        await Assert.That(Directory.Exists(_root)).IsTrue();
+        await Assert.That(k1).IsEqualTo(k2);
+    }
+
+    [Test]
+    public async Task ProjectKey_DifferentPaths_DifferentKeys()
+    {
+        var a = SessionPaths.ProjectKey("/tmp/foo");
+        var b = SessionPaths.ProjectKey("/tmp/bar");
+
+        await Assert.That(a).IsNotEqualTo(b);
     }
 
     [Test]
     public async Task DefaultSessionId_SameCwd_ReturnsSameId()
     {
-        var id1 = CodingSession.DefaultSessionId("/tmp/foo");
-        var id2 = CodingSession.DefaultSessionId("/tmp/foo");
+        var id1 = SessionPaths.DefaultSessionId(_cwd);
+        var id2 = SessionPaths.DefaultSessionId(_cwd);
 
         await Assert.That(id1).IsEqualTo(id2);
         await Assert.That(id1).StartsWith("default-");
-        await Assert.That(id1.Length).IsEqualTo("default-".Length + 8);
-    }
-
-    [Test]
-    public async Task DefaultSessionId_DifferentCwd_DifferentId()
-    {
-        var a = CodingSession.DefaultSessionId("/tmp/foo");
-        var b = CodingSession.DefaultSessionId("/tmp/bar");
-
-        await Assert.That(a).IsNotEqualTo(b);
     }
 
     // ──────────────────── SessionIndex ────────────────────
@@ -59,7 +65,8 @@ public class SessionTests : IDisposable
     [Test]
     public async Task SessionIndex_ListAll_EmptyWhenNoFile()
     {
-        var index = new SessionIndex(SessionPaths.IndexFileIn(_root));
+        SessionPaths.EnsureRootFor(_cwd);
+        var index = new SessionIndex(SessionPaths.IndexFileFor(_cwd));
 
         await Assert.That(index.ListAll()).IsEmpty();
     }
@@ -67,8 +74,8 @@ public class SessionTests : IDisposable
     [Test]
     public async Task SessionIndex_Upsert_ThenList_ReturnsRecord()
     {
-        var index = new SessionIndex(SessionPaths.IndexFileIn(_root));
-        var record = NewRecord("id1", cwd: "/tmp/a");
+        var index = new SessionIndex(SessionPaths.IndexFileFor(_cwd));
+        var record = NewRecord("id1");
 
         index.Upsert(record);
 
@@ -80,7 +87,7 @@ public class SessionTests : IDisposable
     [Test]
     public async Task SessionIndex_UpsertSameId_ReplacesNotDuplicates()
     {
-        var index = new SessionIndex(SessionPaths.IndexFileIn(_root));
+        var index = new SessionIndex(SessionPaths.IndexFileFor(_cwd));
         index.Upsert(NewRecord("id1", title: "old"));
         index.Upsert(NewRecord("id1", title: "new"));
 
@@ -92,7 +99,7 @@ public class SessionTests : IDisposable
     [Test]
     public async Task SessionIndex_GetById_ReturnsMatchingRecord()
     {
-        var index = new SessionIndex(SessionPaths.IndexFileIn(_root));
+        var index = new SessionIndex(SessionPaths.IndexFileFor(_cwd));
         index.Upsert(NewRecord("id1", title: "first"));
         index.Upsert(NewRecord("id2", title: "second"));
 
@@ -101,29 +108,32 @@ public class SessionTests : IDisposable
     }
 
     [Test]
-    public async Task SessionIndex_ListForCwd_FiltersByPath()
+    public async Task SessionIndex_ListForCwd_FiltersByCwd()
     {
-        var index = new SessionIndex(SessionPaths.IndexFileIn(_root));
-        index.Upsert(NewRecord("a", cwd: "/tmp/proj-a"));
-        index.Upsert(NewRecord("b", cwd: "/tmp/proj-b"));
-        index.Upsert(NewRecord("c", cwd: "/tmp/proj-a"));
+        var indexA = new SessionIndex(SessionPaths.IndexFileFor(_cwd));
+        var cwdB = Path.Combine(Path.GetTempPath(), "proj-b-" + Guid.NewGuid());
+        Directory.CreateDirectory(cwdB);
+        var indexB = new SessionIndex(SessionPaths.IndexFileFor(cwdB));
 
-        var forA = index.ListForCwd("/tmp/proj-a");
+        indexA.Upsert(NewRecord("a", cwd: _cwd));
+        indexA.Upsert(NewRecord("a2", cwd: _cwd));
+        indexB.Upsert(NewRecord("b", cwd: cwdB));
 
-        await Assert.That(forA.Select(r => r.Id).OrderBy(id => id))
-            .IsEquivalentTo(["a", "c"]);
+        await Assert.That(indexA.ListAll().Count).IsEqualTo(2);
+        await Assert.That(indexB.ListAll().Count).IsEqualTo(1);
+
+        if (Directory.Exists(cwdB)) Directory.Delete(cwdB, recursive: true);
     }
 
     [Test]
     public async Task SessionIndex_ListAll_OrdersByUpdatedAtDescending()
     {
-        var index = new SessionIndex(SessionPaths.IndexFileIn(_root));
+        var index = new SessionIndex(SessionPaths.IndexFileFor(_cwd));
         index.Upsert(NewRecord("old", updatedAt: 100));
         index.Upsert(NewRecord("new", updatedAt: 200));
         index.Upsert(NewRecord("mid", updatedAt: 150));
 
         var all = index.ListAll();
-
         await Assert.That(all.Select(r => r.Id)).IsEquivalentTo(["new", "mid", "old"]);
     }
 
@@ -132,10 +142,10 @@ public class SessionTests : IDisposable
     [Test]
     public async Task GetOrCreateDefault_FirstCall_CreatesNewSession()
     {
-        var session = CodingSession.GetOrCreateDefault(_root, "test-model", _root);
+        var session = CodingSession.GetOrCreateDefault(_cwd, "test-model");
 
-        await Assert.That(session.Id).IsEqualTo(CodingSession.DefaultSessionId(_root));
-        await Assert.That(session.Cwd).IsEqualTo(_root);
+        await Assert.That(session.Id).IsEqualTo(SessionPaths.DefaultSessionId(_cwd));
+        await Assert.That(session.Cwd).IsEqualTo(_cwd);
         await Assert.That(session.Model).IsEqualTo("test-model");
         await Assert.That(session.LoadMessages()).IsEmpty();
     }
@@ -143,8 +153,8 @@ public class SessionTests : IDisposable
     [Test]
     public async Task GetOrCreateDefault_SecondCall_ReturnsSameSession()
     {
-        var first = CodingSession.GetOrCreateDefault(_root, "test-model", _root);
-        var second = CodingSession.GetOrCreateDefault(_root, "test-model", _root);
+        var first = CodingSession.GetOrCreateDefault(_cwd, "test-model");
+        var second = CodingSession.GetOrCreateDefault(_cwd, "test-model");
 
         await Assert.That(second.Id).IsEqualTo(first.Id);
     }
@@ -152,8 +162,8 @@ public class SessionTests : IDisposable
     [Test]
     public async Task Create_GeneratesUniqueIds()
     {
-        var a = CodingSession.Create(_root, "m", _root);
-        var b = CodingSession.Create(_root, "m", _root);
+        var a = CodingSession.Create(_cwd, "m");
+        var b = CodingSession.Create(_cwd, "m");
 
         await Assert.That(a.Id).IsNotEqualTo(b.Id);
     }
@@ -161,7 +171,7 @@ public class SessionTests : IDisposable
     [Test]
     public async Task AppendMessage_PersistsAndLoadsBack()
     {
-        var session = CodingSession.Create(_root, "m", _root);
+        var session = CodingSession.Create(_cwd, "m");
 
         session.AppendMessage(new UserMessage { Content = "hello" });
         session.AppendMessage(new AssistantMessage
@@ -177,16 +187,14 @@ public class SessionTests : IDisposable
             IsError = false,
         });
 
-        // Re-open from disk to prove it really round-tripped.
-        var reopened = CodingSession.Resume(session.Id, _root);
+        var reopened = CodingSession.Resume(session.Id, _cwd);
         var loaded = reopened.LoadMessages();
 
         await Assert.That(loaded.Count).IsEqualTo(3);
         await Assert.That(loaded[0]).IsTypeOf<UserMessage>();
         await Assert.That(((UserMessage)loaded[0]).Text).IsEqualTo("hello");
         await Assert.That(loaded[1]).IsTypeOf<AssistantMessage>();
-        await Assert.That(((TextBlock)((AssistantMessage)loaded[1]).Content[0]).Text)
-            .IsEqualTo("hi back");
+        await Assert.That(((TextBlock)((AssistantMessage)loaded[1]).Content[0]).Text).IsEqualTo("hi back");
         await Assert.That(loaded[2]).IsTypeOf<ToolResultMessage>();
         var tr = (ToolResultMessage)loaded[2];
         await Assert.That(tr.ToolCallId).IsEqualTo("c1");
@@ -197,14 +205,14 @@ public class SessionTests : IDisposable
     [Test]
     public async Task Resume_NonExistentSession_Throws()
     {
-        await Assert.That(() => CodingSession.Resume("nope", _root))
+        await Assert.That(() => CodingSession.Resume("nope", _cwd))
             .Throws<InvalidOperationException>();
     }
 
     [Test]
     public async Task AppendMessage_UpdatesIndexTimestamp()
     {
-        var session = CodingSession.Create(_root, "m", _root);
+        var session = CodingSession.Create(_cwd, "m");
         var initialUpdatedAt = session.Record.UpdatedAt;
 
         await Task.Delay(5);
@@ -217,14 +225,14 @@ public class SessionTests : IDisposable
     [Test]
     public async Task Touch_BumpsUpdatedAtInIndex()
     {
-        var session = CodingSession.Create(_root, "m", _root);
+        var session = CodingSession.Create(_cwd, "m");
         var before = session.Record.UpdatedAt;
 
         await Task.Delay(5);
         session.Touch();
 
         await Assert.That(session.Record.UpdatedAt).IsGreaterThan(before);
-        var fromIndex = new SessionIndex(SessionPaths.IndexFileIn(_root)).Get(session.Id);
+        var fromIndex = new SessionIndex(SessionPaths.IndexFileFor(_cwd)).Get(session.Id);
         await Assert.That(fromIndex).IsNotNull();
         await Assert.That(fromIndex!.UpdatedAt).IsEqualTo(session.Record.UpdatedAt);
     }
@@ -232,11 +240,11 @@ public class SessionTests : IDisposable
     [Test]
     public async Task Rename_UpdatesTitleInIndex()
     {
-        var session = CodingSession.Create(_root, "m", _root);
+        var session = CodingSession.Create(_cwd, "m");
 
         session.Rename("My Cool Session");
 
-        var fromIndex = new SessionIndex(SessionPaths.IndexFileIn(_root)).Get(session.Id);
+        var fromIndex = new SessionIndex(SessionPaths.IndexFileFor(_cwd)).Get(session.Id);
         await Assert.That(fromIndex?.Title).IsEqualTo("My Cool Session");
         await Assert.That(session.Record.Title).IsEqualTo("My Cool Session");
     }
@@ -244,7 +252,7 @@ public class SessionTests : IDisposable
     [Test]
     public async Task AppendMessage_ToolCallArgsRoundTrip()
     {
-        var session = CodingSession.Create(_root, "m", _root);
+        var session = CodingSession.Create(_cwd, "m");
         var args = JsonNode.Parse("""{"command":"ls","flags":["-la","-h"]}""")!.AsObject();
 
         session.AppendMessage(new AssistantMessage
@@ -253,7 +261,7 @@ public class SessionTests : IDisposable
             StopReason = StopReasons.ToolUse,
         });
 
-        var loaded = CodingSession.Resume(session.Id, _root).LoadMessages();
+        var loaded = CodingSession.Resume(session.Id, _cwd).LoadMessages();
         var assistant = (AssistantMessage)loaded[0];
         var toolCall = (ToolCall)assistant.Content[0];
 
@@ -264,7 +272,7 @@ public class SessionTests : IDisposable
     [Test]
     public async Task AppendMessage_UnsupportedMessageType_Throws()
     {
-        var session = CodingSession.Create(_root, "m", _root);
+        var session = CodingSession.Create(_cwd, "m");
         var unsupported = new BashExecutionMessage { Command = "ls" };
 
         await Assert.That(() => session.AppendMessage(unsupported))

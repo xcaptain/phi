@@ -144,6 +144,36 @@ public class HarnessInterruptedToolTests
     }
 
     [Test]
+    public async Task ReplaceMessages_ReplacesAllMessages()
+    {
+        var harness = new Harness(new FakePhiProvider([]), Array.Empty<IHarnessTool>(), "test");
+        harness.AppendMessage(new UserMessage { Content = "first" });
+        harness.AppendMessage(new AssistantMessage { Content = [new TextBlock("resp")] });
+
+        await Assert.That(harness.Messages.Count).IsEqualTo(2);
+
+        var replacement = new IAgentMessage[]
+        {
+            new UserMessage { Content = "new" },
+        };
+        harness.ReplaceMessages(replacement);
+
+        await Assert.That(harness.Messages.Count).IsEqualTo(1);
+        await Assert.That(((UserMessage)harness.Messages[0]).Text).IsEqualTo("new");
+    }
+
+    [Test]
+    public async Task ReplaceMessages_EmptyClearsAll()
+    {
+        var harness = new Harness(new FakePhiProvider([]), Array.Empty<IHarnessTool>(), "test");
+        harness.AppendMessage(new UserMessage { Content = "x" });
+
+        harness.ReplaceMessages([]);
+
+        await Assert.That(harness.Messages).IsEmpty();
+    }
+
+    [Test]
     public async Task RunAsync_CancellationWithInterruptedTool_InsertsPlaceholderViaIntegration()
     {
         // End-to-end: pre-seed the harness with a partial assistant message
