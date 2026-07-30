@@ -370,8 +370,10 @@ public class LoopTests
         await Assert.That(ends[0].Block.ThinkingSignature).IsEqualTo("sig-xyz");
 
         var turnEnd = events.OfType<TurnEndEvent>().Single();
-        await Assert.That(turnEnd.FinalMessage.Content.OfType<ThinkingBlock>().Single())
-            .IsEquivalentTo(consolidated);
+        var resultBlock = turnEnd.FinalMessage.Content.OfType<ThinkingBlock>().Single();
+        await Assert.That(resultBlock.Thinking).IsEqualTo(consolidated.Thinking);
+        await Assert.That(resultBlock.ThinkingSignature).IsEqualTo(consolidated.ThinkingSignature);
+        await Assert.That(resultBlock.DurationMs).IsNotNull();
     }
 
     // ──────────────────── Steering / follow-up queue tests ────────────────────

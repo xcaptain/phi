@@ -23,6 +23,12 @@ public sealed record ThinkingBlock(string Thinking) : ContentBlock
 {
     public string? ThinkingSignature { get; init; }
     public bool Redacted { get; init; }
+
+    /// <summary>Thinking wall-clock duration in milliseconds, set by the
+    /// agent loop when the provider streams thinking blocks.
+    /// Persisted and restored so the UI can display a consistent
+    /// <c>"Thought 2.3s"</c> label on resume.</summary>
+    public double? DurationMs { get; init; }
 }
 
 public sealed record ToolCall(string Id, string Name) : ContentBlock

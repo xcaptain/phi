@@ -289,6 +289,10 @@ public sealed class CodingSession : ISession
     private async Task RunAgentCoreAsync(string prompt)
     {
         UpdateState(s => s with { IsRunning = true });
+
+        // Auto-name on the first message only (_autoNamed guards
+        // subsequent runs). Fire-and-forget — if the LLM call fails the
+        // fallback still produces a title from the prompt text.
         _ = TryAutoNameSessionAsync(prompt);
 
         try
@@ -383,10 +387,11 @@ public sealed class CodingSession : ISession
         if (_autoNamed) return;
         _autoNamed = true;
 
+        string? name = null;
         try
         {
             var prompt = $"Create a concise session name in at most 4 words for this user message:\n\n{firstMessage}";
-            var name = "";
+            name = "";
             var msgs = new List<IAgentMessage> { new UserMessage { Content = prompt } };
 
             await foreach (var ev in _provider!.StreamResponseAsync(
@@ -394,15 +399,26 @@ public sealed class CodingSession : ISession
             {
                 if (ev is ProviderTextDeltaEvent t) name += t.Delta;
             }
-
-            var sanitized = SanitizeSessionName(name);
-            if (sanitized is { Length: > 0 })
-            {
-                Rename(sanitized);
-                UpdateState(s => s with { SessionTitle = sanitized });
-            }
         }
-        catch { }
+        catch
+        {
+            name = null;
+        }
+
+        var sanitized = name is { Length: > 0 } ? SanitizeSessionName(name) : null;
+        if (sanitized is not { Length: > 0 })
+        {
+            // Fallback: use the first few words of the user message.
+            var words = firstMessage.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            sanitized = string.Join(' ', words.Take(4));
+            if (sanitized.Length > 60) sanitized = sanitized[..57] + "…";
+        }
+
+        if (sanitized.Length > 0)
+        {
+            Rename(sanitized);
+            UpdateState(s => s with { SessionTitle = sanitized });
+        }
     }
 
     private void FlushNewMessages()

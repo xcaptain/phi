@@ -91,7 +91,11 @@ public sealed class ChatTranscript
             case AssistantMessage a:
                 var thinking = a.ThinkingText;
                 if (thinking.Length > 0)
-                    AddThinkingVisual(thinking);
+                {
+                    var durMs = a.Content.OfType<ThinkingBlock>()
+                        .FirstOrDefault()?.DurationMs;
+                    AddThinkingVisual(thinking, durMs);
+                }
 
                 // Same pending card as the streaming path.
                 foreach (var tc in a.ToolCalls)
@@ -165,12 +169,16 @@ public sealed class ChatTranscript
     /// <summary>
     /// Adds a finished thinking group — same layout as the streaming path's
     /// <see cref="StartThinkingStream"/>/<see cref="EndThinkingStream"/>.
-    /// Title is "💭 Thought" (no duration, since we don't have timing for
-    /// stored messages).
+    /// If <paramref name="durationMs"/> is available the title includes a
+    /// duration label (e.g. <c>"💭 Thought 2.3s"</c>), matching the
+    /// streaming path exactly.
     /// </summary>
-    private void AddThinkingVisual(string text)
+    private void AddThinkingVisual(string text, double? durationMs = null)
     {
-        var title = new Markup("[dim]💭 Thought[/]") { Wrap = false };
+        var dur = durationMs is not null
+            ? $" {FormatThinkingDuration(TimeSpan.FromMilliseconds(durationMs.Value))}"
+            : "";
+        var title = new Markup($"[dim]💭 Thought{dur}[/]") { Wrap = false };
         var content = new Markup(FormatThinkingText(text)) { Wrap = true, IsSelectable = true };
         Add(new Group(title, content)
             .HorizontalAlignment(Align.Stretch)

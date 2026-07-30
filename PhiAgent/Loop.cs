@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 
@@ -104,6 +105,8 @@ public static class Loop
 
             AssistantMessage? final = null;
             ProviderErrorEvent? lastError = null;
+            Stopwatch? thinkingStopwatch = null;
+            double? thinkingDurationMs = null;
 
             await foreach (var ev in provider.StreamResponseAsync(
                 model, system, messages, tools, cancellationToken))
@@ -114,19 +117,35 @@ public static class Loop
                         yield return new AssistantTextDeltaEvent(t.Delta);
                         break;
                     case ProviderThinkingStartEvent:
+                        thinkingStopwatch = Stopwatch.StartNew();
+                        thinkingDurationMs = null;
                         yield return new AssistantThinkingStartEvent();
                         break;
                     case ProviderThinkingDeltaEvent t:
                         yield return new AssistantThinkingDeltaEvent(t.Delta);
                         break;
                     case ProviderThinkingEndEvent end:
-                        yield return new AssistantThinkingEndEvent(end.Block);
+                        thinkingDurationMs = thinkingStopwatch?.ElapsedMilliseconds;
+                        thinkingStopwatch = null;
+                        var timedBlock = thinkingDurationMs is not null
+                            ? end.Block with { DurationMs = thinkingDurationMs }
+                            : end.Block;
+                        yield return new AssistantThinkingEndEvent(timedBlock);
                         break;
                     case ProviderToolCallEvent tc:
                         yield return new AssistantToolCallEvent(tc.ToolCall);
                         break;
                     case ProviderResponseEndEvent end:
-                        final = end.Message;
+                        // Replace thinking blocks in the final message with
+                        // timed variants so duration survives persistence.
+                        final = end.Message with
+                        {
+                            Content = end.Message.Content
+                                .Select(c => c is ThinkingBlock tb && thinkingDurationMs is { } d
+                                    ? tb with { DurationMs = d }
+                                    : c)
+                                .ToList(),
+                        };
                         break;
                     case ProviderErrorEvent err:
                         lastError = err;
