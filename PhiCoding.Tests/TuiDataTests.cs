@@ -1,12 +1,10 @@
 using PhiAgent;
 using PhiCoding.Tui;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
-using TUnit.Core;
+using PhiCoding.Tests.Helpers;
 using TextBlock = PhiAgent.TextBlock;
 using DocumentFlow = XenoAtom.Terminal.UI.Controls.DocumentFlow;
 
-namespace PhiCoding.Tests.Helpers;
+namespace PhiCoding.Tests;
 
 public class TuiDataTests
 {
@@ -138,7 +136,7 @@ public class TuiDataTests
         // Assert: only the two items rendered via AddUserMessage + streaming.
         var flow = transcript.Visual as DocumentFlow;
         await Assert.That(flow).IsNotNull();
-        await Assert.That(flow!.Items.Count, "Expected 2 items: user + assistant").IsEqualTo(2);
+        await Assert.That(flow!.Items.Count).IsEqualTo(2);
         await Assert.That(session.State.Messages.Count).IsEqualTo(2);
     }
 
