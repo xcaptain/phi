@@ -26,7 +26,10 @@ public static class SessionStatsCalculator
         {
             switch (msg)
             {
-                case UserMessage:
+                case UserMessage u when !u.Text.StartsWith(
+                    ContextWindow.CompactionSummaryPrefix, StringComparison.Ordinal):
+                    // Compaction summaries ride along as UserMessages with
+                    // a marker prefix; they are infrastructure, not turns.
                     turnCount++;
                     break;
                 case AssistantMessage a:

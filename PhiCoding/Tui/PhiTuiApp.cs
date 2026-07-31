@@ -115,10 +115,12 @@ public sealed class PhiTuiApp
             status.Running.Value = s.IsRunning;
             status.QueuedCount.Value = s.SteeringCount + s.FollowUpCount;
             status.UpdateStats(s.Stats);
+            status.UpdateContext(s.ContextUsedTokens, s.AutoCompactThreshold);
         };
         status.Running.Value = _session.State.IsRunning;
         status.QueuedCount.Value = _session.State.SteeringCount + _session.State.FollowUpCount;
         status.UpdateStats(_session.State.Stats);
+        status.UpdateContext(_session.State.ContextUsedTokens, _session.State.AutoCompactThreshold);
     }
 
     // ──────── /sessions dialog ────────

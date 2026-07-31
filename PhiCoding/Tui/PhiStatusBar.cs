@@ -15,6 +15,7 @@ public sealed class PhiStatusBar
     private readonly string _model;
     private readonly State<int> _turn = new(0);
     private readonly State<string> _tokens = new("");
+    private readonly State<string> _context = new("");
     private readonly State<int> _queuedCount = new(0);
 
     public PhiStatusBar(string model)
@@ -37,7 +38,7 @@ public sealed class PhiStatusBar
             .Spacing(1);
 
         var right = new Markup(() =>
-            $"[dim]{_model} · {ShortenPath(Environment.CurrentDirectory)}{_tokens.Value}[/]");
+            $"[dim]{_model} · {ShortenPath(Environment.CurrentDirectory)}{_context.Value}{_tokens.Value}[/]");
 
         Visual = new StatusBar(left, right);
     }
@@ -53,18 +54,36 @@ public sealed class PhiStatusBar
     /// </summary>
     public State<int> QueuedCount => _queuedCount;
 
-    /// <summary>
-    /// Updates the cumulative token display. Called from the session's
-    /// <see cref="ISession.StateChanged"/> handler — invoked once on
-    /// resume / load (carrying prior usage) and again on each
-    /// <see cref="TurnEndEvent"/>.
-    /// </summary>
-    public void UpdateStats(SessionStats stats)
+/// <summary>
+/// Updates the cumulative token display. Called from the session's
+/// <see cref="ISession.StateChanged"/> handler — invoked once on
+/// resume / load (carrying prior usage) and again on each
+/// <see cref="TurnEndEvent"/>.
+/// </summary>
+public void UpdateStats(SessionStats stats)
+{
+    _tokens.Value = stats.TotalTokens > 0
+        ? $" · ↑{FormatCount(stats.InputTokens)} ↓{FormatCount(stats.OutputTokens)}"
+        : "";
+}
+
+/// <summary>
+/// Updates the live context-size / auto-compact threshold display.
+/// <paramref name="contextUsedTokens"/> is the rough estimate for the
+/// current request; <paramref name="autoCompactThreshold"/> is null when
+/// auto-compaction is disabled or the context window is unknown.
+/// </summary>
+public void UpdateContext(int contextUsedTokens, int? autoCompactThreshold)
+{
+    if (contextUsedTokens <= 0)
     {
-        _tokens.Value = stats.TotalTokens > 0
-            ? $" · ↑{FormatCount(stats.InputTokens)} ↓{FormatCount(stats.OutputTokens)}"
-            : "";
+        _context.Value = "";
+        return;
     }
+    _context.Value = autoCompactThreshold is { } threshold
+        ? $" · {FormatCount(contextUsedTokens)}/{FormatCount(threshold + ContextWindow.DefaultCompactionReserveTokens)}"
+        : $" · {FormatCount(contextUsedTokens)}";
+}
 
     public void Apply(HarnessEvent ev)
     {

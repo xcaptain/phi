@@ -85,6 +85,13 @@ public sealed class ChatTranscript
     {
         switch (msg)
         {
+            case UserMessage u when u.Text.StartsWith(
+                    ContextWindow.CompactionSummaryPrefix, StringComparison.Ordinal):
+                // Hidden infrastructure: a compaction summary rides along as
+                // a UserMessage. Render it as a subtle divider so users see
+                // the boundary, not a fake "[You]" turn.
+                AddCompactionDivider(u.Text[ContextWindow.CompactionSummaryPrefix.Length..]);
+                break;
             case UserMessage u:
                 AddUserMessage(u.Text);
                 break;
@@ -227,6 +234,22 @@ public sealed class ChatTranscript
     {
         FinishStreaming();
         Add(new Markup($"[red]✗ {ToolCardRenderer.Escape(message)}[/]") { Wrap = true });
+    }
+
+    /// <summary>
+    /// Renders a compaction summary as a dim divider instead of a fake user
+    /// turn. The summary is rendered as a short first line so the user can
+    /// see the boundary and what was kept.
+    /// </summary>
+    public void AddCompactionDivider(string summary)
+    {
+        FinishStreaming();
+        var firstLine = summary.Split('\n').FirstOrDefault() ?? "";
+        var display = firstLine.Length > 120 ? firstLine[..117] + "…" : firstLine;
+        Add(new Markup($"[dim]⋯ compacted earlier context — {ToolCardRenderer.Escape(display)} ⋯[/]")
+        {
+            Wrap = true,
+        });
     }
 
     // ──────── Streaming (thinking) ────────

@@ -248,14 +248,3 @@ public sealed record BranchSummaryMessage : IAgentMessage
 
     public long Timestamp { get; init; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }
-
-public sealed record CompactionSummaryMessage : IAgentMessage
-{
-    [JsonPropertyName("role")]
-    public string Role { get; init; } = "compactionSummary";
-
-    public string Summary { get; init; } = "";
-    public int TokensBefore { get; init; }
-
-    public long Timestamp { get; init; } = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-}

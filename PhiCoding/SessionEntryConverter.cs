@@ -44,6 +44,15 @@ public static class SessionEntryConverter
             IsError = t.IsError,
             Timestamp = t.Timestamp,
         },
+        CompactionSessionEntry c => new UserMessage
+        {
+            // The compaction entry is materialized as a user-role message
+            // carrying the standard prefix, mirroring CompactionStorage's
+            // live-state shape. This keeps the runtime / provider layer
+            // free of any compaction-specific IAgentMessage subtype.
+            Content = ContextWindow.CompactionSummaryPrefix + c.Summary,
+            Timestamp = c.Timestamp,
+        },
         _ => throw new NotSupportedException(
             $"Cannot restore message from session entry {entry.GetType().Name}"),
     };

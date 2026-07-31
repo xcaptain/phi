@@ -19,6 +19,7 @@ namespace PhiAgent;
 [JsonDerivedType(typeof(UserSessionEntry), "user")]
 [JsonDerivedType(typeof(AssistantSessionEntry), "assistant")]
 [JsonDerivedType(typeof(ToolResultSessionEntry), "toolResult")]
+[JsonDerivedType(typeof(CompactionSessionEntry), "compaction")]
 public abstract record SessionEntry(long Timestamp);
 
 public sealed record UserSessionEntry(long Timestamp, string Content)
@@ -37,4 +38,15 @@ public sealed record ToolResultSessionEntry(
     string ToolName,
     IReadOnlyList<ContentBlock> Content,
     bool IsError)
+    : SessionEntry(Timestamp);
+
+/// <summary>
+/// Marks a point in the transcript where older messages were replaced by
+/// <see cref="Summary"/>. Used by in-place compaction rewrites. Older
+/// entries below this one are dropped from the JSONL file.
+/// </summary>
+public sealed record CompactionSessionEntry(
+    long Timestamp,
+    string Summary,
+    int TokensBefore)
     : SessionEntry(Timestamp);

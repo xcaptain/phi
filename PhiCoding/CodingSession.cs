@@ -82,7 +82,9 @@ public sealed class CodingSession : ISession
     public static CodingSession Create(SessionConfig config)
     {
         var session = Create(config.Cwd, config.Model);
-        session.StartRuntime(BuildHarness(config), config.Provider, config.Model);
+        var harness = BuildHarness(config);
+        session.StartRuntime(harness, config.Provider, config.Model);
+        session.ApplyConfig(config);
         return session;
     }
 
@@ -109,6 +111,7 @@ public sealed class CodingSession : ISession
         var harness = BuildHarness(config);
         harness.ReplaceMessages(session.LoadMessages());
         session.StartRuntime(harness, config.Provider, config.Model);
+        session.ApplyConfig(config);
         return session;
     }
 
@@ -197,12 +200,18 @@ public sealed class CodingSession : ISession
     private IPhiProvider? _provider;
     private MessageQueue? _queue;
     private string _runtimeModel = "";
+    private string _systemPrompt = "";
+    private IReadOnlyList<IHarnessTool> _tools = [];
     private CancellationTokenSource? _runCts;
     private Task? _currentRunTask;
     private int _lastMessageCount;
     private bool _autoNamed;
     private SessionState _state = SessionState.Empty;
     private bool _runtimeStarted;
+    private int _contextWindowTokens = ContextWindow.DefaultContextWindowTokens;
+    private int? _autoCompactThreshold;
+    private bool _autoCompactEnabled = true;
+    private int _compactionKeepRecentTokens = ContextWindow.DefaultCompactionKeepRecentTokens;
 
     /// <summary>Fired on every <see cref="State"/> change.</summary>
     public event Action<SessionState>? StateChanged;
@@ -235,8 +244,49 @@ public sealed class CodingSession : ISession
             SessionTitle = Record.Title,
             IsPersisted = _persisted,
             Stats = SessionStatsCalculator.Calculate(messages),
+            ContextUsedTokens = EstimateContextUsage(messages),
+            AutoCompactThreshold = _autoCompactThreshold,
         };
     }
+
+    /// <summary>
+    /// Applies the session's compression configuration. Must be called once
+    /// after <see cref="StartRuntime"/> and before any <c>SubmitPrompt</c>.
+    /// Idempotent.
+    /// </summary>
+    public void ApplyConfig(SessionConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        _systemPrompt = config.SystemPrompt;
+        _tools = config.Tools ?? BuiltInTools.CreateDefault();
+        _contextWindowTokens = config.ContextWindowTokens;
+        _autoCompactEnabled = config.AutoCompactEnabled;
+        _compactionKeepRecentTokens = config.CompactionKeepRecentTokens;
+        _autoCompactThreshold = config.AutoCompactTokenThreshold
+            ?? ContextWindow.AutoCompactionThresholdForContextWindow(_contextWindowTokens);
+        UpdateState(s => s with { AutoCompactThreshold = _autoCompactThreshold });
+    }
+
+    /// <summary>
+    /// Replaces the in-memory message list (harness + flush watermark)
+    /// without touching storage. Used by <see cref="CompactionStorage"/>
+    /// after it has rewritten the file; the caller guarantees disk and
+    /// memory are about to agree.
+    /// </summary>
+    internal void ReplaceMessagesForCompaction(IReadOnlyList<IAgentMessage> messages)
+    {
+        _harness!.ReplaceMessages(messages);
+        _lastMessageCount = messages.Count;
+        UpdateState(s => s with
+        {
+            Messages = messages.ToList(),
+            Stats = SessionStatsCalculator.Calculate(messages),
+            ContextUsedTokens = EstimateContextUsage(messages),
+        });
+    }
+
+    private int EstimateContextUsage(IReadOnlyList<IAgentMessage> messages) =>
+        ContextWindow.EstimateContextUsage(_systemPrompt, messages, _tools);
 
     // ──────── Runtime actions ────────
 
@@ -300,31 +350,13 @@ public sealed class CodingSession : ISession
         try
         {
             _runCts = new CancellationTokenSource();
-            var harness = _harness!;
 
-            await foreach (var ev in harness.RunAsync(
-                prompt,
-                getSteeringMessages: () => _queue!.DrainSteering(),
-                getFollowUpMessages: () => _queue!.DrainFollowUp(),
-                cancellationToken: _runCts.Token))
-            {
-                HarnessEvent?.Invoke(ev);
+            // Auto-compact before adding the new prompt, so we measure the
+            // pre-prompt context size and the user message itself always
+            // lands in the recent (kept) suffix.
+            await TryAutoCompactAsync();
 
-                // Persist after every event: each completed message lands
-                // on disk immediately, so a crash mid-run loses at most
-                // the in-flight message.
-                FlushNewMessages();
-
-                if (ev is TurnEndEvent te)
-                {
-                    UpdateState(s => s with
-                    {
-                        Messages = harness.Messages.ToList(),
-                        Turn = s.Turn + 1,
-                        Stats = SessionStatsCalculator.Calculate(harness.Messages),
-                    });
-                }
-            }
+            await RunOnceAsync(prompt);
         }
         catch (Exception ex)
         {
@@ -337,6 +369,49 @@ public sealed class CodingSession : ISession
             _runCts = null;
             UpdateState(s => s with { IsRunning = false });
             _currentRunTask = null;
+        }
+    }
+
+    private async Task RunOnceAsync(string prompt)
+    {
+        var harness = _harness!;
+        AssistantMessage? lastAssistant = null;
+
+        await foreach (var ev in harness.RunAsync(
+            prompt,
+            getSteeringMessages: () => _queue!.DrainSteering(),
+            getFollowUpMessages: () => _queue!.DrainFollowUp(),
+            cancellationToken: _runCts!.Token))
+        {
+            HarnessEvent?.Invoke(ev);
+
+            // Persist after every event: each completed message lands
+            // on disk immediately, so a crash mid-run loses at most
+            // the in-flight message.
+            FlushNewMessages();
+
+            if (ev is TurnEndEvent te)
+            {
+                lastAssistant = te.FinalMessage;
+                UpdateState(s => s with
+                {
+                    Messages = harness.Messages.ToList(),
+                    Turn = s.Turn + 1,
+                    Stats = SessionStatsCalculator.Calculate(harness.Messages),
+                    ContextUsedTokens = EstimateContextUsage(harness.Messages),
+                });
+            }
+        }
+
+        // Overflow: the turn ended with a context-overflow error. Run a
+        // proactive compaction now so the user's NEXT prompt has room.
+        // The failed turn's messages stay in history so the user can see
+        // what happened.
+        if (lastAssistant is not null
+            && lastAssistant.StopReason == StopReasons.Error
+            && OverflowDetector.IsOverflow(lastAssistant.ErrorMessage))
+        {
+            await TryAutoCompactAsync(force: true);
         }
     }
 
@@ -382,6 +457,59 @@ public sealed class CodingSession : ISession
             SessionTitle = record.Title,
             IsPersisted = true,
             Stats = SessionStatsCalculator.Calculate(loaded),
+            ContextUsedTokens = EstimateContextUsage(loaded),
+            AutoCompactThreshold = _autoCompactThreshold,
+        });
+    }
+
+    private async Task TryAutoCompactAsync(bool force = false)
+    {
+        if (!_runtimeStarted || _harness is null || _provider is null) return;
+        if (!force && !_autoCompactEnabled) return;
+
+        var messages = _harness.Messages;
+        if (messages.Count < 2) return;
+
+        var currentUsage = EstimateContextUsage(messages);
+        if (!force && _autoCompactThreshold is { } threshold && currentUsage <= threshold)
+            return;
+
+        var plan = CompactionPlanner.Build(messages, _compactionKeepRecentTokens);
+        if (plan is null) return;
+
+        var tokensBefore = currentUsage;
+        string summary;
+        try
+        {
+            summary = await new CompactionSummarizer().GenerateAsync(
+                _provider, _runtimeModel, plan.MessagesToSummarize,
+                cancellationToken: _runCts?.Token ?? default);
+        }
+        catch (Exception ex)
+        {
+            UpdateState(s => s with { LastError = $"Compaction failed: {ex.Message}" });
+            return;
+        }
+
+        await CompactionStorage.RewriteAsync(
+            this, plan, summary, tokensBefore,
+            _runCts?.Token ?? default);
+
+        // Post-check: compaction must actually reduce context size; if it
+        // didn't, leave the larger history alone rather than thrash.
+        var afterUsage = EstimateContextUsage(_harness.Messages);
+        if (!force && _autoCompactThreshold is { } th && afterUsage >= th)
+        {
+            UpdateState(s => s with
+            {
+                LastError = "Compaction did not reduce context size; keeping original history",
+            });
+            return;
+        }
+
+        UpdateState(s => s with
+        {
+            ContextUsedTokens = afterUsage,
         });
     }
 

@@ -51,6 +51,8 @@ public static class SessionEntryCodec
                 ?? throw new InvalidDataException("Failed to deserialize assistant entry"),
             "toolResult" => JsonSerializer.Deserialize<ToolResultSessionEntry>(line, Options)
                 ?? throw new InvalidDataException("Failed to deserialize toolResult entry"),
+            "compaction" => JsonSerializer.Deserialize<CompactionSessionEntry>(line, Options)
+                ?? throw new InvalidDataException("Failed to deserialize compaction entry"),
             _ => throw new InvalidDataException(
                 $"Unknown session entry kind '{kind}': {line}"),
         };
