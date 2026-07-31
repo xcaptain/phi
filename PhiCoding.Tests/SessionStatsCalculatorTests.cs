@@ -16,21 +16,21 @@ public class SessionStatsCalculatorTests
 {
     private static Usage Tokens(int input, int output,
         int cacheRead = 0, int cacheWrite = 0) => new()
-    {
-        Input = input,
-        Output = output,
-        CacheRead = cacheRead,
-        CacheWrite = cacheWrite,
-        TotalTokens = input + output + cacheRead + cacheWrite,
-    };
+        {
+            Input = input,
+            Output = output,
+            CacheRead = cacheRead,
+            CacheWrite = cacheWrite,
+            TotalTokens = input + output + cacheRead + cacheWrite,
+        };
 
     private static AssistantMessage AssistantWithUsage(
         Usage usage, params ToolCall[] calls) => new()
-    {
-        Content = calls.Length > 0 ? calls.Cast<ContentBlock>().ToList() : [],
-        Usage = usage,
-        StopReason = calls.Length > 0 ? StopReasons.ToolUse : StopReasons.Stop,
-    };
+        {
+            Content = calls.Length > 0 ? calls.Cast<ContentBlock>().ToList() : [],
+            Usage = usage,
+            StopReason = calls.Length > 0 ? StopReasons.ToolUse : StopReasons.Stop,
+        };
 
     // ──────────────────── Empty ────────────────────
 

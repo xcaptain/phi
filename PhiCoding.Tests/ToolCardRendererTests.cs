@@ -46,13 +46,68 @@ public class ToolCardRendererTests
     }
 
     [Test]
-    public async Task FormatSummary_Read_ShowsLinesAndBytes()
+    public async Task FormatInvocation_ReadWithOffsetAndLimit_ShowsRange()
+    {
+        var args = new JsonObject
+        {
+            ["path"] = "a.cs",
+            ["offset"] = 100,
+            ["limit"] = 50,
+        };
+        await Assert.That(
+            ToolCardRenderer.FormatInvocation(new ToolCall("id", "read") { Arguments = args }))
+            .IsEqualTo("→ read a.cs \\[offset=100, limit=50\\]");
+    }
+
+    [Test]
+    public async Task FormatInvocation_ReadWithOffsetOnly_UsesAllForLimit()
+    {
+        var args = new JsonObject { ["path"] = "a.cs", ["offset"] = 10 };
+        await Assert.That(
+            ToolCardRenderer.FormatInvocation(new ToolCall("id", "read") { Arguments = args }))
+            .IsEqualTo("→ read a.cs \\[offset=10, limit=all\\]");
+    }
+
+    [Test]
+    public async Task FormatInvocation_ReadWithoutRange_ShowsJustPath()
+    {
+        await Assert.That(ToolCardRenderer.FormatInvocation(Call("read", ("path", "a.cs"))))
+            .IsEqualTo("→ read a.cs");
+    }
+
+    [Test]
+    public async Task FormatSummary_Read_FullFile_ShowsTotalLines()
     {
         var result = new ToolResult(
             [new PhiAgent.TextBlock("...")],
-            Details: ToolDetails.Node(new ReadDetails("a.cs", 42, 2048)));
+            Details: ToolDetails.Node(
+                new ReadDetails("a.cs", Offset: 1, Limit: 42, LineCount: 42, TotalLineCount: 42, ByteCount: 2048)));
         await Assert.That(ToolCardRenderer.FormatSummary("read", result))
             .IsEqualTo("read — 42 lines · 2.0KB");
+    }
+
+    [Test]
+    public async Task FormatSummary_Read_Slice_ShowsRange()
+    {
+        var result = new ToolResult(
+            [new PhiAgent.TextBlock("...")],
+            Details: ToolDetails.Node(
+                new ReadDetails("a.cs", Offset: 100, Limit: 50, LineCount: 50, TotalLineCount: 1234, ByteCount: 12_345)));
+        await Assert.That(ToolCardRenderer.FormatSummary("read", result))
+            .IsEqualTo("read — lines 100-149 of 1234 · 12.1KB");
+    }
+
+    [Test]
+    public async Task FormatSummary_Read_SliceWithOffsetOneStillCountedAsSlice_WhenLimitLess()
+    {
+        // Even with Offset=1, a Limit smaller than the file shows the
+        // "lines X-Y of T" form so the user knows more remains.
+        var result = new ToolResult(
+            [new PhiAgent.TextBlock("...")],
+            Details: ToolDetails.Node(
+                new ReadDetails("a.cs", Offset: 1, Limit: 10, LineCount: 10, TotalLineCount: 100, ByteCount: 800)));
+        await Assert.That(ToolCardRenderer.FormatSummary("read", result))
+            .IsEqualTo("read — lines 1-10 of 100 · 800B");
     }
 
     [Test]
@@ -119,5 +174,24 @@ public class ToolCardRendererTests
         await Assert.That(lines.Count).IsEqualTo(3);
         await Assert.That(hidden).IsEqualTo(0);
         await Assert.That(charTruncated).IsFalse();
+    }
+
+    [Test]
+    public async Task FormatResultBody_ReadSuccess_ReturnsEmptyString()
+    {
+        // Boundary: the read tool's body must NOT pollute the transcript.
+        var body = ToolCardRenderer.FormatResultBody(
+            "read",
+            TextResult("line 1\nline 2\nline 3"));
+        await Assert.That(body).IsEqualTo("");
+    }
+
+    [Test]
+    public async Task FormatResultBody_ReadError_StillReturnsErrorBody()
+    {
+        var body = ToolCardRenderer.FormatResultBody(
+            "read",
+            TextResult("File not found: a.cs", isError: true));
+        await Assert.That(body).Contains("[red]File not found: a.cs[/]");
     }
 }

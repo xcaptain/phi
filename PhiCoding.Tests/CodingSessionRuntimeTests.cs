@@ -269,7 +269,10 @@ public class CodingSessionRuntimeTests : IDisposable
     {
         var usage = new Usage
         {
-            Input = 50, Output = 20, CacheRead = 5, CacheWrite = 2,
+            Input = 50,
+            Output = 20,
+            CacheRead = 5,
+            CacheWrite = 2,
             TotalTokens = 77,
         };
         var turnEvents = new ProviderEvent[]
@@ -309,7 +312,10 @@ public class CodingSessionRuntimeTests : IDisposable
             ],
             Usage = new Usage
             {
-                Input = 100, Output = 40, CacheRead = 10, CacheWrite = 0,
+                Input = 100,
+                Output = 40,
+                CacheRead = 10,
+                CacheWrite = 0,
                 TotalTokens = 150,
             },
             StopReason = StopReasons.ToolUse,
@@ -326,7 +332,9 @@ public class CodingSessionRuntimeTests : IDisposable
             Content = [new TextBlock("done")],
             Usage = new Usage
             {
-                Input = 30, Output = 15, TotalTokens = 45,
+                Input = 30,
+                Output = 15,
+                TotalTokens = 45,
             },
             StopReason = StopReasons.Stop,
         });

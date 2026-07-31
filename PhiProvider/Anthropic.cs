@@ -534,8 +534,8 @@ public sealed class AnthropicProvider : IPhiProvider
                         ["input"] = tc.Arguments.DeepClone(),
                     });
                     break;
-                // ImageBlock / unknown blocks: skip for now; the basic
-                // Anthropic provider is text + tool_use + thinking only.
+                    // ImageBlock / unknown blocks: skip for now; the basic
+                    // Anthropic provider is text + tool_use + thinking only.
             }
         }
 

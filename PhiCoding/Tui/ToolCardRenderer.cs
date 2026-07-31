@@ -20,7 +20,7 @@ internal static class ToolCardRenderer
         var args = call.Arguments;
         return call.Name switch
         {
-            "read" => $"→ read {GetString(args, "path")}",
+            "read" => FormatReadInvocation(args),
             "write" => $"→ write {GetString(args, "path")}",
             "edit" => $"→ edit {GetString(args, "path")}",
             "bash" => $"$ {GetString(args, "command")}",
@@ -28,10 +28,21 @@ internal static class ToolCardRenderer
         };
     }
 
+    private static string FormatReadInvocation(JsonNode? args)
+    {
+        var path = GetString(args, "path");
+        var offset = TryGetInt(args, "offset");
+        var limit = TryGetInt(args, "limit");
+        if (offset is null && limit is null) return $"→ read {path}";
+        var offsetText = offset?.ToString() ?? "1";
+        var limitText = limit is { } l ? l.ToString() : "all";
+        return $"→ read {path} \\[offset={offsetText}, limit={limitText}\\]";
+    }
+
     public static string FormatSummary(string name, ToolResult result) => name switch
     {
         "read" when ToolDetails.Read<ReadDetails>(result.Details) is { } d
-            => $"read — {d.LineCount} lines · {FormatBytes(d.ByteCount)}",
+            => FormatReadSummary(d),
         "write" when ToolDetails.Read<WriteDetails>(result.Details) is { } d
             => $"write — {d.BytesWritten} bytes ({d.Mode})",
         "edit" when ToolDetails.Read<EditDetails>(result.Details) is { } d
@@ -41,13 +52,32 @@ internal static class ToolCardRenderer
         _ => name,
     };
 
+    private static string FormatReadSummary(ReadDetails d)
+    {
+        var slice = (d.Offset, d.Limit) is ( > 1, _) || d.LineCount < d.TotalLineCount;
+        return slice
+            ? $"read — lines {d.Offset}-{d.Offset + d.LineCount - 1} of {d.TotalLineCount} · {FormatBytes(d.ByteCount)}"
+            : $"read — {d.TotalLineCount} lines · {FormatBytes(d.ByteCount)}";
+    }
+
     /// <summary>
     /// Result body as ANSI markup: a colored diff for successful edits,
     /// otherwise a truncated output preview (dim, or red on error).
+    /// <para>
+    /// <c>read</c> results are intentionally rendered as an empty string on
+    /// success — the invocation title and summary already tell the user
+    /// what was fetched, and the file body would just clutter the
+    /// transcript. Errors still render normally so the model / user can
+    /// see what went wrong.
+    /// </para>
     /// </summary>
     public static string FormatResultBody(string name, ToolResult result)
     {
-        if (!result.IsError && name == "edit" && ToolDetails.Read<EditDetails>(result.Details) is { } edit)
+        if (!result.IsError && name == "read")
+            return "";
+
+        if (!result.IsError && name == "edit"
+            && ToolDetails.Read<EditDetails>(result.Details) is { } edit)
         {
             return string.Join('\n', DiffFormatter.Parse(edit.Patch).Select(DiffLineToMarkup));
         }
@@ -91,6 +121,16 @@ internal static class ToolCardRenderer
             && jv.TryGetValue<string>(out var s))
             return s;
         return "";
+    }
+
+    private static int? TryGetInt(JsonNode? args, string key)
+    {
+        if (args is not JsonObject o) return null;
+        if (!o.TryGetPropertyValue(key, out var v)) return null;
+        if (v is not JsonValue jv) return null;
+        if (jv.TryGetValue<long>(out var n)) return (int)n;
+        if (jv.TryGetValue<int>(out var i)) return i;
+        return null;
     }
 
     private static string FormatBytes(int n) => n switch

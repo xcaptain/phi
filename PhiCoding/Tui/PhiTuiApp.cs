@@ -180,7 +180,9 @@ public sealed class PhiTuiApp
 
         var dialog = new Dialog(new Markup("[bold]Sessions (last 7 days)[/]"), list)
         {
-            IsResizable = false, IsDraggable = true, IsModal = true,
+            IsResizable = false,
+            IsDraggable = true,
+            IsModal = true,
         };
         dialog.KeyDownRouted += (_, ev) =>
         {

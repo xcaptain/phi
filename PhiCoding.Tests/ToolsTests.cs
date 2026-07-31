@@ -72,6 +72,89 @@ public class ReadToolTests
             Directory.Delete(dir);
         }
     }
+
+    private static List<string> LinesOf(string content) =>
+        content.Replace("\r\n", "\n").Split('\n').ToList();
+
+    [Test]
+    public async Task ExecuteAsync_OffsetAndLimit_ReadsSlice()
+    {
+        var content = string.Join('\n', Enumerable.Range(1, 20).Select(i => $"line {i}"));
+        using var file = new TempFile(content);
+        var tool = new ReadTool();
+        var args = JsonNode.Parse(
+            $$"""{"path":"{{file.Path}}","offset":10,"limit":5}""")!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsFalse();
+        // Split off the trailing continuation hint (added when more lines
+        // remain) so we can assert the actual file lines cleanly.
+        var body = result.Text.Split("\n\n", 2)[0];
+        await Assert.That(LinesOf(body))
+            .IsEquivalentTo(["line 10", "line 11", "line 12", "line 13", "line 14"]);
+        // The continuation hint must point at the next offset.
+        await Assert.That(result.Text).Contains("offset=15");
+        await Assert.That(result.Text).Contains("6 more lines in file");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_OffsetNull_StartsAtFirstLine()
+    {
+        var content = "a\nb\nc";
+        using var file = new TempFile(content);
+        var tool = new ReadTool();
+        var args = JsonNode.Parse($$"""{"path":"{{file.Path}}","limit":2}""")!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsFalse();
+        await Assert.That(result.Text).StartsWith("a\nb");
+        await Assert.That(result.Text).Contains("offset=3");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_OffsetBeyondEnd_ReturnsError()
+    {
+        var content = "a\nb\nc";
+        using var file = new TempFile(content);
+        var tool = new ReadTool();
+        var args = JsonNode.Parse($$"""{"path":"{{file.Path}}","offset":99}""")!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsTrue();
+        await Assert.That(result.Text).Contains("beyond end of file");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_LimitGreaterThanFile_ClampsToRemaining()
+    {
+        var content = "a\nb\nc";
+        using var file = new TempFile(content);
+        var tool = new ReadTool();
+        var args = JsonNode.Parse($$"""{"path":"{{file.Path}}","offset":2,"limit":999}""")!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsFalse();
+        // Returns b + c, no continuation hint because we hit EOF.
+        await Assert.That(result.Text).IsEqualTo("b\nc");
+        await Assert.That(result.Text).DoesNotContain("more lines in file");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_OffsetLessThanOne_ReturnsError()
+    {
+        using var file = new TempFile("x");
+        var tool = new ReadTool();
+        var args = JsonNode.Parse($$"""{"path":"{{file.Path}}","offset":0}""")!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsTrue();
+        await Assert.That(result.Text).Contains("offset must be at least 1");
+    }
 }
 
 public class WriteToolTests
