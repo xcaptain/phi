@@ -1,7 +1,10 @@
+using System.Reflection;
+using PhiAgent;
 using PhiCoding.Tui;
 using TUnit.Assertions;
 using TUnit.Assertions.Extensions;
 using TUnit.Core;
+using XenoAtom.Terminal.UI;
 
 namespace PhiCoding.Tests;
 
@@ -85,5 +88,117 @@ public class ChatTranscriptTests
             .IsEqualTo("2m5s");
         await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromMinutes(3) + TimeSpan.FromSeconds(42)))
             .IsEqualTo("3m42s");
+    }
+
+    [Test]
+    public async Task ReadToolCall_RendersSingleLine_NoPendingGroup()
+    {
+        // read results render as ONE Markup line (invocation + summary),
+        // never the pending "Group(title, body)" card that other tools use.
+        var transcript = new ChatTranscript();
+        var args = new System.Text.Json.Nodes.JsonObject
+        {
+            ["path"] = "a.cs",
+            ["offset"] = 30,
+            ["limit"] = 18,
+        };
+        var call = new ToolCall("c1", "read") { Arguments = args };
+
+        transcript.Apply(new AssistantToolCallEvent(call));
+
+        // Flow must contain exactly one item.
+        var flow = (XenoAtom.Terminal.UI.Controls.DocumentFlow)transcript.Visual;
+        await Assert.That(flow.Items.Count).IsEqualTo(1);
+
+        // The read title state is tracked separately from tool cards.
+        var readTitles = (System.Collections.IDictionary)
+            typeof(ChatTranscript)
+                .GetField("_readTitles", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(transcript)!;
+        await Assert.That(readTitles.Contains("c1")).IsTrue();
+
+        // Pending title keeps literal brackets (not escaped) and no card
+        // body was registered for read.
+        var toolCards = (System.Collections.IDictionary)
+            typeof(ChatTranscript)
+                .GetField("_toolCards", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(transcript)!;
+        await Assert.That(toolCards.Contains("c1")).IsFalse();
+    }
+
+    [Test]
+    public async Task CompleteReadToolCall_UpdatesSingleLineTitle_WithUnescapedRange()
+    {
+        var transcript = new ChatTranscript();
+        var args = new System.Text.Json.Nodes.JsonObject
+        {
+            ["path"] = "a.cs",
+            ["offset"] = 30,
+            ["limit"] = 18,
+        };
+        var call = new ToolCall("c1", "read") { Arguments = args };
+
+        transcript.Apply(new AssistantToolCallEvent(call));
+        transcript.Apply(new ToolExecutionEndEvent(
+            call,
+            new ToolResult(
+                [new TextBlock("file body")],
+                Details: PhiCoding.Tools.Details.ToolDetails.Node(
+                    new PhiCoding.Tools.Details.ReadDetails(
+                        "a.cs", Offset: 30, Limit: 18,
+                        LineCount: 18, TotalLineCount: 82, ByteCount: 2048)))));
+
+        var readTitles = (System.Collections.IDictionary)
+            typeof(ChatTranscript)
+                .GetField("_readTitles", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(transcript)!;
+        var titleState = (State<string>)readTitles["c1"]!;
+
+        // Final line carries the status + the range hint. The hint is
+        // author-controlled text rendered literally by XenoAtom (unknown
+        // markup tags like "[offset=30, limit=18]" pass through unchanged),
+        // so it must appear unescaped in the title state.
+        await Assert.That(titleState.Value).Contains("[offset=30, limit=18]");
+        await Assert.That(titleState.Value).DoesNotContain("\\[");
+        await Assert.That(titleState.Value).Contains("read — lines 30-47 of 82");
+    }
+
+    [Test]
+    public async Task EditToolCall_Complete_SwapsBodyStateToDiffGrid()
+    {
+        // Regression: the edit body must render as a side-by-side diff. The
+        // body is a State<Visual> fed into a ComputedVisual; on completion
+        // CompleteTool swaps BodyState.Value to the diff Grid, which the
+        // already-laid-out Group re-renders in place.
+        var transcript = new ChatTranscript();
+        var call = new ToolCall("e1", "edit")
+        {
+            Arguments = new System.Text.Json.Nodes.JsonObject { ["path"] = "a.cs" },
+        };
+
+        transcript.Apply(new AssistantToolCallEvent(call));
+
+        var toolCards = (System.Collections.IDictionary)
+            typeof(ChatTranscript)
+                .GetField("_toolCards", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(transcript)!;
+        var card = toolCards["e1"]!;
+        var bodyState = (State<XenoAtom.Terminal.UI.Visual>)card.GetType().GetProperty("BodyState")!.GetValue(card)!;
+        // Pending body is the placeholder Markup.
+        await Assert.That(bodyState.Value).IsTypeOf<XenoAtom.Terminal.UI.Controls.Markup>();
+
+        // Complete the edit with an EditDetails result.
+        transcript.Apply(new ToolExecutionEndEvent(
+            call,
+            new ToolResult(
+                [new TextBlock("ok")],
+                Details: PhiCoding.Tools.Details.ToolDetails.Node(
+                    new PhiCoding.Tools.Details.EditDetails(
+                        "a.cs", "old line", "new line", "")))));
+
+        // Body state now holds the diff Grid.
+        await Assert.That(bodyState.Value).IsTypeOf<XenoAtom.Terminal.UI.Controls.Grid>();
+        var grid = (XenoAtom.Terminal.UI.Controls.Grid)bodyState.Value!;
+        await Assert.That(grid.Cells.Count).IsEqualTo(2);
     }
 }

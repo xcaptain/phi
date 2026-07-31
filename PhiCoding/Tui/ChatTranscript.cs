@@ -21,6 +21,7 @@ public sealed class ChatTranscript
 
     private readonly DocumentFlow _flow;
     private readonly Dictionary<string, ToolCard> _toolCards = new();
+    private readonly Dictionary<string, State<string>> _readTitles = new();
     private StreamMode _streamMode = StreamMode.None;
     private StringBuilder? _streamText;
     private MarkdownControl? _streamControl;
@@ -201,6 +202,23 @@ public sealed class ChatTranscript
     {
         var stubResult = new ToolResult(tr.Content, tr.Details, tr.IsError);
 
+        if (tr.ToolName == "read")
+        {
+            // Read renders a single line — no pending card, no body.
+            var readSummary = ToolCardRenderer.Escape(
+                ToolCardRenderer.FormatSummary(tr.ToolName, stubResult));
+            var titleState = new State<string>(
+                $"{ResultStatus(tr.IsError)} [primary]{ToolCardRenderer.FormatInvocation(new ToolCall(tr.ToolCallId, tr.ToolName))}[/] [dim]· {readSummary}[/]");
+            var readTitle = new Markup(() => titleState.Value)
+            {
+                HorizontalAlignment = Align.Stretch,
+                VerticalAlignment = Align.Start,
+            };
+            _readTitles[tr.ToolCallId] = titleState;
+            Add(readTitle);
+            return;
+        }
+
         ToolCall call;
         if (_toolCards.TryGetValue(tr.ToolCallId, out var card))
         {
@@ -213,12 +231,15 @@ public sealed class ChatTranscript
             card = _toolCards[tr.ToolCallId];
         }
 
-        var status = tr.IsError ? "[red]✗[/]" : "[green]✓[/]";
-        var invocation = ToolCardRenderer.Escape(ToolCardRenderer.FormatInvocation(call));
+        // Invocations are author-controlled format strings — don't escape.
+        var status = ResultStatus(tr.IsError);
+        var invocation = ToolCardRenderer.FormatInvocation(call);
         var summary = ToolCardRenderer.Escape(ToolCardRenderer.FormatSummary(tr.ToolName, stubResult));
         card.Title.Text = $"{status} [primary]{invocation}[/] [dim]· {summary}[/]";
-        card.Body.Text = ToolCardRenderer.FormatResultBody(tr.ToolName, stubResult);
+        card.BodyState.Value = ToolCardRenderer.FormatResultBody(tr.ToolName, stubResult);
     }
+
+    private static string ResultStatus(bool isError) => isError ? "[red]✗[/]" : "[green]✓[/]";
 
     // ──────── User-facing helpers ────────
 
@@ -328,28 +349,76 @@ public sealed class ChatTranscript
     private void AddToolCall(ToolCall call)
     {
         FinishStreaming();
-        var title = new Markup($"[primary]{ToolCardRenderer.Escape(ToolCardRenderer.FormatInvocation(call))}[/]");
-        var body = new Markup("[dim]…[/]") { Wrap = false };
+
+        // Read results render as a single line bound to a State<string>
+        // so CompleteTool can update it in place — no Group, no pending
+        // body, no card. The invocation itself is author-controlled
+        // (e.g. "[offset=N, limit=M]"), so it is NOT escaped.
+        if (call.Name == "read")
+        {
+            var titleState = new State<string>(
+                $"[dim]{ToolCardRenderer.FormatInvocation(call)}[/]");
+            var readTitle = new Markup(() => titleState.Value)
+            {
+                HorizontalAlignment = Align.Stretch,
+                VerticalAlignment = Align.Start,
+            };
+            _readTitles[call.Id] = titleState;
+            Add(readTitle);
+            return;
+        }
+
+        var title = new Markup($"[primary]{ToolCardRenderer.FormatInvocation(call)}[/]");
+        // The body is a State<Visual> fed into a ComputedVisual so
+        // CompleteTool can swap in the final result (e.g. a diff Grid)
+        // and the already-laid-out Group re-renders it in place.
+        var bodyState = new State<Visual>(new Markup("[dim]…[/]") { Wrap = false });
+        var body = new ComputedVisual(() => bodyState.Value);
         var group = new Group(title, body)
             .HorizontalAlignment(Align.Stretch)
             .VerticalAlignment(Align.Start);
         Add(group);
-        _toolCards[call.Id] = new ToolCard(call, title, body);
+        _toolCards[call.Id] = new ToolCard(call, title, bodyState);
     }
 
     private void CompleteTool(ToolCall call, ToolResult result)
     {
+        var status = result.IsError ? "[red]✗[/]" : "[green]✓[/]";
+        var invocation = ToolCardRenderer.FormatInvocation(call);
+        var summary = ToolCardRenderer.Escape(
+            ToolCardRenderer.FormatSummary(call.Name, result));
+
+        if (call.Name == "read")
+        {
+            if (_readTitles.TryGetValue(call.Id, out var titleState))
+            {
+                titleState.Value = $"{status} [primary]{invocation}[/] [dim]· {summary}[/]";
+            }
+            else
+            {
+                // No prior AddToolCall (resume / bulk edge): emit finalized
+                // line directly.
+                var newState = new State<string>(
+                    $"{status} [primary]{invocation}[/] [dim]· {summary}[/]");
+                var title = new Markup(() => newState.Value)
+                {
+                    HorizontalAlignment = Align.Stretch,
+                    VerticalAlignment = Align.Start,
+                };
+                _readTitles[call.Id] = newState;
+                Add(title);
+            }
+            return;
+        }
+
         if (!_toolCards.TryGetValue(call.Id, out var card))
         {
             AddToolCall(call);
             card = _toolCards[call.Id];
         }
 
-        var status = result.IsError ? "[red]✗[/]" : "[green]✓[/]";
-        var invocation = ToolCardRenderer.Escape(ToolCardRenderer.FormatInvocation(call));
-        var summary = ToolCardRenderer.Escape(ToolCardRenderer.FormatSummary(call.Name, result));
         card.Title.Text = $"{status} [primary]{invocation}[/] [dim]· {summary}[/]";
-        card.Body.Text = ToolCardRenderer.FormatResultBody(call.Name, result);
+        card.BodyState.Value = ToolCardRenderer.FormatResultBody(call.Name, result);
     }
 
     // ──────── Bulk rebuild ────────
@@ -364,6 +433,7 @@ public sealed class ChatTranscript
         FinishStreaming();
         _flow.Items.Clear();
         _toolCards.Clear();
+        _readTitles.Clear();
 
         foreach (var msg in messages)
             AppendVisualForMessage(msg);
@@ -410,5 +480,5 @@ public sealed class ChatTranscript
         return $"{minutes}m{seconds}s";
     }
 
-    private sealed record ToolCard(ToolCall Call, Markup Title, Markup Body);
+    private sealed record ToolCard(ToolCall Call, Markup Title, State<Visual> BodyState);
 }

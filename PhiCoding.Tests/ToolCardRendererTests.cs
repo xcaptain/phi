@@ -56,7 +56,7 @@ public class ToolCardRendererTests
         };
         await Assert.That(
             ToolCardRenderer.FormatInvocation(new ToolCall("id", "read") { Arguments = args }))
-            .IsEqualTo("→ read a.cs \\[offset=100, limit=50\\]");
+            .IsEqualTo("→ read a.cs [offset=100, limit=50]");
     }
 
     [Test]
@@ -65,7 +65,7 @@ public class ToolCardRendererTests
         var args = new JsonObject { ["path"] = "a.cs", ["offset"] = 10 };
         await Assert.That(
             ToolCardRenderer.FormatInvocation(new ToolCall("id", "read") { Arguments = args }))
-            .IsEqualTo("→ read a.cs \\[offset=10, limit=all\\]");
+            .IsEqualTo("→ read a.cs [offset=10, limit=all]");
     }
 
     [Test]
@@ -127,26 +127,35 @@ public class ToolCardRendererTests
     }
 
     [Test]
-    public async Task FormatResultBody_Edit_RendersColoredDiff()
+    public async Task FormatResultBody_Edit_RendersSideBySideDiff()
     {
-        var patch = UnidiffRenderer.GenerateUnidiff(
-            "line 1\nold line 2\nline 3", "line 1\nnew line 2\nline 3", "a.txt", "b.txt");
+        // EditDetails carries the old/new snippet; the renderer diffs them
+        // side-by-side: red removed on the left, green added on the right.
         var result = new ToolResult(
             [new PhiAgent.TextBlock("ok")],
-            Details: ToolDetails.Node(new EditDetails("b.txt", "old line 2", "new line 2", patch)));
+            Details: ToolDetails.Node(
+                new EditDetails("b.txt", "line 1\nold line 2\nline 3", "line 1\nnew line 2\nline 3", "")));
 
         var body = ToolCardRenderer.FormatResultBody("edit", result);
 
-        await Assert.That(body).Contains("[green]+new line 2[/]");
-        await Assert.That(body).Contains("[red]-old line 2[/]");
-        await Assert.That(body).Contains("[dim]@@");
+        var grid = (XenoAtom.Terminal.UI.Controls.Grid)body;
+        await Assert.That(grid.Cells.Count).IsEqualTo(2);
+        var left = ((XenoAtom.Terminal.UI.Controls.Markup)grid.Cells[0].Content!).Text;
+        var right = ((XenoAtom.Terminal.UI.Controls.Markup)grid.Cells[1].Content!).Text;
+        await Assert.That(left).Contains("[red]- old line 2[/]");
+        await Assert.That(right).Contains("[green]+ new line 2[/]");
+        // Line numbers are present on both sides.
+        await Assert.That(left).Contains("[dim]2 │ [/]");
     }
+
+    private static string BodyText(string name, ToolResult result) =>
+        ((XenoAtom.Terminal.UI.Controls.Markup)ToolCardRenderer.FormatResultBody(name, result)!).Text!;
 
     [Test]
     public async Task FormatResultBody_LongOutput_TruncatesWithHiddenNote()
     {
         var text = string.Join('\n', Enumerable.Range(1, 20).Select(i => $"line {i}"));
-        var body = ToolCardRenderer.FormatResultBody("bash", TextResult(text));
+        var body = BodyText("bash", TextResult(text));
 
         await Assert.That(body).Contains("line 1");
         await Assert.That(body).DoesNotContain("line 20");
@@ -156,14 +165,14 @@ public class ToolCardRendererTests
     [Test]
     public async Task FormatResultBody_Error_RendersRed()
     {
-        var body = ToolCardRenderer.FormatResultBody("bash", TextResult("boom", isError: true));
+        var body = BodyText("bash", TextResult("boom", isError: true));
         await Assert.That(body).Contains("[red]boom[/]");
     }
 
     [Test]
     public async Task FormatResultBody_EscapesMarkupBrackets()
     {
-        var body = ToolCardRenderer.FormatResultBody("bash", TextResult("array[0] = [1]"));
+        var body = BodyText("bash", TextResult("array[0] = [1]"));
         await Assert.That(body).Contains("array\\[0\\] = \\[1\\]");
     }
 
@@ -177,19 +186,17 @@ public class ToolCardRendererTests
     }
 
     [Test]
-    public async Task FormatResultBody_ReadSuccess_ReturnsEmptyString()
+    public async Task FormatResultBody_ReadSuccess_ReturnsEmptyMarkup()
     {
         // Boundary: the read tool's body must NOT pollute the transcript.
-        var body = ToolCardRenderer.FormatResultBody(
-            "read",
-            TextResult("line 1\nline 2\nline 3"));
+        var body = BodyText("read", TextResult("line 1\nline 2\nline 3"));
         await Assert.That(body).IsEqualTo("");
     }
 
     [Test]
     public async Task FormatResultBody_ReadError_StillReturnsErrorBody()
     {
-        var body = ToolCardRenderer.FormatResultBody(
+        var body = BodyText(
             "read",
             TextResult("File not found: a.cs", isError: true));
         await Assert.That(body).Contains("[red]File not found: a.cs[/]");

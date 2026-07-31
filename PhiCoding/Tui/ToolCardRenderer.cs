@@ -1,6 +1,8 @@
 using System.Text.Json.Nodes;
 using PhiAgent;
 using PhiCoding.Tools.Details;
+using XenoAtom.Terminal.UI;
+using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tui;
 
@@ -36,7 +38,10 @@ internal static class ToolCardRenderer
         if (offset is null && limit is null) return $"→ read {path}";
         var offsetText = offset?.ToString() ?? "1";
         var limitText = limit is { } l ? l.ToString() : "all";
-        return $"→ read {path} \\[offset={offsetText}, limit={limitText}\\]";
+        // The range hint is author-controlled, fixed-shape text; XenoAtom
+        // renders unknown markup tags like "[offset=10, limit=18]" literally,
+        // so no escaping is needed here. (Escape stays for untrusted text.)
+        return $"→ read {path} [offset={offsetText}, limit={limitText}]";
     }
 
     public static string FormatSummary(string name, ToolResult result) => name switch
@@ -61,25 +66,20 @@ internal static class ToolCardRenderer
     }
 
     /// <summary>
-    /// Result body as ANSI markup: a colored diff for successful edits,
-    /// otherwise a truncated output preview (dim, or red on error).
-    /// <para>
-    /// <c>read</c> results are intentionally rendered as an empty string on
-    /// success — the invocation title and summary already tell the user
-    /// what was fetched, and the file body would just clutter the
-    /// transcript. Errors still render normally so the model / user can
-    /// see what went wrong.
-    /// </para>
+    /// Builds the result-body control for a completed tool call: a
+    /// side-by-side <see cref="Grid"/> diff for successful edits, an
+    /// empty Markup for successful reads, otherwise a truncated output
+    /// preview (dim, or red on error).
     /// </summary>
-    public static string FormatResultBody(string name, ToolResult result)
+    public static Visual FormatResultBody(string name, ToolResult result)
     {
         if (!result.IsError && name == "read")
-            return "";
+            return new Markup("");
 
         if (!result.IsError && name == "edit"
             && ToolDetails.Read<EditDetails>(result.Details) is { } edit)
         {
-            return string.Join('\n', DiffFormatter.Parse(edit.Patch).Select(DiffLineToMarkup));
+            return SideBySideDiff.Build(edit);
         }
 
         var style = result.IsError ? "red" : "dim";
@@ -90,7 +90,7 @@ internal static class ToolCardRenderer
             var note = hidden > 0 ? $"{hidden} more lines" : "output";
             body += $"\n[dim]… ({note} hidden)[/]";
         }
-        return body;
+        return new Markup(body) { Wrap = true };
     }
 
     public static string DiffLineToMarkup(DiffLine line) => line.Kind switch
