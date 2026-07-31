@@ -11,7 +11,11 @@ namespace PhiCoding.Tests;
 public class SideBySideDiffTests
 {
     private static EditDetails Edit(string oldText, string newText) =>
-        new("/tmp/a.cs", oldText, newText, "");
+        new("/tmp/a.cs",
+            [new EditOpDetails(oldText, newText)],
+            Diff: "",
+            Patch: "",
+            FirstChangedLine: null);
 
     private static Grid Build(string oldText, string newText) =>
         (Grid)SideBySideDiff.Build(Edit(oldText, newText))!;
@@ -133,5 +137,40 @@ public class SideBySideDiffTests
             var rSep = rightRows[i].IndexOf("│", StringComparison.Ordinal);
             await Assert.That(rSep).IsEqualTo(lSep);
         }
+    }
+
+    [Test]
+    public async Task Build_MultipleEdits_StacksOneGridPerEdit()
+    {
+        var details = new EditDetails(
+            "/tmp/a.cs",
+            [
+                new EditOpDetails("oldA", "newA"),
+                new EditOpDetails("oldB", "newB"),
+            ],
+            Diff: "",
+            Patch: "",
+            FirstChangedLine: null);
+
+        var visual = SideBySideDiff.Build(details);
+
+        // Two edits → a VStack of two Grids.
+        var stack = (VStack)visual;
+        await Assert.That(stack.Children.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Build_SingleEdit_ReturnsGridDirectly()
+    {
+        var details = new EditDetails(
+            "/tmp/a.cs",
+            [new EditOpDetails("oldA", "newA")],
+            Diff: "",
+            Patch: "",
+            FirstChangedLine: null);
+
+        var visual = SideBySideDiff.Build(details);
+
+        await Assert.That(visual).IsTypeOf<Grid>();
     }
 }

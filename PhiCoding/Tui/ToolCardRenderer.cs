@@ -51,7 +51,7 @@ internal static class ToolCardRenderer
         "write" when ToolDetails.Read<WriteDetails>(result.Details) is { } d
             => $"write — {d.BytesWritten} bytes ({d.Mode})",
         "edit" when ToolDetails.Read<EditDetails>(result.Details) is { } d
-            => $"edit {d.Path}",
+            => $"edit {d.Path} · {d.Edits.Count} block(s)",
         "bash" when ToolDetails.Read<BashDetails>(result.Details) is { } d
             => $"bash — exit={d.ExitCode} in {d.DurationMs}ms",
         _ => name,

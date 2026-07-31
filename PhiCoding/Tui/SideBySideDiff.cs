@@ -35,8 +35,19 @@ public static class SideBySideDiff
     {
         ArgumentNullException.ThrowIfNull(details);
 
+        // One side-by-side Grid per applied edit. A single edit returns the
+        // Grid directly; multiple edits stack as one Grid per edit so the
+        // user sees each change block in its own left/right pair.
+        var grids = details.Edits.Select(BuildEditGrid).ToList();
+        if (grids.Count == 1) return grids[0];
+
+        return new VStack(grids.ToArray()).Spacing(1);
+    }
+
+    private static Grid BuildEditGrid(EditOpDetails op)
+    {
         var model = new SideBySideDiffBuilder(DiffPlex.Differ.Instance)
-            .BuildDiffModel(details.OldString, details.NewString);
+            .BuildDiffModel(op.OldText, op.NewText);
 
         var oldLines = model.OldText.Lines;
         var newLines = model.NewText.Lines;
@@ -46,7 +57,7 @@ public static class SideBySideDiff
         var maxLineNoWidth = oldLines
             .Concat(newLines)
             .Where(p => p.Position > 0)
-            .Select(p => p.Position.ToString().Length)
+            .Select(p => p.Position!.Value.ToString().Length)
             .DefaultIfEmpty(1)
             .Max();
 
@@ -91,8 +102,8 @@ public static class SideBySideDiff
         var text = piece.Text ?? "";
         // Right-align real line numbers; imaginary padding rows get a
         // same-width blank so the separator column stays aligned.
-        var lineNo = piece.Position > 0
-            ? piece.Position.ToString().PadLeft(maxLineNoWidth)
+        var lineNo = piece.Position is { } pos && pos > 0
+            ? pos.ToString().PadLeft(maxLineNoWidth)
             : new string(' ', maxLineNoWidth);
         var marker = side switch
         {

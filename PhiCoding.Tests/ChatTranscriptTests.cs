@@ -194,7 +194,11 @@ public class ChatTranscriptTests
                 [new TextBlock("ok")],
                 Details: PhiCoding.Tools.Details.ToolDetails.Node(
                     new PhiCoding.Tools.Details.EditDetails(
-                        "a.cs", "old line", "new line", "")))));
+                        "a.cs",
+                        [new PhiCoding.Tools.Details.EditOpDetails("old line", "new line")],
+                        Diff: "",
+                        Patch: "",
+                        FirstChangedLine: null)))));
 
         // Body state now holds the diff Grid.
         await Assert.That(bodyState.Value).IsTypeOf<XenoAtom.Terminal.UI.Controls.Grid>();

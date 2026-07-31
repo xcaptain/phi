@@ -228,7 +228,7 @@ public class EditToolTests
         using var file = new TempFile("hello world\nfoo bar\nbaz");
         var tool = new EditTool();
         var args = JsonNode.Parse($$"""
-            {"path":"{{file.Path}}","oldString":"foo bar","newString":"FOO BAR"}
+            {"path":"{{file.Path}}","edits":[{"oldText":"foo bar","newText":"FOO BAR"}]}
             """)!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
@@ -238,12 +238,12 @@ public class EditToolTests
     }
 
     [Test]
-    public async Task ExecuteAsync_OldStringNotFound_ReturnsError()
+    public async Task ExecuteAsync_OldTextNotFound_ReturnsError()
     {
         using var file = new TempFile("hello world");
         var tool = new EditTool();
         var args = JsonNode.Parse($$"""
-            {"path":"{{file.Path}}","oldString":"nonexistent","newString":"X"}
+            {"path":"{{file.Path}}","edits":[{"oldText":"nonexistent","newText":"X"}]}
             """)!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
@@ -254,12 +254,12 @@ public class EditToolTests
     }
 
     [Test]
-    public async Task ExecuteAsync_OldStringAppearsMultipleTimes_ReturnsError()
+    public async Task ExecuteAsync_OldTextAppearsMultipleTimes_ReturnsError()
     {
         using var file = new TempFile("foo foo foo");
         var tool = new EditTool();
         var args = JsonNode.Parse($$"""
-            {"path":"{{file.Path}}","oldString":"foo","newString":"bar"}
+            {"path":"{{file.Path}}","edits":[{"oldText":"foo","newText":"bar"}]}
             """)!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
@@ -270,6 +270,37 @@ public class EditToolTests
     }
 
     [Test]
+    public async Task ExecuteAsync_EmptyEditsArray_ReturnsError()
+    {
+        using var file = new TempFile("hello");
+        var tool = new EditTool();
+        var args = JsonNode.Parse($$"""{"path":"{{file.Path}}","edits":[]}""")!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsTrue();
+        await Assert.That(result.Text).Contains("at least one");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_MultipleEdits_AppliesAll()
+    {
+        using var file = new TempFile("one\ntwo\nthree\nfour");
+        var tool = new EditTool();
+        var args = JsonNode.Parse($$"""
+            {"path":"{{file.Path}}","edits":[
+                {"oldText":"one","newText":"1"},
+                {"oldText":"four","newText":"4"}
+            ]}
+            """)!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsFalse();
+        await Assert.That(File.ReadAllText(file.Path)).IsEqualTo("1\ntwo\nthree\n4");
+    }
+
+    [Test]
     public async Task ExecuteAsync_MissingFile_ReturnsError()
     {
         var missing = System.IO.Path.Combine(
@@ -277,7 +308,7 @@ public class EditToolTests
             $"phi-edit-missing-{Guid.NewGuid():N}");
         var tool = new EditTool();
         var args = JsonNode.Parse($$"""
-            {"path":"{{missing}}","oldString":"x","newString":"y"}
+            {"path":"{{missing}}","edits":[{"oldText":"x","newText":"y"}]}
             """)!;
 
         var result = await tool.ExecuteAsync("c1", args, default);

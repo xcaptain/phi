@@ -75,7 +75,7 @@ public class EditToolDetailsTests
         using var file = new TempFile("foo\nbar\nbaz");
         var tool = new EditTool();
         var args = JsonNode.Parse($$"""
-            {"path":"{{file.Path}}","oldString":"bar","newString":"BAR"}
+            {"path":"{{file.Path}}","edits":[{"oldText":"bar","newText":"BAR"}]}
             """)!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
@@ -84,11 +84,88 @@ public class EditToolDetailsTests
         var details = ToolDetails.Read<EditDetails>(result.Details);
         await Assert.That(details).IsNotNull();
         await Assert.That(details!.Path).IsEqualTo(file.Path);
-        await Assert.That(details.OldString).IsEqualTo("bar");
-        await Assert.That(details.NewString).IsEqualTo("BAR");
+        await Assert.That(details.Edits.Count).IsEqualTo(1);
+        await Assert.That(details.Edits[0].OldText).IsEqualTo("bar");
+        await Assert.That(details.Edits[0].NewText).IsEqualTo("BAR");
         await Assert.That(details.Patch).IsNotNull();
         await Assert.That(details.Patch).Contains("-bar");
         await Assert.That(details.Patch).Contains("+BAR");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_MultipleEdits_AppliesAllAndReportsCount()
+    {
+        using var file = new TempFile("one\ntwo\nthree\nfour");
+        var tool = new EditTool();
+        var args = JsonNode.Parse($$"""
+            {"path":"{{file.Path}}","edits":[
+                {"oldText":"one","newText":"ONE"},
+                {"oldText":"three","newText":"THREE"}
+            ]}
+            """)!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsFalse();
+        await Assert.That(File.ReadAllText(file.Path)).IsEqualTo("ONE\ntwo\nTHREE\nfour");
+        var details = ToolDetails.Read<EditDetails>(result.Details);
+        await Assert.That(details!.Edits.Count).IsEqualTo(2);
+        await Assert.That(details.FirstChangedLine).IsNotNull();
+    }
+
+    [Test]
+    public async Task ExecuteAsync_OverlappingEdits_Rejected()
+    {
+        using var file = new TempFile("hello world");
+        var tool = new EditTool();
+        var args = JsonNode.Parse($$"""
+            {"path":"{{file.Path}}","edits":[
+                {"oldText":"hello","newText":"H"},
+                {"oldText":"lo wo","newText":"X"}
+            ]}
+            """)!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsTrue();
+        await Assert.That(result.Text).Contains("overlap");
+        await Assert.That(File.ReadAllText(file.Path)).IsEqualTo("hello world");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_CrlfFile_PreservesLineEndings()
+    {
+        using var file = new TempFile("one\r\ntwo\r\nthree");
+        var tool = new EditTool();
+        var args = JsonNode.Parse($$"""
+            {"path":"{{file.Path}}","edits":[{"oldText":"two","newText":"TWO"}]}
+            """)!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsFalse();
+        await Assert.That(File.ReadAllText(file.Path)).IsEqualTo("one\r\nTWO\r\nthree");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_BomFile_PreservesBom()
+    {
+        using var file = new TempFile("\uFEFFline one\nline two");
+        var tool = new EditTool();
+        var args = JsonNode.Parse($$"""
+            {"path":"{{file.Path}}","edits":[{"oldText":"line one","newText":"LINE ONE"}]}
+            """)!;
+
+        var result = await tool.ExecuteAsync("c1", args, default);
+
+        await Assert.That(result.IsError).IsFalse();
+        // Read raw bytes so the UTF-8 BOM is not stripped by ReadAllText.
+        var bytes = File.ReadAllBytes(file.Path);
+        await Assert.That(bytes.Length).IsGreaterThan(3);
+        await Assert.That(bytes[0]).IsEqualTo((byte)0xEF);
+        await Assert.That(bytes[1]).IsEqualTo((byte)0xBB);
+        await Assert.That(bytes[2]).IsEqualTo((byte)0xBF);
+        await Assert.That(System.Text.Encoding.UTF8.GetString(bytes)).Contains("LINE ONE");
     }
 }
 

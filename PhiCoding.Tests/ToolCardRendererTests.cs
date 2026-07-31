@@ -134,7 +134,12 @@ public class ToolCardRendererTests
         var result = new ToolResult(
             [new PhiAgent.TextBlock("ok")],
             Details: ToolDetails.Node(
-                new EditDetails("b.txt", "line 1\nold line 2\nline 3", "line 1\nnew line 2\nline 3", "")));
+                new EditDetails(
+                    "b.txt",
+                    [new EditOpDetails("line 1\nold line 2\nline 3", "line 1\nnew line 2\nline 3")],
+                    Diff: "",
+                    Patch: "",
+                    FirstChangedLine: null)));
 
         var body = ToolCardRenderer.FormatResultBody("edit", result);
 
