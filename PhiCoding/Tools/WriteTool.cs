@@ -13,7 +13,7 @@ public sealed record WriteArgs
     public required string Content { get; init; }
 }
 
-public sealed class WriteTool : TypedTool<WriteArgs>
+public sealed partial class WriteTool : TypedTool<WriteArgs>
 {
     public override string Name => "write";
     public override string Description =>

@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace PhiAgent;
 
@@ -13,12 +12,6 @@ namespace PhiAgent;
 /// </summary>
 public static class SessionEntryCodec
 {
-    private static readonly JsonSerializerOptions Options = new()
-    {
-        IncludeFields = false,
-        WriteIndented = false,
-    };
-
     public static string Serialize(SessionEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -26,7 +19,7 @@ public static class SessionEntryCodec
         // contract fires and the `kind` discriminator is written. Serializing
         // via the concrete type would emit a self-typed object with no
         // discriminator and deserialize would fail on the next load.
-        return JsonSerializer.Serialize<SessionEntry>(entry, Options) + "\n";
+        return JsonSerializer.Serialize(entry, PhiJsonContext.Default.SessionEntry) + "\n";
     }
 
     public static SessionEntry Deserialize(string line)
@@ -45,13 +38,13 @@ public static class SessionEntryCodec
         var kind = kindProp.GetString();
         return kind switch
         {
-            "user" => JsonSerializer.Deserialize<UserSessionEntry>(line, Options)
+            "user" => JsonSerializer.Deserialize(line, PhiJsonContext.Default.UserSessionEntry)
                 ?? throw new InvalidDataException("Failed to deserialize user entry"),
-            "assistant" => JsonSerializer.Deserialize<AssistantSessionEntry>(line, Options)
+            "assistant" => JsonSerializer.Deserialize(line, PhiJsonContext.Default.AssistantSessionEntry)
                 ?? throw new InvalidDataException("Failed to deserialize assistant entry"),
-            "toolResult" => JsonSerializer.Deserialize<ToolResultSessionEntry>(line, Options)
+            "toolResult" => JsonSerializer.Deserialize(line, PhiJsonContext.Default.ToolResultSessionEntry)
                 ?? throw new InvalidDataException("Failed to deserialize toolResult entry"),
-            "compaction" => JsonSerializer.Deserialize<CompactionSessionEntry>(line, Options)
+            "compaction" => JsonSerializer.Deserialize(line, PhiJsonContext.Default.CompactionSessionEntry)
                 ?? throw new InvalidDataException("Failed to deserialize compaction entry"),
             _ => throw new InvalidDataException(
                 $"Unknown session entry kind '{kind}': {line}"),

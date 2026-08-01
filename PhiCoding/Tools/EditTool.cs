@@ -25,7 +25,7 @@ public sealed record EditArgs
     public required EditOp[] Edits { get; init; }
 }
 
-public sealed class EditTool : TypedTool<EditArgs>
+public sealed partial class EditTool : TypedTool<EditArgs>
 {
     public override string Name => "edit";
 

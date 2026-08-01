@@ -16,7 +16,7 @@ public sealed record ReadArgs
     public int? Limit { get; init; }
 }
 
-public sealed class ReadTool : TypedTool<ReadArgs>
+public sealed partial class ReadTool : TypedTool<ReadArgs>
 {
     /// <summary>
     /// Hard upper bound on lines returned in a single call. Defends against

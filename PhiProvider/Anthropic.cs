@@ -36,7 +36,9 @@ public sealed class AnthropicProvider : IPhiProvider
 
         using var request = new HttpRequestMessage(HttpMethod.Post, BuildUrl("/v1/messages"))
         {
-            Content = JsonContent.Create(payload),
+            // JsonContent.Create(T, options) uses reflection-based STJ; the
+            // node-based ToJsonString() is NativeAOT-safe.
+            Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"),
         };
         if (_config.BearerAuth)
         {
@@ -99,7 +101,7 @@ public sealed class AnthropicProvider : IPhiProvider
             JsonElement chunk;
             try
             {
-                chunk = JsonSerializer.Deserialize<JsonElement>(data);
+                chunk = JsonDocument.Parse(data).RootElement;
             }
             catch (JsonException)
             {
@@ -468,7 +470,7 @@ public sealed class AnthropicProvider : IPhiProvider
                 var blocks = new JsonArray();
                 while (i < messages.Count && messages[i] is ToolResultMessage tr)
                 {
-                    blocks.Add(new JsonObject
+                    blocks.Add((JsonNode)new JsonObject
                     {
                         ["type"] = "tool_result",
                         ["tool_use_id"] = tr.ToolCallId,
@@ -477,7 +479,7 @@ public sealed class AnthropicProvider : IPhiProvider
                     });
                     i++;
                 }
-                result.Add(new JsonObject
+                result.Add((JsonNode)new JsonObject
                 {
                     ["role"] = "user",
                     ["content"] = blocks,
@@ -485,7 +487,7 @@ public sealed class AnthropicProvider : IPhiProvider
             }
             else
             {
-                result.Add(MessageToAnthropic(messages[i]));
+                result.Add((JsonNode)MessageToAnthropic(messages[i]));
                 i++;
             }
         }
@@ -509,7 +511,7 @@ public sealed class AnthropicProvider : IPhiProvider
             switch (block)
             {
                 case TextBlock tb:
-                    content.Add(new JsonObject
+                    content.Add((JsonNode)new JsonObject
                     {
                         ["type"] = "text",
                         ["text"] = tb.Text,
@@ -523,10 +525,10 @@ public sealed class AnthropicProvider : IPhiProvider
                     };
                     if (thb.ThinkingSignature is not null)
                         thinking["signature"] = thb.ThinkingSignature;
-                    content.Add(thinking);
+                    content.Add((JsonNode)thinking);
                     break;
                 case ToolCall tc:
-                    content.Add(new JsonObject
+                    content.Add((JsonNode)new JsonObject
                     {
                         ["type"] = "tool_use",
                         ["id"] = tc.Id,

@@ -14,10 +14,6 @@ public sealed class SessionIndex
 {
     private readonly string _indexPath;
     private readonly object _lock = new();
-    private static readonly JsonSerializerOptions Options = new()
-    {
-        WriteIndented = false,
-    };
 
     public SessionIndex(string indexPath)
     {
@@ -53,7 +49,7 @@ public sealed class SessionIndex
             if (existing >= 0) records[existing] = record;
             else records.Add(record);
 
-            var lines = records.Select(r => JsonSerializer.Serialize(r, Options)).ToList();
+            var lines = records.Select(r => JsonSerializer.Serialize(r, PhiJsonContext.Default.SessionRecord)).ToList();
             var content = string.Join("\n", lines) + "\n";
             File.WriteAllText(_indexPath, content);
         }
@@ -71,7 +67,7 @@ public sealed class SessionIndex
         foreach (var line in File.ReadAllLines(_indexPath))
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
-            records.Add(JsonSerializer.Deserialize<SessionRecord>(line, Options)
+            records.Add(JsonSerializer.Deserialize(line, PhiJsonContext.Default.SessionRecord)
                 ?? throw new InvalidDataException(
                     $"Failed to parse session index entry: {line}"));
         }

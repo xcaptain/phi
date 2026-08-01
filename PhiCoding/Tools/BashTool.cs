@@ -11,7 +11,7 @@ public sealed record BashArgs
     public required string Command { get; init; }
 }
 
-public sealed class BashTool : TypedTool<BashArgs>
+public sealed partial class BashTool : TypedTool<BashArgs>
 {
     public override string Name => "bash";
     public override string Description => "Run a shell command and return stdout/stderr/exit code.";

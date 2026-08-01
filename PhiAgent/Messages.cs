@@ -2,6 +2,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace PhiAgent;
 
@@ -69,7 +70,11 @@ public sealed class UserContentConverter : JsonConverter<UserContent>
 
         if (reader.TokenType == JsonTokenType.StartArray)
         {
-            var blocks = JsonSerializer.Deserialize<List<ContentBlock>>(ref reader, options) ?? [];
+            // Resolve type info from the caller's options so the naming
+            // policy is respected; under NativeAOT the resolver is the
+            // source-generated context, so this stays AOT-safe.
+            var listInfo = (JsonTypeInfo<List<ContentBlock>>)options.GetTypeInfo(typeof(List<ContentBlock>));
+            var blocks = JsonSerializer.Deserialize(ref reader, listInfo) ?? [];
             return new BlocksUserContent(blocks);
         }
 
@@ -84,7 +89,8 @@ public sealed class UserContentConverter : JsonConverter<UserContent>
                 writer.WriteStringValue(t.Text);
                 break;
             case BlocksUserContent b:
-                JsonSerializer.Serialize(writer, b.Blocks, options);
+                var listInfo = (JsonTypeInfo<IReadOnlyList<ContentBlock>>)options.GetTypeInfo(typeof(IReadOnlyList<ContentBlock>));
+                JsonSerializer.Serialize(writer, b.Blocks, listInfo);
                 break;
         }
     }

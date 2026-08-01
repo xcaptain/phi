@@ -35,7 +35,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
 
         using var request = new HttpRequestMessage(HttpMethod.Post, BuildUrl("/chat/completions"))
         {
-            Content = JsonContent.Create(payload),
+            Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"),
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.ApiKey);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
@@ -67,7 +67,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
             JsonElement chunk;
             try
             {
-                chunk = JsonSerializer.Deserialize<JsonElement>(data);
+                chunk = JsonDocument.Parse(data).RootElement;
             }
             catch (JsonException)
             {
@@ -173,7 +173,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
         var messagesArray = new JsonArray();
         if (!string.IsNullOrEmpty(system))
         {
-            messagesArray.Add(new JsonObject
+            messagesArray.Add((JsonNode)new JsonObject
             {
                 ["role"] = "system",
                 ["content"] = system,
@@ -181,7 +181,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
         }
         foreach (var msg in messages)
         {
-            messagesArray.Add(MessageToOpenAi(msg));
+            messagesArray.Add((JsonNode)MessageToOpenAi(msg));
         }
 
         var payload = new JsonObject

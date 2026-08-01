@@ -8,6 +8,6 @@
     <PackageVersion Include="TUnit" Version="1.61.38" />
     <PackageVersion Include="XenoAtom.Terminal.UI" Version="3.8.1" />
     <PackageVersion Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.8.1" />
-    <PackageVersion Include="System.CommandLine" Version="2.0.10" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
   </ItemGroup>
 </Project>
