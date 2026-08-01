@@ -125,7 +125,7 @@ public class OpenAICompatibleProviderTests
 
         var tools = new List<Tool>
         {
-            new("bash", "run a command", new System.Text.Json.Nodes.JsonObject
+            new StubTool("bash", "run a command", new System.Text.Json.Nodes.JsonObject
             {
                 ["type"] = "object",
                 ["properties"] = new System.Text.Json.Nodes.JsonObject(),

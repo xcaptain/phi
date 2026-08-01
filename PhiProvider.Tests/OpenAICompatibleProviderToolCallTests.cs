@@ -27,11 +27,11 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
-                new Tool("bash", "Run a shell command", new JsonObject
+                new StubTool("bash", "Run a shell command", new JsonObject
                 {
                     ["type"] = "object",
                 }),
-                new Tool("read", "Read a file", new JsonObject
+                new StubTool("read", "Read a file", new JsonObject
                 {
                     ["type"] = "object",
                 }),
@@ -73,8 +73,8 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
-                new Tool("bash", "Run a shell command", new JsonObject()),
-                new Tool("read", "Read a file", new JsonObject()),
+                new StubTool("bash", "Run a shell command", new JsonObject()),
+                new StubTool("read", "Read a file", new JsonObject()),
             ]))
         {
             events.Add(ev);
@@ -113,7 +113,7 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check" }],
             tools: [
-                new Tool("bash", "Run a shell command", new JsonObject
+                new StubTool("bash", "Run a shell command", new JsonObject
                 {
                     ["type"] = "object",
                     ["properties"] = new JsonObject

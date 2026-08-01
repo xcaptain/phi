@@ -9,7 +9,7 @@ namespace PhiAgent.Tests;
 public class HarnessTests
 {
     private static Harness CreateHarness(FakePhiProvider fake) =>
-        new(fake, Array.Empty<IHarnessTool>(), "test-model");
+        new(fake, Array.Empty<Tool>(), "test-model");
 
     [Test]
     public async Task RunAsync_NoToolCalls_EmitsTurnStartThenTurnEnd()
@@ -139,7 +139,7 @@ public class HarnessTests
         [
             new ProviderEvent[] { new ProviderTextDeltaEvent("x") },
         ]);
-        var harness = new Harness(fake, Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(fake, Array.Empty<Tool>(), "test");
         harness.AppendMessage(new AssistantMessage
         {
             Content = [new TextBlock("thinking…"), toolCall],

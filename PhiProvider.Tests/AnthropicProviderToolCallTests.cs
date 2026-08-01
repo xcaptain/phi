@@ -27,7 +27,7 @@ public class AnthropicProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
-                new Tool("bash", "Run a shell command", new JsonObject { ["type"] = "object" }),
+                new StubTool("bash", "Run a shell command", new JsonObject { ["type"] = "object" }),
             ]))
         {
             events.Add(ev);
@@ -63,7 +63,7 @@ public class AnthropicProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
-                new Tool("bash", "Run a shell command", new JsonObject { ["type"] = "object" }),
+                new StubTool("bash", "Run a shell command", new JsonObject { ["type"] = "object" }),
             ]))
         {
             events.Add(ev);
@@ -102,7 +102,7 @@ public class AnthropicProviderToolCallTests
             system: "",
             messages: [new UserMessage { Content = "Check" }],
             tools: [
-                new Tool("bash", "Run a shell command", new JsonObject
+                new StubTool("bash", "Run a shell command", new JsonObject
                 {
                     ["type"] = "object",
                     ["properties"] = new JsonObject
@@ -132,7 +132,7 @@ public class AnthropicProviderToolCallTests
             system: "",
             messages: [new UserMessage { Content = "Check" }],
             tools: [
-                new Tool("bash", "Run", new JsonObject { ["type"] = "object" }),
+                new StubTool("bash", "Run", new JsonObject { ["type"] = "object" }),
             ]))
         {
             events.Add(ev);
@@ -154,7 +154,7 @@ public class AnthropicProviderToolCallTests
             system: "",
             messages: [new UserMessage { Content = "Check" }],
             tools: [
-                new Tool("bash", "Run", new JsonObject { ["type"] = "object" }),
+                new StubTool("bash", "Run", new JsonObject { ["type"] = "object" }),
             ]))
         {
             events.Add(ev);

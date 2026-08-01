@@ -87,7 +87,7 @@ public sealed class ToolSchemaGenerator : IIncrementalGenerator
         sb.AppendLine();
         sb.AppendLine($"public partial class {tool.Name}");
         sb.AppendLine("{");
-        sb.AppendLine("    public override Tool Tool => new(Name, Description, BuildSchema());");
+        sb.AppendLine("    public override JsonObject Parameters => BuildSchema();");
         sb.AppendLine();
         sb.AppendLine($"    protected override JsonTypeInfo<{args.Name}> ArgsTypeInfo =>");
         sb.AppendLine($"        PhiCoding.ToolArgsJsonContext.Default.{args.Name};");

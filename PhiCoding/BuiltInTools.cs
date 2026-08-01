@@ -5,7 +5,7 @@ namespace PhiCoding;
 
 public static class BuiltInTools
 {
-    public static IReadOnlyList<IHarnessTool> CreateDefault() =>
+    public static IReadOnlyList<Tool> CreateDefault() =>
     [
         new BashTool(),
         new ReadTool(),

@@ -61,12 +61,12 @@ public static class Loop
         string system,
         IList<IAgentMessage> messages,
         IReadOnlyList<Tool> tools,
-        ToolExecutor executeTool,
         Func<IReadOnlyList<IAgentMessage>>? getSteeringMessages = null,
         Func<IReadOnlyList<IAgentMessage>>? getFollowUpMessages = null,
         int? maxTurns = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        var toolByName = tools.ToDictionary(t => t.Name);
         var turn = 0;
         while (true)
         {
@@ -209,7 +209,7 @@ public static class Loop
                 yield return new ToolExecutionStartEvent(call.Id, call.Name);
 
                 var result = await ExecuteToolSafelyAsync(
-                    executeTool, call.Name, call.Id, call.Arguments, cancellationToken);
+                    toolByName, call.Name, call.Id, call.Arguments, cancellationToken);
 
                 var toolResultMessage = new ToolResultMessage
                 {
@@ -227,15 +227,21 @@ public static class Loop
     }
 
     private static async Task<ToolResult> ExecuteToolSafelyAsync(
-        ToolExecutor executeTool,
+        IReadOnlyDictionary<string, Tool> toolByName,
         string name,
         string id,
-        JsonNode arguments,
+        JsonObject arguments,
         CancellationToken cancellationToken)
     {
         try
         {
-            return await executeTool(name, id, arguments, cancellationToken);
+            if (!toolByName.TryGetValue(name, out var tool))
+            {
+                return new ToolResult(
+                    [new TextBlock($"Unknown tool: {name}")],
+                    IsError: true);
+            }
+            return await tool.ExecuteAsync(name, id, arguments, cancellationToken);
         }
         catch (OperationCanceledException)
         {

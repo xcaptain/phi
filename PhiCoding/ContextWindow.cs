@@ -59,19 +59,19 @@ public static class ContextWindow
         return tokens;
     }
 
-    public static int EstimateToolTokens(IHarnessTool tool)
+    public static int EstimateToolTokens(Tool tool)
     {
         ArgumentNullException.ThrowIfNull(tool);
         return ToolOverheadTokens
-            + EstimateTextTokens(tool.Tool.Name)
-            + EstimateTextTokens(tool.Tool.Description)
-            + EstimateTextTokens(tool.Tool.Parameters.ToJsonString());
+            + EstimateTextTokens(tool.Name)
+            + EstimateTextTokens(tool.Description)
+            + EstimateTextTokens(tool.Parameters.ToJsonString());
     }
 
     public static int EstimateContextUsage(
         string system,
         IReadOnlyList<IAgentMessage> messages,
-        IReadOnlyList<IHarnessTool> tools)
+        IReadOnlyList<Tool> tools)
     {
         ArgumentNullException.ThrowIfNull(messages);
         ArgumentNullException.ThrowIfNull(tools);

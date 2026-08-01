@@ -28,7 +28,7 @@ public sealed record SessionConfig
     public int MaxTurns { get; init; } = 50;
 
     /// <summary>Tools available to the agent. Defaults to <see cref="BuiltInTools.CreateDefault"/>.</summary>
-    public IReadOnlyList<IHarnessTool>? Tools { get; init; }
+    public IReadOnlyList<Tool>? Tools { get; init; }
 
     /// <summary>
     /// Total context window in tokens. Used to derive the auto-compact

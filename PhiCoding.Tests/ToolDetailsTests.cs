@@ -15,7 +15,7 @@ public class ReadToolDetailsTests
     {
         using var file = new TempFile("line 1\nline 2\nline 3");
         var tool = new ReadTool();
-        var args = JsonNode.Parse($$"""{"path":"{{file.Path}}"}""")!;
+        var args = (JsonObject)JsonNode.Parse($$"""{"path":"{{file.Path}}"}""")!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
 
@@ -38,7 +38,7 @@ public class WriteToolDetailsTests
         try
         {
             var tool = new WriteTool();
-            var args = JsonNode.Parse($$"""{"path":"{{path}}","content":"hello"}""")!;
+            var args = (JsonObject)JsonNode.Parse($$"""{"path":"{{path}}","content":"hello"}""")!;
             var result = await tool.ExecuteAsync("c1", args, default);
 
             await Assert.That(result.IsError).IsFalse();
@@ -58,7 +58,7 @@ public class WriteToolDetailsTests
     {
         using var file = new TempFile("old");
         var tool = new WriteTool();
-        var args = JsonNode.Parse($$"""{"path":"{{file.Path}}","content":"new"}""")!;
+        var args = (JsonObject)JsonNode.Parse($$"""{"path":"{{file.Path}}","content":"new"}""")!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
 
@@ -74,7 +74,7 @@ public class EditToolDetailsTests
     {
         using var file = new TempFile("foo\nbar\nbaz");
         var tool = new EditTool();
-        var args = JsonNode.Parse($$"""
+        var args = (JsonObject)JsonNode.Parse($$"""
             {"path":"{{file.Path}}","edits":[{"oldText":"bar","newText":"BAR"}]}
             """)!;
 
@@ -97,7 +97,7 @@ public class EditToolDetailsTests
     {
         using var file = new TempFile("one\ntwo\nthree\nfour");
         var tool = new EditTool();
-        var args = JsonNode.Parse($$"""
+        var args = (JsonObject)JsonNode.Parse($$"""
             {"path":"{{file.Path}}","edits":[
                 {"oldText":"one","newText":"ONE"},
                 {"oldText":"three","newText":"THREE"}
@@ -118,7 +118,7 @@ public class EditToolDetailsTests
     {
         using var file = new TempFile("hello world");
         var tool = new EditTool();
-        var args = JsonNode.Parse($$"""
+        var args = (JsonObject)JsonNode.Parse($$"""
             {"path":"{{file.Path}}","edits":[
                 {"oldText":"hello","newText":"H"},
                 {"oldText":"lo wo","newText":"X"}
@@ -137,7 +137,7 @@ public class EditToolDetailsTests
     {
         using var file = new TempFile("one\r\ntwo\r\nthree");
         var tool = new EditTool();
-        var args = JsonNode.Parse($$"""
+        var args = (JsonObject)JsonNode.Parse($$"""
             {"path":"{{file.Path}}","edits":[{"oldText":"two","newText":"TWO"}]}
             """)!;
 
@@ -152,7 +152,7 @@ public class EditToolDetailsTests
     {
         using var file = new TempFile("\uFEFFline one\nline two");
         var tool = new EditTool();
-        var args = JsonNode.Parse($$"""
+        var args = (JsonObject)JsonNode.Parse($$"""
             {"path":"{{file.Path}}","edits":[{"oldText":"line one","newText":"LINE ONE"}]}
             """)!;
 
@@ -175,7 +175,7 @@ public class BashToolDetailsTests
     public async Task ExecuteAsync_Success_CapturesExitCodeAndDuration()
     {
         var tool = new BashTool();
-        var args = JsonNode.Parse("""{"command":"echo hello"}""")!;
+        var args = (JsonObject)JsonNode.Parse("""{"command":"echo hello"}""")!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
 
@@ -193,7 +193,7 @@ public class BashToolDetailsTests
     public async Task ExecuteAsync_NonZeroExit_MarksErrorAndCapturesExitCode()
     {
         var tool = new BashTool();
-        var args = JsonNode.Parse("""{"command":"exit 7"}""")!;
+        var args = (JsonObject)JsonNode.Parse("""{"command":"exit 7"}""")!;
 
         var result = await tool.ExecuteAsync("c1", args, default);
 

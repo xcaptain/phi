@@ -17,7 +17,7 @@ public class HarnessInterruptedToolTests
     [Test]
     public async Task AppendInterruptedToolResults_NoUnreturnedToolCalls_ReturnsZero()
     {
-        var harness = new Harness(new FakePhiProvider([]), Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(new FakePhiProvider([]), Array.Empty<Tool>(), "test");
         harness.AppendMessage(new AssistantMessage
         {
             Content = [new TextBlock("no tools here")],
@@ -32,7 +32,7 @@ public class HarnessInterruptedToolTests
     [Test]
     public async Task AppendInterruptedToolResults_ToolWithNoResult_InsertsInterruptedPlaceholder()
     {
-        var harness = new Harness(new FakePhiProvider([]), Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(new FakePhiProvider([]), Array.Empty<Tool>(), "test");
         var call = MakeToolCall("c1");
         harness.AppendMessage(new AssistantMessage
         {
@@ -53,7 +53,7 @@ public class HarnessInterruptedToolTests
     [Test]
     public async Task AppendInterruptedToolResults_ToolWithExistingResult_IsNotDuplicated()
     {
-        var harness = new Harness(new FakePhiProvider([]), Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(new FakePhiProvider([]), Array.Empty<Tool>(), "test");
         var call = MakeToolCall("c1");
         harness.AppendMessage(new AssistantMessage { Content = [call] });
         harness.AppendMessage(new ToolResultMessage
@@ -72,7 +72,7 @@ public class HarnessInterruptedToolTests
     [Test]
     public async Task AppendInterruptedToolResults_MultipleAssistantTurns_HandlesEachIndependently()
     {
-        var harness = new Harness(new FakePhiProvider([]), Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(new FakePhiProvider([]), Array.Empty<Tool>(), "test");
 
         // Turn 1: assistant has 2 tool calls, one returned, one not
         harness.AppendMessage(new AssistantMessage
@@ -100,7 +100,7 @@ public class HarnessInterruptedToolTests
     [Test]
     public async Task AppendInterruptedToolResults_CalledTwice_IsIdempotent()
     {
-        var harness = new Harness(new FakePhiProvider([]), Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(new FakePhiProvider([]), Array.Empty<Tool>(), "test");
         harness.AppendMessage(new AssistantMessage { Content = [MakeToolCall("c1")] });
 
         var first = harness.AppendInterruptedToolResults();
@@ -122,7 +122,7 @@ public class HarnessInterruptedToolTests
         [
             new ProviderEvent[] { new ProviderTextDeltaEvent("hel") },
         ]);
-        var harness = new Harness(fake, Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(fake, Array.Empty<Tool>(), "test");
 
         using var cts = new CancellationTokenSource();
         cts.Cancel();
@@ -146,7 +146,7 @@ public class HarnessInterruptedToolTests
     [Test]
     public async Task ReplaceMessages_ReplacesAllMessages()
     {
-        var harness = new Harness(new FakePhiProvider([]), Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(new FakePhiProvider([]), Array.Empty<Tool>(), "test");
         harness.AppendMessage(new UserMessage { Content = "first" });
         harness.AppendMessage(new AssistantMessage { Content = [new TextBlock("resp")] });
 
@@ -165,7 +165,7 @@ public class HarnessInterruptedToolTests
     [Test]
     public async Task ReplaceMessages_EmptyClearsAll()
     {
-        var harness = new Harness(new FakePhiProvider([]), Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(new FakePhiProvider([]), Array.Empty<Tool>(), "test");
         harness.AppendMessage(new UserMessage { Content = "x" });
 
         harness.ReplaceMessages([]);
@@ -185,7 +185,7 @@ public class HarnessInterruptedToolTests
         [
             new ProviderEvent[] { new ProviderTextDeltaEvent("x") },
         ]);
-        var harness = new Harness(fake, Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(fake, Array.Empty<Tool>(), "test");
         harness.AppendMessage(new AssistantMessage
         {
             Content = [new TextBlock("thinking…"), toolCall],
@@ -221,7 +221,7 @@ public class HarnessInterruptedToolTests
             new ProviderEvent[] { new ProviderTextDeltaEvent("hel") },
         });
 
-        var harness = new Harness(fake, Array.Empty<IHarnessTool>(), "test");
+        var harness = new Harness(fake, Array.Empty<Tool>(), "test");
 
         using var cts = new CancellationTokenSource();
         cts.Cancel();

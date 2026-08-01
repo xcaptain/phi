@@ -23,8 +23,7 @@ namespace PhiAgent;
 public sealed class Harness
 {
     private readonly IPhiProvider _provider;
-    private readonly IReadOnlyList<Tool> _slimTools;
-    private readonly Dictionary<string, IHarnessTool> _toolMap;
+    private readonly IReadOnlyList<Tool> _tools;
     private readonly string _model;
     private readonly string _system;
     private readonly int? _maxTurns;
@@ -32,14 +31,13 @@ public sealed class Harness
 
     public Harness(
         IPhiProvider provider,
-        IReadOnlyList<IHarnessTool> tools,
+        IReadOnlyList<Tool> tools,
         string model,
         string system = "",
         int? maxTurns = null)
     {
         _provider = provider;
-        _slimTools = tools.Select(t => t.Tool).ToList();
-        _toolMap = tools.ToDictionary(t => t.Tool.Name);
+        _tools = tools;
         _model = model;
         _system = system;
         _maxTurns = maxTurns;
@@ -136,8 +134,7 @@ public sealed class Harness
         // MoveNextAsync without violating CS1626 (yield in try-catch) while
         // preserving streaming semantics.
         var enumerator = Loop.RunAgentAsync(
-                _provider, _model, _system, _messages, _slimTools,
-                ExecuteToolByName,
+                _provider, _model, _system, _messages, _tools,
                 getSteeringMessages, getFollowUpMessages,
                 _maxTurns, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
@@ -174,15 +171,5 @@ public sealed class Harness
                     ? $"interrupted ({inserted} tool call(s) cancelled)"
                     : "interrupted");
         }
-    }
-
-    private Task<ToolResult> ExecuteToolByName(string name, string id, JsonNode args, CancellationToken ct)
-    {
-        if (_toolMap.TryGetValue(name, out var tool))
-            return tool.ExecuteAsync(name, id, args, ct);
-
-        return Task.FromResult(new ToolResult(
-            [new TextBlock($"Unknown tool: {name}")],
-            IsError: true));
     }
 }

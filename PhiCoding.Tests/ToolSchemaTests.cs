@@ -18,7 +18,7 @@ public class ToolSchemaTests
     public async Task ReadTool_Schema_MatchesExpectedShape()
     {
         var tool = new ReadTool();
-        var schema = tool.Tool.Parameters;
+        var schema = tool.Parameters;
 
         await Assert.That(schema["type"]!.GetValue<string>()).IsEqualTo("object");
         var props = schema["properties"]!.AsObject();
@@ -36,7 +36,7 @@ public class ToolSchemaTests
     public async Task WriteTool_Schema_HasPathAndContentRequired()
     {
         var tool = new WriteTool();
-        var schema = tool.Tool.Parameters;
+        var schema = tool.Parameters;
 
         var props = schema["properties"]!.AsObject();
         await Assert.That(props["path"]!["description"]!.GetValue<string>())
@@ -50,7 +50,7 @@ public class ToolSchemaTests
     public async Task EditTool_Schema_HasEditsArrayWithItemObject()
     {
         var tool = new EditTool();
-        var schema = tool.Tool.Parameters;
+        var schema = tool.Parameters;
 
         var props = schema["properties"]!.AsObject();
         var edits = props["edits"]!.AsObject();
@@ -68,7 +68,7 @@ public class ToolSchemaTests
     public async Task BashTool_Schema_OnlyCommandRequired()
     {
         var tool = new BashTool();
-        var schema = tool.Tool.Parameters;
+        var schema = tool.Parameters;
 
         var props = schema["properties"]!.AsObject();
         await Assert.That(props.Count).IsEqualTo(1);

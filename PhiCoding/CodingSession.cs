@@ -201,7 +201,7 @@ public sealed class CodingSession : ISession
     private MessageQueue? _queue;
     private string _runtimeModel = "";
     private string _systemPrompt = "";
-    private IReadOnlyList<IHarnessTool> _tools = [];
+    private IReadOnlyList<Tool> _tools = [];
     private CancellationTokenSource? _runCts;
     private Task? _currentRunTask;
     private int _lastMessageCount;

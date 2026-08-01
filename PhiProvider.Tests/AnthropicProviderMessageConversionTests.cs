@@ -70,7 +70,7 @@ public class AnthropicProviderMessageConversionTests
             system: "",
             messages: [new UserMessage { Content = "Hi" }],
             tools: [
-                new Tool("bash", "Run a shell command", new JsonObject
+                new StubTool("bash", "Run a shell command", new JsonObject
                 {
                     ["type"] = "object",
                     ["properties"] = new JsonObject
