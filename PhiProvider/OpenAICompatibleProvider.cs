@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -51,7 +50,7 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
 
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
-            if (line.Length == 0 || !line.StartsWith("data:")) continue;
+            if (line.Length == 0 || !line.StartsWith("data:", StringComparison.Ordinal)) continue;
             var data = line[5..].Trim();
             if (data == "[DONE]") break;
 

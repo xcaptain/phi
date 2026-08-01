@@ -1,4 +1,4 @@
-﻿using PhiAgent;
+using PhiAgent;
 using PhiCoding;
 using PhiCoding.Tui;
 using PhiProvider;
@@ -91,5 +91,8 @@ catch (InvalidOperationException ex)
     return 1;
 }
 
-new PhiTuiApp(session).Run();
+using (var app = new PhiTuiApp(session))
+{
+    app.Run();
+}
 return 0;

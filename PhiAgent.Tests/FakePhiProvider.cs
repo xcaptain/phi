@@ -13,7 +13,7 @@ public sealed class FakePhiProvider : IPhiProvider
     public FakePhiProvider(IEnumerable<IEnumerable<ProviderEvent>> turns)
     {
         foreach (var turn in turns)
-            _turns.Enqueue(turn.ToList());
+            _turns.Enqueue([.. turn]);
     }
 
     public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
@@ -23,7 +23,7 @@ public sealed class FakePhiProvider : IPhiProvider
         IReadOnlyList<Tool> tools,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        _callsReceived.Add(messages.ToList());
+        _callsReceived.Add([.. messages]);
 
         if (!_turns.TryDequeue(out var turn))
             throw new InvalidOperationException(

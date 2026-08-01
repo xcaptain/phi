@@ -30,11 +30,11 @@ public static class DiffFormatter
             if (line.Length == 0) continue;
 
             DiffLineKind kind;
-            if (line.StartsWith("---") || line.StartsWith("+++"))
+            if (line.StartsWith("---", StringComparison.Ordinal) || line.StartsWith("+++", StringComparison.Ordinal))
                 kind = DiffLineKind.Header;
-            else if (line.StartsWith("@@") && line.EndsWith("@@"))
+            else if (line.StartsWith("@@", StringComparison.Ordinal) && line.EndsWith("@@", StringComparison.Ordinal))
                 kind = DiffLineKind.Hunk;
-            else if (line.StartsWith(@"\"))
+            else if (line.StartsWith('\\'))
                 kind = DiffLineKind.Note;
             else if (line[0] == '+')
                 kind = DiffLineKind.Added;

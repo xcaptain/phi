@@ -1,10 +1,9 @@
-using System.Text.Json.Nodes;
 using System.Runtime.CompilerServices;
 
 namespace PhiAgent;
 
 /// <summary>
-/// The agent harness: thin wrapper around <see cref="Loop.RunAgentAsync"/>
+/// The agent harness: thin wrapper around <see cref="AgentLoop.RunAgentAsync"/>
 /// that owns session state (<see cref="Messages"/>) and adds the two
 /// session-level concerns the loop doesn't handle:
 /// <list type="bullet">
@@ -16,7 +15,7 @@ namespace PhiAgent;
 /// well-formed history.</item>
 /// </list>
 /// Tool registration, multi-turn orchestration, and steering/follow-up
-/// injection all live in <see cref="Loop"/>, matching tau's split between
+/// injection all live in <see cref="AgentLoop"/>, matching tau's split between
 /// <c>tau_agent.harness</c> (thin wrapper) and <c>tau_agent.loop</c>
 /// (run_agent_loop).
 /// </summary>
@@ -92,7 +91,7 @@ public sealed class Harness(
     }
 
     /// <summary>
-    /// Runs a full session by delegating to <see cref="Loop.RunAgentAsync"/>.
+    /// Runs a full session by delegating to <see cref="AgentLoop.RunAgentAsync"/>.
     /// The loop drives multi-turn execution and drains the steering/follow-up
     /// queues; this method handles two session-level concerns only:
     /// <list type="bullet">
@@ -119,7 +118,7 @@ public sealed class Harness(
         // Manual enumerator so we can catch OperationCanceledException around
         // MoveNextAsync without violating CS1626 (yield in try-catch) while
         // preserving streaming semantics.
-        var enumerator = Loop.RunAgentAsync(
+        var enumerator = AgentLoop.RunAgentAsync(
                 provider, model, system, _messages, tools,
                 getSteeringMessages, getFollowUpMessages,
                 maxTurns, cancellationToken)

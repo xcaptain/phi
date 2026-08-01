@@ -1,3 +1,5 @@
+using PhiAgent;
+
 namespace PhiCoding.Tools.Details;
 
 /// <summary>

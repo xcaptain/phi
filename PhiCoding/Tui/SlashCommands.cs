@@ -26,6 +26,6 @@ internal static class SlashCommands
             return [];
         }
 
-        return All.Where(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToArray();
+        return [.. All.Where(c => c.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))];
     }
 }

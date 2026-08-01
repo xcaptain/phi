@@ -1,0 +1,9 @@
+<Project>
+  <!-- Test naming convention uses underscores (Method_Condition_Expected).
+       CA1707 forbids underscores in identifiers, so disable it for test
+       projects only. Evaluated here (rather than in Directory.Build.props)
+       because IsTestProject is set by the project file. -->
+  <PropertyGroup Condition="'$(IsTestProject)' == 'true'">
+    <NoWarn>$(NoWarn);CA1707</NoWarn>
+  </PropertyGroup>
+</Project>

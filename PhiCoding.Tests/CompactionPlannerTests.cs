@@ -42,7 +42,7 @@ public class CompactionPlannerTests
         // The very last kept message must be AssistantMessage (history
         // alternates user/assistant, last item is assistant).
         await Assert.That(plan.KeptMessages.Count).IsGreaterThan(0);
-        await Assert.That(plan.KeptMessages.Last()).IsTypeOf<AssistantMessage>();
+        await Assert.That(plan.KeptMessages[^1]).IsTypeOf<AssistantMessage>();
     }
 
     [Test]

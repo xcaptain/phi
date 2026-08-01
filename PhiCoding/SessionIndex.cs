@@ -4,7 +4,7 @@ namespace PhiCoding;
 
 /// <summary>
 /// Global session index, stored as JSONL at
-/// <see cref="SessionPaths.IndexFile"/>. One <see cref="SessionRecord"/>
+/// <see cref="SessionPaths.IndexFileFor"/>. One <see cref="SessionRecord"/>
 /// per line. Lookups and listings are in-memory after the file is loaded;
 /// writes append-and-replace the whole file (small N, simple invariant).
 /// Thread-safe via an internal lock so a session's <c>Touch</c> call
@@ -12,18 +12,18 @@ namespace PhiCoding;
 /// </summary>
 public sealed class SessionIndex(string indexPath)
 {
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     public IReadOnlyList<SessionRecord> ListAll()
     {
         var all = ReadRecords();
-        return all.OrderByDescending(r => r.UpdatedAt).ToList();
+        return [.. all.OrderByDescending(r => r.UpdatedAt)];
     }
 
     public IReadOnlyList<SessionRecord> ListForCwd(string cwd)
     {
         var resolved = Path.GetFullPath(cwd);
-        return ListAll().Where(r => Path.GetFullPath(r.Cwd) == resolved).ToList();
+        return [.. ListAll().Where(r => Path.GetFullPath(r.Cwd) == resolved)];
     }
 
     public SessionRecord? Get(string id)

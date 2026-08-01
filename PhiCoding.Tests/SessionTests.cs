@@ -22,6 +22,7 @@ public class SessionTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         Environment.SetEnvironmentVariable("PHI_HOME", null);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
         if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);

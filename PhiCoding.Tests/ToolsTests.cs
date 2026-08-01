@@ -74,7 +74,7 @@ public class ReadToolTests
     }
 
     private static List<string> LinesOf(string content) =>
-        content.Replace("\r\n", "\n").Split('\n').ToList();
+        [.. content.Replace("\r\n", "\n").Split('\n')];
 
     [Test]
     public async Task ExecuteAsync_OffsetAndLimit_ReadsSlice()

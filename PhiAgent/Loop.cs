@@ -11,23 +11,21 @@ namespace PhiAgent;
 /// Mirrors tau's <c>run_agent_loop()</c> in <c>tau_agent.loop</c> — including
 /// the steering-first / follow-up-second injection order, the
 /// tool-call-driven turn continuation, and the <c>max_turns</c> safety cap.
-/// <para>
-/// <b>Note on naming</b>: this method is named <see cref="RunAgentAsync"/>
-/// (not <c>RunTurnAsync</c>) because the loop drives <i>multiple</i> turns
-/// per call — each iteration is one model round-trip plus any tool
-/// executions. The loop terminates when the model emits a message with no
-/// tool calls, when <paramref name="maxTurns"/> is exceeded, or when
-/// <paramref name="cancellationToken"/> fires. <see cref="Harness"/>
-/// delegates here and only adds session-level concerns (initial prompt,
-/// cancel handling, interrupted-tool placeholders).
-/// </para>
 /// </summary>
-public static class Loop
+public static class AgentLoop
 {
     /// <summary>
-    /// Runs the agent loop until the model stops emitting tool calls,
-    /// <paramref name="maxTurns"/> is exceeded, or the cancellation token
-    /// fires. Yields <see cref="AssistantTextDeltaEvent"/>,
+    /// Runs the agent loop until the model emits a message with no tool
+    /// calls, <paramref name="maxTurns"/> is exceeded, or the cancellation
+    /// token fires. <see cref="Harness"/> delegates here and only adds
+    /// session-level concerns (initial prompt, cancel handling,
+    /// interrupted-tool placeholders).
+    /// <para>
+    /// Named <see cref="RunAgentAsync"/> (not <c>RunTurnAsync</c>) because
+    /// the loop drives <i>multiple</i> turns per call — each iteration is
+    /// one model round-trip plus any tool executions.
+    /// </para>
+    /// Yields <see cref="AssistantTextDeltaEvent"/>,
     /// <see cref="AssistantThinkingStartEvent"/> /
     /// <see cref="AssistantThinkingDeltaEvent"/> /
     /// <see cref="AssistantThinkingEndEvent"/>,
@@ -37,6 +35,11 @@ public static class Loop
     /// <see cref="HarnessErrorEvent"/> (on <c>max_turns</c>),
     /// and one terminating <see cref="TurnEndEvent"/> per successful turn.
     /// </summary>
+    /// <param name="provider">LLM provider that streams provider events.</param>
+    /// <param name="model">Model identifier sent to the provider.</param>
+    /// <param name="system">System prompt; an empty string omits the system message.</param>
+    /// <param name="messages">Conversation history. The loop mutates this list in place, appending assistant messages and tool results as it progresses.</param>
+    /// <param name="tools">Tool registry. Tool calls in the model output are matched against this list and executed via <see cref="Tool.ExecuteAsync"/>.</param>
     /// <param name="getSteeringMessages">
     /// Called at the <b>start of every iteration</b> to drain queued
     /// "redirect" messages. If it returns a non-empty list, the messages
@@ -55,6 +58,7 @@ public static class Loop
     /// do. When exceeded, the loop synthesizes an error assistant message
     /// and stops.
     /// </param>
+    /// <param name="cancellationToken">Cancellation token propagated to the provider's <c>StreamResponseAsync</c> and to every <see cref="Tool.ExecuteAsync"/> call.</param>
     public static async IAsyncEnumerable<HarnessEvent> RunAgentAsync(
         IPhiProvider provider,
         string model,
@@ -140,11 +144,10 @@ public static class Loop
                         // timed variants so duration survives persistence.
                         final = end.Message with
                         {
-                            Content = end.Message.Content
+                            Content = [.. end.Message.Content
                                 .Select(c => c is ThinkingBlock tb && thinkingDurationMs is { } d
                                     ? tb with { DurationMs = d }
-                                    : c)
-                                .ToList(),
+                                    : c)],
                         };
                         break;
                     case ProviderErrorEvent err:
@@ -227,7 +230,7 @@ public static class Loop
     }
 
     private static async Task<ToolResult> ExecuteToolSafelyAsync(
-        IReadOnlyDictionary<string, Tool> toolByName,
+        Dictionary<string, Tool> toolByName,
         string name,
         string id,
         JsonObject arguments,

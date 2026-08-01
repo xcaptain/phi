@@ -5,8 +5,9 @@ namespace PhiCoding;
 /// <summary>
 /// Application-level session: the runtime environment for one
 /// <see cref="Harness"/>. Owns the transcript (JSONL via
-/// <see cref="SessionStorage"/>), the message queue, and the agent run
-/// loop; publishes immutable <see cref="SessionState"/> snapshots via
+/// <see cref="SessionStorage"/>), the steering/follow-up message queues
+/// used to inject user prompts mid-run, and the agent run loop;
+/// publishes immutable <see cref="SessionState"/> snapshots via
 /// <see cref="StateChanged"/> so frontends can react. Implements
 /// <see cref="ISession"/> for UI binding.
 /// <para>
@@ -19,7 +20,7 @@ namespace PhiCoding;
 public sealed class CodingSession : ISession
 {
     private readonly SessionManager _manager;
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     // Mutable: resume adopts the target session's storage and record.
     private SessionStorage _storage;
@@ -147,9 +148,7 @@ public sealed class CodingSession : ISession
     public IReadOnlyList<IAgentMessage> LoadMessages()
     {
         lock (_lock)
-            return _storage.ReadAll()
-                .Select(SessionEntryConverter.ToAgentMessage)
-                .ToList();
+            return [.. _storage.ReadAll().Select(SessionEntryConverter.ToAgentMessage)];
     }
 
     public void Touch()
@@ -198,7 +197,8 @@ public sealed class CodingSession : ISession
 
     private Harness? _harness;
     private IPhiProvider? _provider;
-    private MessageQueue? _queue;
+    private readonly Queue<UserMessage> _steeringQueue = new();
+    private readonly Queue<UserMessage> _followUpQueue = new();
     private string _runtimeModel = "";
     private string _systemPrompt = "";
     private IReadOnlyList<Tool> _tools = [];
@@ -231,7 +231,6 @@ public sealed class CodingSession : ISession
         _harness = harness;
         _provider = provider;
         _runtimeModel = model;
-        _queue = new MessageQueue();
         _lastMessageCount = harness.Messages.Count;
         _runtimeStarted = true;
 
@@ -279,7 +278,7 @@ public sealed class CodingSession : ISession
         _lastMessageCount = messages.Count;
         UpdateState(s => s with
         {
-            Messages = messages.ToList(),
+            Messages = [.. messages],
             Stats = SessionStatsCalculator.Calculate(messages),
             ContextUsedTokens = EstimateContextUsage(messages),
         });
@@ -325,14 +324,14 @@ public sealed class CodingSession : ISession
     public void EnqueueSteering(UserMessage message)
     {
         ThrowIfNoRuntime();
-        _queue!.EnqueueSteering(message);
+        lock (_lock) _steeringQueue.Enqueue(message);
         UpdateQueueCount();
     }
 
     public void EnqueueFollowUp(UserMessage message)
     {
         ThrowIfNoRuntime();
-        _queue!.EnqueueFollowUp(message);
+        lock (_lock) _followUpQueue.Enqueue(message);
         UpdateQueueCount();
     }
 
@@ -379,8 +378,8 @@ public sealed class CodingSession : ISession
 
         await foreach (var ev in harness.RunAsync(
             prompt,
-            getSteeringMessages: () => _queue!.DrainSteering(),
-            getFollowUpMessages: () => _queue!.DrainFollowUp(),
+            getSteeringMessages: () => DrainQueueLocked(_steeringQueue),
+            getFollowUpMessages: () => DrainQueueLocked(_followUpQueue),
             cancellationToken: _runCts!.Token))
         {
             HarnessEvent?.Invoke(ev);
@@ -395,7 +394,7 @@ public sealed class CodingSession : ISession
                 lastAssistant = te.FinalMessage;
                 UpdateState(s => s with
                 {
-                    Messages = harness.Messages.ToList(),
+                    Messages = [.. harness.Messages],
                     Turn = s.Turn + 1,
                     Stats = SessionStatsCalculator.Calculate(harness.Messages),
                     ContextUsedTokens = EstimateContextUsage(harness.Messages),
@@ -434,15 +433,13 @@ public sealed class CodingSession : ISession
             return;
         }
 
-        IReadOnlyList<IAgentMessage> loaded;
+        List<IAgentMessage> loaded;
         lock (_lock)
         {
             _storage = OpenStorage(_manager, record.Id);
             Record = record;
             _persisted = true;
-            loaded = _storage.ReadAll()
-                .Select(SessionEntryConverter.ToAgentMessage)
-                .ToList();
+            loaded = [.. _storage.ReadAll().Select(SessionEntryConverter.ToAgentMessage)];
         }
 
         _harness!.ReplaceMessages(loaded);
@@ -481,7 +478,7 @@ public sealed class CodingSession : ISession
         string summary;
         try
         {
-            summary = await new CompactionSummarizer().GenerateAsync(
+            summary = await CompactionSummarizer.GenerateAsync(
                 _provider, _runtimeModel, plan.MessagesToSummarize,
                 cancellationToken: _runCts?.Token ?? default);
         }
@@ -576,11 +573,28 @@ public sealed class CodingSession : ISession
 
     private void UpdateQueueCount()
     {
+        int steering, followUp;
+        lock (_lock)
+        {
+            steering = _steeringQueue.Count;
+            followUp = _followUpQueue.Count;
+        }
         UpdateState(s => s with
         {
-            SteeringCount = _queue?.SteeringCount ?? 0,
-            FollowUpCount = _queue?.FollowUpCount ?? 0,
+            SteeringCount = steering,
+            FollowUpCount = followUp,
         });
+    }
+
+    private List<UserMessage> DrainQueueLocked(Queue<UserMessage> queue)
+    {
+        lock (_lock)
+        {
+            if (queue.Count == 0) return [];
+            var copy = queue.ToList();
+            queue.Clear();
+            return copy;
+        }
     }
 
     private void ThrowIfNoRuntime()
@@ -594,5 +608,37 @@ public sealed class CodingSession : ISession
     {
         var trimmed = raw.Trim().Trim('"', '\'', '.', '!', '?');
         return trimmed.Length > 60 ? trimmed[..57] + "…" : trimmed;
+    }
+
+    // ──────── IDisposable ────────
+
+    private int _disposed;
+
+    /// <summary>
+    /// Cancels any in-flight run, briefly awaits its completion, and
+    /// releases the run's <see cref="CancellationTokenSource"/>. Idempotent
+    /// and thread-safe; intended for the end of the session's lifetime
+    /// (TUI exit, session switch, fixture teardown).
+    /// </summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
+        var cts = _runCts;
+        if (cts is null) return;
+
+        try { cts.Cancel(); }
+        catch (ObjectDisposedException) { /* run already cleaned up */ }
+
+        var task = _currentRunTask;
+        if (task is not null && !task.IsCompleted)
+        {
+            try { task.Wait(TimeSpan.FromSeconds(2)); }
+            catch (AggregateException) { /* expected cancellation */ }
+            catch (Exception) { /* timeout or other — don't block shutdown */ }
+        }
+
+        try { cts.Dispose(); }
+        catch (ObjectDisposedException) { /* already disposed by RunAgentCoreAsync */ }
     }
 }

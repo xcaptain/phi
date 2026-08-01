@@ -6,8 +6,15 @@ namespace PhiCoding;
 /// Session contract. Frontends bind to state changes via
 /// <see cref="StateChanged"/> and <see cref="HarnessEvent"/>, and dispatch
 /// user actions through the action methods.
+/// <para>
+/// Implementing <see cref="IDisposable"/> signals the session owns scoped
+/// resources (notably the in-flight run's <see cref="CancellationTokenSource"/>).
+/// Dispose cancels any active run, awaits it briefly, and releases the
+/// cancellation source. Frontends should dispose when the session's
+/// lifecycle ends (e.g. TUI exit, switching to another session).
+/// </para>
 /// </summary>
-public interface ISession
+public interface ISession : IDisposable
 {
     event Action<SessionState>? StateChanged;
     event Action<HarnessEvent>? HarnessEvent;

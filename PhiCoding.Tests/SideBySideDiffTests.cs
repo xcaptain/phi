@@ -129,8 +129,8 @@ public class SideBySideDiffTests
         var rightRows = right.Split('\n');
         for (var i = 0; i < leftRows.Length; i++)
         {
-            var lSep = leftRows[i].IndexOf("│", StringComparison.Ordinal);
-            var rSep = rightRows[i].IndexOf("│", StringComparison.Ordinal);
+            var lSep = leftRows[i].IndexOf('│');
+            var rSep = rightRows[i].IndexOf('│');
             await Assert.That(rSep).IsEqualTo(lSep);
         }
     }

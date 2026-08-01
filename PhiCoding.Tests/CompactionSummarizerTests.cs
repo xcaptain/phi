@@ -8,8 +8,7 @@ public class CompactionSummarizerTests
     [Test]
     public async Task BuildPrompt_NoPreviousSummary_UsesCreatePrompt()
     {
-        var summarizer = new CompactionSummarizer();
-        var prompt = summarizer.BuildPrompt(
+        var prompt = CompactionSummarizer.BuildPrompt(
         [
             new UserMessage { Content = "hi" },
             new AssistantMessage { Content = [new TextBlock("hello")], StopReason = StopReasons.Stop },
@@ -22,10 +21,9 @@ public class CompactionSummarizerTests
     [Test]
     public async Task BuildPrompt_HasPreviousSummary_UsesUpdatePrompt()
     {
-        var summarizer = new CompactionSummarizer();
         var previousSummary = "## Goal\nFinish the migration";
         var firstMessage = ContextWindow.CompactionSummaryPrefix + previousSummary;
-        var prompt = summarizer.BuildPrompt(
+        var prompt = CompactionSummarizer.BuildPrompt(
         [
             new UserMessage { Content = firstMessage },
             new UserMessage { Content = "follow-up" },
@@ -39,7 +37,6 @@ public class CompactionSummarizerTests
     [Test]
     public async Task GenerateSummary_EchoProvider_ReturnsTextTurn()
     {
-        var summarizer = new CompactionSummarizer();
         var summaryEvents = new ProviderEvent[]
         {
             new ProviderTextDeltaEvent("condensed"),
@@ -50,7 +47,7 @@ public class CompactionSummarizerTests
             }),
         };
         var provider = StubProvider.Echo(summaryEvents);
-        var summary = await summarizer.GenerateAsync(
+        var summary = await CompactionSummarizer.GenerateAsync(
             provider, "stub-model",
             [
                 new UserMessage { Content = "old" },

@@ -1,0 +1,18 @@
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{cs,csproj,props,targets}]
+indent_size = 4
+
+# Treat unnecessary using directives as build warnings so editors and
+# `dotnet build` both flag them. With ImplicitUsings enabled, namespaces
+# like System.Threading, System.IO, System.Linq are already imported by
+# the SDK and any explicit `using` for them is dead code.
+dotnet_diagnostic.IDE0005.severity = warning

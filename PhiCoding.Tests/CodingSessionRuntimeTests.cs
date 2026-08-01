@@ -26,6 +26,7 @@ public class CodingSessionRuntimeTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         Environment.SetEnvironmentVariable("PHI_HOME", null);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
         if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
@@ -376,5 +377,29 @@ public class CodingSessionRuntimeTests : IDisposable
         await Assert.That(live.State.Stats.TurnCount).IsEqualTo(1);
         await Assert.That(live.State.Stats.InputTokens).IsEqualTo(10);
         await Assert.That(live.State.Stats.OutputTokens).IsEqualTo(5);
+    }
+
+    [Test]
+    public async Task Dispose_WhileRunning_CancelsRunAndFlipsIsRunningFalse()
+    {
+        // Simulates TUI exit (Ctrl+Q) while a model call is in flight:
+        // Dispose must cancel the in-flight run so the LLM doesn't keep
+        // burning tokens after the user quits.
+        var gate = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var session = CodingSession.Create(
+            ConfigWith(StubProvider.FirstCallBlocks(gate, "unblocked")));
+
+        session.SubmitPrompt("long running");
+        await WaitForAsync(() => session.State.IsRunning);
+
+        session.Dispose();
+
+        await WaitForAsync(() => !session.State.IsRunning);
+        await Assert.That(session.State.IsRunning).IsFalse();
+
+        // Disposing twice is a no-op
+        session.Dispose();
+        await Assert.That(session.State.IsRunning).IsFalse();
     }
 }

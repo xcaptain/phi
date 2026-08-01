@@ -3,7 +3,13 @@
   <PropertyGroup>
 
     <ArtifactsPath>$(MSBuildThisFileDirectory)artifacts</ArtifactsPath>
-    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisMode>Recommended</AnalysisMode>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- Required by IDE0005 (unnecessary using directives) to actually
+         run during build. See https://github.com/dotnet/roslyn/issues/41640.
+         CS1591 (missing XML doc) is suppressed below since this is a
+         CLI-style repo, not a documented public API. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 </Project>

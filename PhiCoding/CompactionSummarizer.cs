@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using PhiAgent;
 
 namespace PhiCoding;
@@ -79,13 +78,13 @@ public sealed class CompactionSummarizer
         "Keep each section concise. Preserve exact file paths, function names, and error " +
         "messages.";
 
-    public string BuildPrompt(IReadOnlyList<IAgentMessage> messages)
+    public static string BuildPrompt(IReadOnlyList<IAgentMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
 
         var previousSummary = TryExtractPreviousSummary(messages);
         var newMessages = previousSummary is not null
-            ? messages.Skip(1).ToList()
+            ? [.. messages.Skip(1)]
             : (IList<IAgentMessage>)messages;
 
         var conversation = SerializeMessages(newMessages);
@@ -101,7 +100,7 @@ public sealed class CompactionSummarizer
         return prompt + basePrompt;
     }
 
-    public async Task<string> GenerateAsync(
+    public static async Task<string> GenerateAsync(
         IPhiProvider provider,
         string model,
         IReadOnlyList<IAgentMessage> messages,

@@ -19,6 +19,7 @@ public class CodingSessionCompactionTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         Environment.SetEnvironmentVariable("PHI_HOME", null);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
         if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
@@ -110,7 +111,7 @@ public class CodingSessionCompactionTests : IDisposable
         await Assert.That(resumed.State.Messages[0]).IsTypeOf<UserMessage>();
         await Assert.That(
             ((UserMessage)resumed.State.Messages[0]).Text
-                .StartsWith(ContextWindow.CompactionSummaryPrefix)).IsTrue();
+                .StartsWith(ContextWindow.CompactionSummaryPrefix, StringComparison.Ordinal)).IsTrue();
         await Assert.That(
             resumed.State.Messages.OfType<UserMessage>()
                 .Any(u => u.Text == "hi")).IsTrue();
@@ -192,7 +193,7 @@ public class CodingSessionCompactionTests : IDisposable
         await Assert.That(fresh.LoadMessages()[0]).IsTypeOf<UserMessage>();
         await Assert.That(
             ((UserMessage)fresh.LoadMessages()[0]).Text
-                .StartsWith(ContextWindow.CompactionSummaryPrefix)).IsTrue();
+                .StartsWith(ContextWindow.CompactionSummaryPrefix, StringComparison.Ordinal)).IsTrue();
         // The original-prefix user messages must not be present on disk.
         var originalTexts = BulkyHistory(pairs: 6)
             .OfType<UserMessage>().Take(3).Select(u => u.Text).ToList();
@@ -309,7 +310,7 @@ public class CodingSessionCompactionTests : IDisposable
         await Assert.That(reloaded.LoadMessages()[0]).IsTypeOf<UserMessage>();
         await Assert.That(
             ((UserMessage)reloaded.LoadMessages()[0]).Text
-                .StartsWith(ContextWindow.CompactionSummaryPrefix)).IsTrue();
+                .StartsWith(ContextWindow.CompactionSummaryPrefix, StringComparison.Ordinal)).IsTrue();
     }
 
     [Test]

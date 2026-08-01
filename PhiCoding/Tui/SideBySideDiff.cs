@@ -1,10 +1,10 @@
+using System.Globalization;
 using System.Text;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 using PhiCoding.Tools.Details;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
-using XenoAtom.Terminal.UI.Geometry;
 
 namespace PhiCoding.Tui;
 
@@ -41,7 +41,7 @@ public static class SideBySideDiff
         var grids = details.Edits.Select(BuildEditGrid).ToList();
         if (grids.Count == 1) return grids[0];
 
-        return new VStack(grids.ToArray()).Spacing(1);
+        return new VStack([.. grids]).Spacing(1);
     }
 
     private static Grid BuildEditGrid(EditOpDetails op)
@@ -57,7 +57,7 @@ public static class SideBySideDiff
         var maxLineNoWidth = oldLines
             .Concat(newLines)
             .Where(p => p.Position > 0)
-            .Select(p => p.Position!.Value.ToString().Length)
+            .Select(p => p.Position!.Value.ToString(CultureInfo.InvariantCulture).Length)
             .DefaultIfEmpty(1)
             .Max();
 
@@ -81,7 +81,7 @@ public static class SideBySideDiff
     /// number plus the change-colored text.
     /// </summary>
     private static Markup BuildColumnMarkup(
-        IReadOnlyList<DiffPiece> pieces, bool isLeft, int maxLineNoWidth)
+        List<DiffPiece> pieces, bool isLeft, int maxLineNoWidth)
     {
         var sb = new StringBuilder();
         for (var i = 0; i < pieces.Count; i++)
@@ -103,7 +103,7 @@ public static class SideBySideDiff
         // Right-align real line numbers; imaginary padding rows get a
         // same-width blank so the separator column stays aligned.
         var lineNo = piece.Position is { } pos && pos > 0
-            ? pos.ToString().PadLeft(maxLineNoWidth)
+            ? pos.ToString(CultureInfo.InvariantCulture).PadLeft(maxLineNoWidth)
             : new string(' ', maxLineNoWidth);
         var marker = side switch
         {

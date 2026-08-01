@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -85,7 +84,7 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
         {
             // Anthropic SSE: blank line separates events; each event has
             // optional "event:" + "data:" lines. We only care about data:.
-            if (line.Length == 0 || !line.StartsWith("data:")) continue;
+            if (line.Length == 0 || !line.StartsWith("data:", StringComparison.Ordinal)) continue;
             var data = line[5..].Trim();
             if (data.Length == 0) continue;
 

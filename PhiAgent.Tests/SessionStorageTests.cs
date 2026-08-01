@@ -14,6 +14,7 @@ public class SessionStorageTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         if (Directory.Exists(_tempDir)) Directory.Delete(_tempDir, recursive: true);
     }
 

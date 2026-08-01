@@ -1,3 +1,4 @@
+using System.Globalization;
 using PhiAgent;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
@@ -48,9 +49,10 @@ public sealed class PhiStatusBar
     public State<bool> Running { get; }
 
     /// <summary>
-    /// Bind to a <see cref="MessageQueue"/> (or a combined steering+follow-up
-    /// counter) so the bar shows how many user-submitted messages are waiting
-    /// to be drained.
+    /// Counter showing how many user-submitted messages are waiting to be
+    /// drained by the run loop. Set externally via
+    /// <see cref="UpdateStats"/> from the session's
+    /// <see cref="ISession.StateChanged"/> handler.
     /// </summary>
     public State<int> QueuedCount => _queuedCount;
 
@@ -113,7 +115,7 @@ public sealed class PhiStatusBar
 
     public static string FormatCount(int n) => n switch
     {
-        < 1000 => n.ToString(),
+        < 1000 => n.ToString(CultureInfo.InvariantCulture),
         < 1_000_000 => $"{n / 1000.0:F1}k",
         _ => $"{n / 1_000_000.0:F1}M",
     };

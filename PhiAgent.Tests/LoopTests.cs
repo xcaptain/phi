@@ -40,7 +40,7 @@ public class LoopTests
         var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
 
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunAgentAsync(
+        await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, []))
         {
             events.Add(ev);
@@ -82,7 +82,7 @@ public class LoopTests
 
         var executed = new List<string>();
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunAgentAsync(
+        await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages,
             [new FuncTool("bash", (_, _, args, _) =>
             {
@@ -133,7 +133,7 @@ public class LoopTests
 
         var ex = await Assert.That(async () =>
         {
-            await foreach (var _ in Loop.RunAgentAsync(
+            await foreach (var _ in AgentLoop.RunAgentAsync(
                 fake, "test", "", messages, [])) { }
         }).Throws<InvalidOperationException>();
 
@@ -165,7 +165,7 @@ public class LoopTests
             => throw new InvalidOperationException("kaboom");
 
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunAgentAsync(
+        await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, [new FuncTool("bash", Boom)]))
         {
             events.Add(ev);
@@ -204,7 +204,7 @@ public class LoopTests
         Task<ToolResult> Missing(string toolName, string toolCallId, JsonObject arguments, CancellationToken cancellationToken)
             => Task.FromResult(new ToolResult([new TextBlock("Unknown tool: mystery")], IsError: true));
 
-        await foreach (var _ in Loop.RunAgentAsync(
+        await foreach (var _ in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, [new FuncTool("mystery", Missing)])) { }
 
         var result = (ToolResultMessage)messages[2];
@@ -237,7 +237,7 @@ public class LoopTests
         Task<ToolResult> WithDetails(string toolName, string toolCallId, JsonObject arguments, CancellationToken cancellationToken)
             => Task.FromResult(new ToolResult([new TextBlock("ok")], Details: details));
 
-        await foreach (var _ in Loop.RunAgentAsync(
+        await foreach (var _ in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, [new FuncTool("bash", WithDetails)])) { }
 
         var result = (ToolResultMessage)messages[2];
@@ -267,7 +267,7 @@ public class LoopTests
             => Task.FromResult(new ToolResult([new TextBlock("ok")]));
 
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunAgentAsync(
+        await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, [new FuncTool("bash", LoopForever)], maxTurns: 2))
         {
             events.Add(ev);
@@ -308,7 +308,7 @@ public class LoopTests
 
         await Assert.That(async () =>
         {
-            await foreach (var _ in Loop.RunAgentAsync(
+            await foreach (var _ in AgentLoop.RunAgentAsync(
                 fake, "test", "", messages, [new FuncTool("bash", Cancellable)], cancellationToken: cts.Token)) { }
         }).Throws<OperationCanceledException>();
     }
@@ -344,7 +344,7 @@ public class LoopTests
         var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
 
         var events = new List<HarnessEvent>();
-        await foreach (var ev in Loop.RunAgentAsync(
+        await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, []))
         {
             events.Add(ev);
@@ -386,7 +386,7 @@ public class LoopTests
         var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
 
         var turnStarts = new List<TurnStartEvent>();
-        await foreach (var ev in Loop.RunAgentAsync(
+        await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, []))
         {
             if (ev is TurnStartEvent ts) turnStarts.Add(ts);
@@ -423,7 +423,7 @@ public class LoopTests
         };
 
         var turnStarts = new List<TurnStartEvent>();
-        await foreach (var ev in Loop.RunAgentAsync(
+        await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, [],
             getSteeringMessages: getSteering))
         {
@@ -472,7 +472,7 @@ public class LoopTests
         };
 
         var turnStarts = new List<TurnStartEvent>();
-        await foreach (var ev in Loop.RunAgentAsync(
+        await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, [],
             getFollowUpMessages: getFollowUp))
         {
@@ -516,7 +516,7 @@ public class LoopTests
             => Task.FromResult(new ToolResult([new TextBlock("ok")]));
 
         var turnStarts = new List<TurnStartEvent>();
-        await foreach (var ev in Loop.RunAgentAsync(
+        await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, [new FuncTool("bash", Noop)],
             getSteeringMessages: getSteering))
         {
@@ -561,7 +561,7 @@ public class LoopTests
             return [new UserMessage { Content = "follow-up-second" }];
         };
 
-        await foreach (var _ in Loop.RunAgentAsync(
+        await foreach (var _ in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, [],
             getSteeringMessages: getSteering,
             getFollowUpMessages: getFollowUp)) { }

@@ -18,7 +18,7 @@ namespace PhiAgent;
 public sealed class SessionStorage(string path)
 {
     private readonly string _path = path ?? throw new ArgumentNullException(nameof(path));
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     public string FilePath => _path;
 

@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json.Nodes;
 using PhiAgent;
 using PhiCoding.Tools.Details;
@@ -36,8 +37,8 @@ internal static class ToolCardRenderer
         var offset = TryGetInt(args, "offset");
         var limit = TryGetInt(args, "limit");
         if (offset is null && limit is null) return $"→ read {path}";
-        var offsetText = offset?.ToString() ?? "1";
-        var limitText = limit is { } l ? l.ToString() : "all";
+        var offsetText = offset?.ToString(CultureInfo.InvariantCulture) ?? "1";
+        var limitText = limit is { } l ? l.ToString(CultureInfo.InvariantCulture) : "all";
         // The range hint is author-controlled, fixed-shape text; XenoAtom
         // renders unknown markup tags like "[offset=10, limit=18]" literally,
         // so no escaping is needed here. (Escape stays for untrusted text.)

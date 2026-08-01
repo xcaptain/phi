@@ -74,7 +74,7 @@ public sealed class SessionManager(string cwd)
     public IReadOnlyList<SessionRecord> ListSessions(int days = 7)
     {
         var cutoff = DateTimeOffset.UtcNow.AddDays(-days).ToUnixTimeMilliseconds();
-        return _index.ListAll().Where(r => r.UpdatedAt >= cutoff).ToList();
+        return [.. _index.ListAll().Where(r => r.UpdatedAt >= cutoff)];
     }
 
     /// <summary>Inserts or replaces a record in the index.</summary>

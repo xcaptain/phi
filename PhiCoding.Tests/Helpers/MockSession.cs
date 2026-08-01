@@ -26,6 +26,9 @@ public sealed class MockSession : ISession
     /// <summary>Whether Cancel was called.</summary>
     public bool CancelCalled { get; private set; }
 
+    /// <summary>Whether Dispose was called.</summary>
+    public bool Disposed { get; private set; }
+
     public void SubmitPrompt(string text)
     {
         LastSubmittedText = text;
@@ -43,6 +46,11 @@ public sealed class MockSession : ISession
     public void RenameSession(string? title) { }
     public Task ResumeSession(string sessionId) => Task.CompletedTask;
     public IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7) => [];
+
+    public void Dispose()
+    {
+        Disposed = true;
+    }
 
     /// <summary>
     /// Fires <see cref="StateChanged"/> with a new state built from the

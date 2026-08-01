@@ -1,3 +1,4 @@
+using System.Globalization;
 using PhiAgent;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
@@ -10,10 +11,22 @@ namespace PhiCoding.Tui;
 /// <summary>
 /// Thin TUI shell around <see cref="ISession"/>. Renders session
 /// state via bound controls; user actions are forwarded to the session.
+/// <see cref="IDisposable.Dispose"/> cancels the in-flight run and
+/// releases session resources; call when the TUI exits (Ctrl+Q, /exit).
 /// </summary>
-public sealed class PhiTuiApp(ISession session)
+public sealed class PhiTuiApp(ISession session) : IDisposable
 {
     private readonly ISession _session = session;
+
+    /// <summary>
+    /// Disposes the wrapped <see cref="ISession"/>, cancelling and
+    /// awaiting any active run. Idempotent and safe to call after the
+    /// TUI has already torn down.
+    /// </summary>
+    public void Dispose()
+    {
+        _session.Dispose();
+    }
 
     public (Visual Root, PromptEditor Editor) BuildRoot()
     {
@@ -141,13 +154,13 @@ public sealed class PhiTuiApp(ISession session)
         {
             var label = group.Key == today ? "Today"
                 : group.Key == today.AddDays(-1) ? "Yesterday"
-                : group.Key.ToString("MMM d");
+                : group.Key.ToString("MMM d", CultureInfo.InvariantCulture);
             list.Items.Add(new OptionListItem(label) { IsEnabled = false });
 
             foreach (var r in group.OrderByDescending(x => x.UpdatedAt))
             {
                 var time = DateTimeOffset.FromUnixTimeMilliseconds(r.UpdatedAt)
-                    .ToLocalTime().ToString("HH:mm");
+                    .ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
                 var title = r.Title ?? r.Id[..8];
                 list.Items.Add(new OptionListItem($"  {title} · {time} · {r.Model}"));
             }

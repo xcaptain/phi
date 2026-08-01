@@ -1,4 +1,4 @@
-﻿using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
@@ -184,7 +184,7 @@ public sealed record AssistantMessage : IAgentMessage
     public string ThinkingText => string.Concat(Content.OfType<ThinkingBlock>().Select(b => b.Thinking));
 
     [JsonIgnore]
-    public IReadOnlyList<ToolCall> ToolCalls => Content.OfType<ToolCall>().ToList();
+    public IReadOnlyList<ToolCall> ToolCalls => [.. Content.OfType<ToolCall>()];
 }
 
 public sealed record ToolResultMessage : IAgentMessage
