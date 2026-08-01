@@ -1,14 +1,9 @@
 using PhiAgent;
 using PhiCoding.Tui;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
-using TUnit.Core;
-using XenoAtom.Terminal.UI;
-using XenoAtom.Terminal.UI.Controls;
 using TextBlock = PhiAgent.TextBlock;
 using DocumentFlow = XenoAtom.Terminal.UI.Controls.DocumentFlow;
 
-namespace PhiCoding.Tests.Helpers;
+namespace PhiCoding.Tests;
 
 public class ChatTranscriptResumeTests
 {

@@ -1,9 +1,5 @@
 using PhiCoding.Tools.Details;
 using PhiCoding.Tui;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
-using TUnit.Core;
-using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tests;
