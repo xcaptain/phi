@@ -20,28 +20,14 @@ namespace PhiAgent;
 /// <c>tau_agent.harness</c> (thin wrapper) and <c>tau_agent.loop</c>
 /// (run_agent_loop).
 /// </summary>
-public sealed class Harness
+public sealed class Harness(
+    IPhiProvider provider,
+    IReadOnlyList<Tool> tools,
+    string model,
+    string system = "",
+    int? maxTurns = null)
 {
-    private readonly IPhiProvider _provider;
-    private readonly IReadOnlyList<Tool> _tools;
-    private readonly string _model;
-    private readonly string _system;
-    private readonly int? _maxTurns;
     private readonly List<IAgentMessage> _messages = new();
-
-    public Harness(
-        IPhiProvider provider,
-        IReadOnlyList<Tool> tools,
-        string model,
-        string system = "",
-        int? maxTurns = null)
-    {
-        _provider = provider;
-        _tools = tools;
-        _model = model;
-        _system = system;
-        _maxTurns = maxTurns;
-    }
 
     /// <summary>All messages accumulated across this session (user, assistant, tool results).</summary>
     public IReadOnlyList<IAgentMessage> Messages => _messages;
@@ -134,9 +120,9 @@ public sealed class Harness
         // MoveNextAsync without violating CS1626 (yield in try-catch) while
         // preserving streaming semantics.
         var enumerator = Loop.RunAgentAsync(
-                _provider, _model, _system, _messages, _tools,
+                provider, model, system, _messages, tools,
                 getSteeringMessages, getFollowUpMessages,
-                _maxTurns, cancellationToken)
+                maxTurns, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
         try

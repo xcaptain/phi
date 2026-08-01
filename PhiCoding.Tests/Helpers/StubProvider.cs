@@ -9,13 +9,9 @@ namespace PhiCoding.Tests.Helpers;
 /// test can make the first call block (simulating a slow model) while
 /// later calls (e.g. the session auto-namer) respond instantly.
 /// </summary>
-public sealed class StubProvider : IPhiProvider
+public sealed class StubProvider(Func<int, CancellationToken, IAsyncEnumerable<ProviderEvent>> handler) : IPhiProvider
 {
-    private readonly Func<int, CancellationToken, IAsyncEnumerable<ProviderEvent>> _handler;
     private int _callCount;
-
-    public StubProvider(Func<int, CancellationToken, IAsyncEnumerable<ProviderEvent>> handler)
-        => _handler = handler;
 
     public int CallCount => _callCount;
 
@@ -47,7 +43,7 @@ public sealed class StubProvider : IPhiProvider
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var call = Interlocked.Increment(ref _callCount) - 1;
-        await foreach (var ev in _handler(call, cancellationToken)
+        await foreach (var ev in handler(call, cancellationToken)
                            .WithCancellation(cancellationToken))
         {
             yield return ev;

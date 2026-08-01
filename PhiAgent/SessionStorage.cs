@@ -15,15 +15,10 @@ namespace PhiAgent;
 /// safe — the file is the lock.
 /// </para>
 /// </summary>
-public sealed class SessionStorage
+public sealed class SessionStorage(string path)
 {
-    private readonly string _path;
+    private readonly string _path = path ?? throw new ArgumentNullException(nameof(path));
     private readonly object _lock = new();
-
-    public SessionStorage(string path)
-    {
-        _path = path ?? throw new ArgumentNullException(nameof(path));
-    }
 
     public string FilePath => _path;
 

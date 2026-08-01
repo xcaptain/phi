@@ -8,18 +8,11 @@ namespace PhiProvider.Tests;
 /// schema (name / description / parameters) and a no-op executor, mirroring
 /// the former <c>new Tool(name, desc, parameters)</c> record construction.
 /// </summary>
-public sealed class StubTool : Tool
+public sealed class StubTool(string Name, string Description, JsonObject Parameters) : Tool
 {
-    private readonly string _name;
-    private readonly string _description;
-    private readonly JsonObject _parameters;
-
-    public StubTool(string Name, string Description, JsonObject Parameters)
-    {
-        _name = Name;
-        _description = Description;
-        _parameters = Parameters;
-    }
+    private readonly string _name = Name;
+    private readonly string _description = Description;
+    private readonly JsonObject _parameters = Parameters;
 
     public override string Name => _name;
     public override string Description => _description;

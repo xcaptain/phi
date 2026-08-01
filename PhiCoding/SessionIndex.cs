@@ -10,15 +10,9 @@ namespace PhiCoding;
 /// Thread-safe via an internal lock so a session's <c>Touch</c> call
 /// triggered from the UI thread doesn't race a programmatic <c>List</c>.
 /// </summary>
-public sealed class SessionIndex
+public sealed class SessionIndex(string indexPath)
 {
-    private readonly string _indexPath;
     private readonly object _lock = new();
-
-    public SessionIndex(string indexPath)
-    {
-        _indexPath = indexPath;
-    }
 
     public IReadOnlyList<SessionRecord> ListAll()
     {
@@ -40,7 +34,7 @@ public sealed class SessionIndex
     public void Upsert(SessionRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
-        var parent = Path.GetDirectoryName(_indexPath);
+        var parent = Path.GetDirectoryName(indexPath);
         if (!string.IsNullOrEmpty(parent)) Directory.CreateDirectory(parent);
         lock (_lock)
         {
@@ -51,7 +45,7 @@ public sealed class SessionIndex
 
             var lines = records.Select(r => JsonSerializer.Serialize(r, PhiJsonContext.Default.SessionRecord)).ToList();
             var content = string.Join("\n", lines) + "\n";
-            File.WriteAllText(_indexPath, content);
+            File.WriteAllText(indexPath, content);
         }
     }
 
@@ -62,9 +56,9 @@ public sealed class SessionIndex
 
     private List<SessionRecord> ReadRecordsUnsafe()
     {
-        if (!File.Exists(_indexPath)) return [];
+        if (!File.Exists(indexPath)) return [];
         var records = new List<SessionRecord>();
-        foreach (var line in File.ReadAllLines(_indexPath))
+        foreach (var line in File.ReadAllLines(indexPath))
         {
             if (string.IsNullOrWhiteSpace(line)) continue;
             records.Add(JsonSerializer.Deserialize(line, PhiJsonContext.Default.SessionRecord)

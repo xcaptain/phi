@@ -13,17 +13,8 @@ namespace PhiProvider;
 /// Supports text streaming and streamed tool calls. Reasoning content,
 /// retries, and the Responses API land in later rounds.
 /// </summary>
-public sealed class OpenAICompatibleProvider : IPhiProvider
+public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, HttpClient http) : IPhiProvider
 {
-    private readonly OpenAICompatibleConfig _config;
-    private readonly HttpClient _http;
-
-    public OpenAICompatibleProvider(OpenAICompatibleConfig config, HttpClient http)
-    {
-        _config = config;
-        _http = http;
-    }
-
     public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
         string model,
         string system,
@@ -37,10 +28,10 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
         {
             Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"),
         };
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.ApiKey);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
-        using var response = await _http.SendAsync(
+        using var response = await http.SendAsync(
             request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
@@ -140,8 +131,8 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
 
         var finalMessage = new AssistantMessage
         {
-            Api = _config.Api,
-            Provider = _config.Provider,
+            Api = config.Api,
+            Provider = config.Provider,
             Model = responseModel ?? model,
             Content = finalContent,
             StopReason = finishReason,
@@ -162,7 +153,7 @@ public sealed class OpenAICompatibleProvider : IPhiProvider
     }
 
     private string BuildUrl(string path) =>
-        $"{_config.BaseUrl.TrimEnd('/')}/{path.TrimStart('/')}";
+        $"{config.BaseUrl.TrimEnd('/')}/{path.TrimStart('/')}";
 
     private static JsonObject BuildPayload(
         string model,

@@ -14,17 +14,8 @@ namespace PhiProvider;
 /// calls, and extended-thinking blocks. Retries, OAuth, and adaptive thinking
 /// land in later rounds.
 /// </summary>
-public sealed class AnthropicProvider : IPhiProvider
+public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) : IPhiProvider
 {
-    private readonly AnthropicConfig _config;
-    private readonly HttpClient _http;
-
-    public AnthropicProvider(AnthropicConfig config, HttpClient http)
-    {
-        _config = config;
-        _http = http;
-    }
-
     public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
         string model,
         string system,
@@ -40,15 +31,15 @@ public sealed class AnthropicProvider : IPhiProvider
             // node-based ToJsonString() is NativeAOT-safe.
             Content = new StringContent(payload.ToJsonString(), Encoding.UTF8, "application/json"),
         };
-        if (_config.BearerAuth)
+        if (config.BearerAuth)
         {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _config.ApiKey);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", config.ApiKey);
         }
         else
         {
-            request.Headers.Add("x-api-key", _config.ApiKey);
+            request.Headers.Add("x-api-key", config.ApiKey);
         }
-        request.Headers.Add("anthropic-version", _config.AnthropicVersion);
+        request.Headers.Add("anthropic-version", config.AnthropicVersion);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
         // We use a flag + break to work around CS1631 (no yield in catch).
@@ -56,7 +47,7 @@ public sealed class AnthropicProvider : IPhiProvider
         HttpResponseMessage response;
         try
         {
-            response = await _http.SendAsync(
+            response = await http.SendAsync(
                 request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         }
         catch (HttpRequestException ex)
@@ -224,8 +215,8 @@ public sealed class AnthropicProvider : IPhiProvider
 
         var finalMessage = new AssistantMessage
         {
-            Api = _config.Api,
-            Provider = _config.Provider,
+            Api = config.Api,
+            Provider = config.Provider,
             Model = model,
             Content = finalContent,
             StopReason = finishReason,
@@ -391,7 +382,7 @@ public sealed class AnthropicProvider : IPhiProvider
     }
 
     private string BuildUrl(string path) =>
-        $"{_config.BaseUrl.TrimEnd('/')}/{path.TrimStart('/')}";
+        $"{config.BaseUrl.TrimEnd('/')}/{path.TrimStart('/')}";
 
     private JsonObject BuildPayload(
         string model,
@@ -402,7 +393,7 @@ public sealed class AnthropicProvider : IPhiProvider
         var payload = new JsonObject
         {
             ["model"] = model,
-            ["max_tokens"] = _config.MaxTokens,
+            ["max_tokens"] = config.MaxTokens,
             ["stream"] = true,
         };
 

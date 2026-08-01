@@ -8,12 +8,8 @@ namespace PhiProvider.Tests;
 /// provider response. Captures the request URI and body so tests can also
 /// assert what the provider sent on the wire.
 /// </summary>
-public sealed class FixtureHttpHandler : HttpMessageHandler
+public sealed class FixtureHttpHandler(string fixturePath) : HttpMessageHandler
 {
-    private readonly string _fixturePath;
-
-    public FixtureHttpHandler(string fixturePath) => _fixturePath = fixturePath;
-
     public string? LastRequestUri { get; private set; }
     public string? LastRequestBody { get; private set; }
 
@@ -26,7 +22,7 @@ public sealed class FixtureHttpHandler : HttpMessageHandler
             LastRequestBody = await request.Content.ReadAsStringAsync(cancellationToken);
         }
 
-        var bytes = await File.ReadAllBytesAsync(_fixturePath, cancellationToken);
+        var bytes = await File.ReadAllBytesAsync(fixturePath, cancellationToken);
         var stream = new MemoryStream(bytes);
 
         var response = new HttpResponseMessage(HttpStatusCode.OK)
@@ -43,16 +39,12 @@ public sealed class FixtureHttpHandler : HttpMessageHandler
 /// instead of from a file. Handy for edge-case responses that don't deserve
 /// their own fixture file.
 /// </summary>
-public sealed class InlineSseHandler : HttpMessageHandler
+public sealed class InlineSseHandler(string sseBody) : HttpMessageHandler
 {
-    private readonly string _sseBody;
-
-    public InlineSseHandler(string sseBody) => _sseBody = sseBody;
-
     protected override Task<HttpResponseMessage> SendAsync(
         HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(_sseBody));
+        var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(sseBody));
         var response = new HttpResponseMessage(HttpStatusCode.OK)
         {
             Content = new StreamContent(stream),

@@ -13,18 +13,12 @@ namespace PhiCoding;
 /// after the first <see cref="Upsert"/>.
 /// </para>
 /// </summary>
-public sealed class SessionManager
+public sealed class SessionManager(string cwd)
 {
-    private readonly SessionIndex _index;
-
-    public SessionManager(string cwd)
-    {
-        Cwd = cwd;
-        _index = new SessionIndex(SessionPaths.IndexFileFor(cwd));
-    }
+    private readonly SessionIndex _index = new SessionIndex(SessionPaths.IndexFileFor(cwd));
 
     /// <summary>Project working directory this manager serves.</summary>
-    public string Cwd { get; }
+    public string Cwd { get; } = cwd;
 
     /// <summary>
     /// Allocates a session record without writing anything to disk —

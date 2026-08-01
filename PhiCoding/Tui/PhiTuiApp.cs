@@ -11,14 +11,9 @@ namespace PhiCoding.Tui;
 /// Thin TUI shell around <see cref="ISession"/>. Renders session
 /// state via bound controls; user actions are forwarded to the session.
 /// </summary>
-public sealed class PhiTuiApp
+public sealed class PhiTuiApp(ISession session)
 {
-    private readonly ISession _session;
-
-    public PhiTuiApp(ISession session)
-    {
-        _session = session;
-    }
+    private readonly ISession _session = session;
 
     public (Visual Root, PromptEditor Editor) BuildRoot()
     {
