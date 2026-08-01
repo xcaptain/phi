@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Style check, build, test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+
+      - name: Restore
+        run: dotnet restore
+
+      # TreatWarningsAsErrors turns every analyzer warning (CA1305, IDE0005,
+      # CS1574, etc.) into a build failure. Combined with EnforceCodeStyleInBuild
+      # in Directory.Build.props, this is the project's "style check": any
+      # deviation from the configured rules fails the push.
+      - name: Build (warnings as errors)
+        run: dotnet build -c Release --no-restore /p:TreatWarningsAsErrors=true
+
+      # --fail-fast (TUnit) stops on the first failing test for quick PR
+      # feedback. The -- separator forwards it to the test runner rather
+      # than being parsed as a dotnet test argument.
+      - name: Test
+        run: dotnet test -c Release --no-build -- --fail-fast
