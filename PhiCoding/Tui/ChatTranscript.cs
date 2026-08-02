@@ -35,7 +35,7 @@ public sealed class ChatTranscript
         {
             HorizontalAlignment = Align.Stretch,
             VerticalAlignment = Align.Stretch,
-            ItemPadding = new Thickness(1, 0, 1, 0),
+            ItemPadding = new Thickness(2, 0, 2, 0),
             ItemSpacing = 1,
             FollowTail = true,
             MaxCapacity = 500,
@@ -111,8 +111,12 @@ public sealed class ChatTranscript
                 var mdText = a.Text;
                 if (mdText.Length > 0)
                 {
+                    // MarkdownControl has no Padding (that's Group-only);
+                    // Visual.Margin adds the same left/right spacing for a
+                    // borderless control and keeps text off the window edge.
                     Add(new MarkdownControl(mdText)
                     {
+                        Margin = new Thickness(2, 0, 2, 0),
                         HorizontalAlignment = Align.Stretch,
                         VerticalAlignment = Align.Start,
                         Options = MarkdownRenderOptions.Default with
@@ -191,7 +195,8 @@ public sealed class ChatTranscript
         var content = new Markup(FormatThinkingText(text)) { Wrap = true, IsSelectable = true };
         Add(new Group(title, content)
             .HorizontalAlignment(Align.Stretch)
-            .VerticalAlignment(Align.Start));
+            .VerticalAlignment(Align.Start)
+            .Padding(1));
     }
 
     /// <summary>
@@ -319,6 +324,7 @@ public sealed class ChatTranscript
             _streamText = new StringBuilder();
             _streamControl = new MarkdownControl(string.Empty)
             {
+                Margin = new Thickness(2, 0, 2, 0),
                 HorizontalAlignment = Align.Stretch,
                 VerticalAlignment = Align.Start,
                 Options = MarkdownRenderOptions.Default with

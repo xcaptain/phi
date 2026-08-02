@@ -19,7 +19,8 @@ public abstract class ToolCardBase : IToolCard
     {
         Visual = new Group(TitleMarkup, new ComputedVisual(() => BodyState.Value))
             .HorizontalAlignment(Align.Stretch)
-            .VerticalAlignment(Align.Start);
+            .VerticalAlignment(Align.Start)
+            .Padding(1);
     }
 
     public Visual Visual { get; }
