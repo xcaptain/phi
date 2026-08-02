@@ -19,6 +19,26 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
     private readonly ISession _session = session;
 
     /// <summary>
+    /// Chat transcript created by the latest <see cref="BuildRoot"/> call.
+    /// Null until <see cref="BuildRoot"/> is invoked. Exposed so callers
+    /// (and tests) can observe the rendered message list directly.
+    /// </summary>
+    public ChatTranscript? Transcript { get; private set; }
+
+    /// <summary>
+    /// Status bar created by the latest <see cref="BuildRoot"/> call.
+    /// Null until <see cref="BuildRoot"/> is invoked.
+    /// </summary>
+    public PhiStatusBar? StatusBar { get; private set; }
+
+    // Last message already recorded in the transcript as a persistent error.
+    // LastError stays set between StateChanged events until the next run
+    // clears it, so the same message can re-arrive on consecutive state
+    // changes; dedup keeps the transcript from duplicating the record while
+    // still letting the status bar show the error.
+    private string? _lastRoutedError;
+
+    /// <summary>
     /// Disposes the wrapped <see cref="ISession"/>, cancelling and
     /// awaiting any active run. Idempotent and safe to call after the
     /// TUI has already torn down.
@@ -32,10 +52,12 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
     {
         var transcript = new ChatTranscript();
         var status = new PhiStatusBar(_session.State.Model);
+        Transcript = transcript;
+        StatusBar = status;
         var inputText = new State<string?>(string.Empty);
 
         BindTranscriptToSession(transcript);
-        BindStatusBarToEngine(status);
+        BindStatusBarToEngine(status, transcript);
 
         var editor = new PromptEditor()
             .Prompt(new Markup("[primary]❯[/] "))
@@ -116,7 +138,7 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
         transcript.Bind(_session);
     }
 
-    private void BindStatusBarToEngine(PhiStatusBar status)
+    private void BindStatusBarToEngine(PhiStatusBar status, ChatTranscript transcript)
     {
         _session.StateChanged += s =>
         {
@@ -124,11 +146,53 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
             status.QueuedCount.Value = s.SteeringCount + s.FollowUpCount;
             status.UpdateStats(s.Stats);
             status.UpdateContext(s.ContextUsedTokens, s.AutoCompactThreshold);
+
+            // Event-driven error clear: any state change without a new
+            // LastError wipes the previous error from the status bar.
+            // A non-empty LastError replaces whatever is currently shown.
+            if (s.LastError is { Length: > 0 } err)
+                RouteError(status, transcript, err);
+            else
+            {
+                // Clean state (e.g. a new run started and cleared LastError):
+                // restore the status bar and reset dedup so a *new*
+                // occurrence of the same error message gets a fresh
+                // transcript record.
+                status.ClearError();
+                _lastRoutedError = null;
+            }
         };
+
+        _session.HarnessEvent += e =>
+        {
+            if (e is HarnessErrorEvent he)
+                RouteError(status, transcript, he.Message);
+        };
+
         status.Running.Value = _session.State.IsRunning;
         status.QueuedCount.Value = _session.State.SteeringCount + _session.State.FollowUpCount;
         status.UpdateStats(_session.State.Stats);
         status.UpdateContext(_session.State.ContextUsedTokens, _session.State.AutoCompactThreshold);
+        if (_session.State.LastError is { Length: > 0 } initial)
+            RouteError(status, transcript, initial);
+    }
+
+    /// <summary>
+    /// Classifies an error and routes it: every error goes to the status bar,
+    /// persistent errors additionally leave a transcript line so the user
+    /// can scroll back to them after the status bar clears.
+    /// The same message re-arriving on a later state change (LastError stays
+    /// set until the next run clears it) is deduplicated — it updates the
+    /// status bar but does not append a second transcript record.
+    /// </summary>
+    private void RouteError(PhiStatusBar status, ChatTranscript transcript, string message)
+    {
+        var isTransient = ErrorClassifier.LooksTransient(message);
+        status.ShowError(message, isPersistent: !isTransient);
+        if (isTransient) return;
+        if (_lastRoutedError == message) return;
+        _lastRoutedError = message;
+        transcript.AddPersistentError(message);
     }
 
     // ──────── /sessions dialog ────────
@@ -138,7 +202,7 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
         var sessions = _session.ListRecentSessions(7);
         if (sessions.Count == 0)
         {
-            transcript.AddError("No sessions in the last 7 days");
+            transcript.AddInfo("No sessions in the last 7 days");
             return;
         }
 

@@ -339,7 +339,11 @@ public sealed class CodingSession : ISession
 
     private async Task RunAgentCoreAsync(string prompt)
     {
-        UpdateState(s => s with { IsRunning = true });
+        // A new run clears the previous LastError so the status bar can
+        // restore its normal display (and a fresh failure of the same kind
+        // leaves a new transcript record). Without this, LastError stays
+        // sticky forever and every later StateChanged re-routes the error.
+        UpdateState(s => s with { IsRunning = true, LastError = null });
 
         // Auto-name on the first message only (_autoNamed guards
         // subsequent runs). Fire-and-forget — if the LLM call fails the

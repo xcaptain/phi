@@ -121,8 +121,8 @@ public static class SideBySideDiff
         var numberPart = $"{lineNo}{NumberSeparator}";
         var body = $"{marker}{text}";
         return textColor.Length == 0
-            ? $"[dim]{ToolCardRenderer.Escape(numberPart)}[/]{ToolCardRenderer.Escape(body)}"
-            : $"[dim]{ToolCardRenderer.Escape(numberPart)}[/][{textColor}]{ToolCardRenderer.Escape(body)}[/]";
+            ? $"[dim]{ToolCardBase.Escape(numberPart)}[/]{ToolCardBase.Escape(body)}"
+            : $"[dim]{ToolCardBase.Escape(numberPart)}[/][{textColor}]{ToolCardBase.Escape(body)}[/]";
     }
 
     /// <summary>

@@ -13,6 +13,16 @@ public sealed record SessionState
     public bool IsRunning { get; init; }
     public int Turn { get; init; }
     public SessionStats Stats { get; init; } = SessionStats.Zero;
+
+    /// <summary>
+    /// Last error message from a failed run, or null when no error is
+    /// active. Set when a run fails; cleared when the next run starts
+    /// (so the status bar can restore its normal display and a fresh
+    /// failure of the same kind leaves a new record). Between those two
+    /// points multiple <see cref="ISession.StateChanged"/> events will
+    /// all carry the same value — UI layers that surface errors should
+    /// dedup on message equality to avoid spamming the transcript.
+    /// </summary>
     public string? LastError { get; init; }
     public int SteeringCount { get; init; }
     public int FollowUpCount { get; init; }

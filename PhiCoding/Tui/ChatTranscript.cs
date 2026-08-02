@@ -10,18 +10,16 @@ namespace PhiCoding.Tui;
 /// <summary>
 /// The scrolling conversation view: a <see cref="DocumentFlow"/> of chat cards.
 /// Assistant text streams into a per-turn <see cref="MarkdownControl"/>;
-/// tool calls render as bordered cards that update in place when the
-/// tool result arrives. Reasoning streams into its own dim-styled block
-/// ahead of the assistant text so the user can follow the model's thinking.
-/// Mirrors the XenoAtom Playground sample.
+/// tool calls render via <see cref="IToolCard"/> implementations resolved by
+/// <see cref="ToolCardRegistry"/>; reasoning streams into its own dim-styled
+/// block ahead of the assistant text so the user can follow the model's thinking.
 /// </summary>
 public sealed class ChatTranscript
 {
     private enum StreamMode { None, Thinking, Text }
 
     private readonly DocumentFlow _flow;
-    private readonly Dictionary<string, ToolCard> _toolCards = new();
-    private readonly Dictionary<string, State<string>> _readTitles = new();
+    private readonly Dictionary<string, IToolCard> _toolCards = new();
     private StreamMode _streamMode = StreamMode.None;
     private StringBuilder? _streamText;
     private MarkdownControl? _streamControl;
@@ -78,8 +76,9 @@ public sealed class ChatTranscript
             _renderedMessageCount = state.Messages.Count;
         }
 
-        if (state.LastError is { Length: > 0 })
-            AddError(state.LastError);
+        // Session-level errors are routed to the status bar by PhiTuiApp's
+        // binding; the transcript only keeps persistent-error markers, added
+        // explicitly via AddPersistentError.
     }
 
     private void AppendVisualForMessage(IAgentMessage msg)
@@ -167,7 +166,9 @@ public sealed class ChatTranscript
                 break;
             case HarnessErrorEvent he:
                 FinishStreaming();
-                AddError(he.Message);
+                // Transient / persistent routing happens in PhiTuiApp's
+                // status-bar binding, not here — the transcript only needs
+                // the persistent-error marker, which is added by the router.
                 break;
         }
     }
@@ -194,52 +195,24 @@ public sealed class ChatTranscript
     }
 
     /// <summary>
-    /// Updates an existing tool card with the result from a
-    /// <see cref="ToolResultMessage"/>, or creates a completed card when
-    /// the card wasn't already added (edge case / incomplete data).
+    /// Resolves the matching <see cref="IToolCard"/> from
+    /// <see cref="_toolCards"/> and completes it. If no card is registered
+    /// yet (resume edge), synthesizes one and completes immediately.
     /// </summary>
     private void CompleteToolCallFromMessage(ToolResultMessage tr)
     {
         var stubResult = new ToolResult(tr.Content, tr.Details, tr.IsError);
 
-        if (tr.ToolName == "read")
+        if (!_toolCards.TryGetValue(tr.ToolCallId, out var card))
         {
-            // Read renders a single line — no pending card, no body.
-            var readSummary = ToolCardRenderer.Escape(
-                ToolCardRenderer.FormatSummary(tr.ToolName, stubResult));
-            var titleState = new State<string>(
-                $"{ResultStatus(tr.IsError)} [primary]{ToolCardRenderer.FormatInvocation(new ToolCall(tr.ToolCallId, tr.ToolName))}[/] [dim]· {readSummary}[/]");
-            var readTitle = new Markup(() => titleState.Value)
-            {
-                HorizontalAlignment = Align.Stretch,
-                VerticalAlignment = Align.Start,
-            };
-            _readTitles[tr.ToolCallId] = titleState;
-            Add(readTitle);
-            return;
-        }
-
-        ToolCall call;
-        if (_toolCards.TryGetValue(tr.ToolCallId, out var card))
-        {
-            call = card.Call;
-        }
-        else
-        {
-            call = new ToolCall(tr.ToolCallId, tr.ToolName);
-            AddToolCall(call);
+            // Resume edge: no prior streaming event produced a card, so
+            // synthesize one (no original arguments) and complete in place.
+            AddToolCall(new ToolCall(tr.ToolCallId, tr.ToolName));
             card = _toolCards[tr.ToolCallId];
         }
 
-        // Invocations are author-controlled format strings — don't escape.
-        var status = ResultStatus(tr.IsError);
-        var invocation = ToolCardRenderer.FormatInvocation(call);
-        var summary = ToolCardRenderer.Escape(ToolCardRenderer.FormatSummary(tr.ToolName, stubResult));
-        card.Title.Text = $"{status} [primary]{invocation}[/] [dim]· {summary}[/]";
-        card.BodyState.Value = ToolCardRenderer.FormatResultBody(tr.ToolName, stubResult);
+        card.Complete(stubResult);
     }
-
-    private static string ResultStatus(bool isError) => isError ? "[red]✗[/]" : "[green]✓[/]";
 
     // ──────── User-facing helpers ────────
 
@@ -251,10 +224,27 @@ public sealed class ChatTranscript
             .VerticalAlignment(Align.Start));
     }
 
-    public void AddError(string message)
+    /// <summary>
+    /// Adds a persistent-error marker line to the transcript. Persistent
+    /// errors also occupy the status bar (via <see cref="PhiStatusBar.ShowError"/>)
+    /// but only the transcript record survives <see cref="PhiStatusBar.ClearError"/>
+    /// on the next state change.
+    /// </summary>
+    public void AddPersistentError(string message)
     {
         FinishStreaming();
-        Add(new Markup($"[red]✗ {ToolCardRenderer.Escape(message)}[/]") { Wrap = true });
+        Add(new Markup($"[red]✗ {ToolCardBase.Escape(message)}[/]") { Wrap = true });
+    }
+
+    /// <summary>
+    /// Adds an informational message to the transcript (neutral color, no
+    /// status glyph). Used for non-error feedback such as "no sessions in
+    /// the last 7 days" when the user invokes a UI action.
+    /// </summary>
+    public void AddInfo(string message)
+    {
+        FinishStreaming();
+        Add(new Markup($"[dim]{ToolCardBase.Escape(message)}[/]") { Wrap = true });
     }
 
     /// <summary>
@@ -267,7 +257,7 @@ public sealed class ChatTranscript
         FinishStreaming();
         var firstLine = summary.Split('\n').FirstOrDefault() ?? "";
         var display = firstLine.Length > 120 ? firstLine[..117] + "…" : firstLine;
-        Add(new Markup($"[dim]⋯ compacted earlier context — {ToolCardRenderer.Escape(display)} ⋯[/]")
+        Add(new Markup($"[dim]⋯ compacted earlier context — {ToolCardBase.Escape(display)} ⋯[/]")
         {
             Wrap = true,
         });
@@ -344,81 +334,25 @@ public sealed class ChatTranscript
         _streamControl.Markdown = _streamText.ToString();
     }
 
-    // ──────── Streaming (tool) ────────
+    // ──────── Tool cards ────────
 
     private void AddToolCall(ToolCall call)
     {
         FinishStreaming();
-
-        // Read results render as a single line bound to a State<string>
-        // so CompleteTool can update it in place — no Group, no pending
-        // body, no card. The invocation itself is author-controlled
-        // (e.g. "[offset=N, limit=M]"), so it is NOT escaped.
-        if (call.Name == "read")
-        {
-            var titleState = new State<string>(
-                $"[dim]{ToolCardRenderer.FormatInvocation(call)}[/]");
-            var readTitle = new Markup(() => titleState.Value)
-            {
-                HorizontalAlignment = Align.Stretch,
-                VerticalAlignment = Align.Start,
-            };
-            _readTitles[call.Id] = titleState;
-            Add(readTitle);
-            return;
-        }
-
-        var title = new Markup($"[primary]{ToolCardRenderer.FormatInvocation(call)}[/]");
-        // The body is a State<Visual> fed into a ComputedVisual so
-        // CompleteTool can swap in the final result (e.g. a diff Grid)
-        // and the already-laid-out Group re-renders it in place.
-        var bodyState = new State<Visual>(new Markup("[dim]…[/]") { Wrap = false });
-        var body = new ComputedVisual(() => bodyState.Value);
-        var group = new Group(title, body)
-            .HorizontalAlignment(Align.Stretch)
-            .VerticalAlignment(Align.Start);
-        Add(group);
-        _toolCards[call.Id] = new ToolCard(call, title, bodyState);
+        var card = ToolCardRegistry.For(call.Name);
+        card.ShowPending(call);
+        _toolCards[call.Id] = card;
+        Add(card.Visual);
     }
 
     private void CompleteTool(ToolCall call, ToolResult result)
     {
-        var status = result.IsError ? "[red]✗[/]" : "[green]✓[/]";
-        var invocation = ToolCardRenderer.FormatInvocation(call);
-        var summary = ToolCardRenderer.Escape(
-            ToolCardRenderer.FormatSummary(call.Name, result));
-
-        if (call.Name == "read")
-        {
-            if (_readTitles.TryGetValue(call.Id, out var titleState))
-            {
-                titleState.Value = $"{status} [primary]{invocation}[/] [dim]· {summary}[/]";
-            }
-            else
-            {
-                // No prior AddToolCall (resume / bulk edge): emit finalized
-                // line directly.
-                var newState = new State<string>(
-                    $"{status} [primary]{invocation}[/] [dim]· {summary}[/]");
-                var title = new Markup(() => newState.Value)
-                {
-                    HorizontalAlignment = Align.Stretch,
-                    VerticalAlignment = Align.Start,
-                };
-                _readTitles[call.Id] = newState;
-                Add(title);
-            }
-            return;
-        }
-
         if (!_toolCards.TryGetValue(call.Id, out var card))
         {
             AddToolCall(call);
             card = _toolCards[call.Id];
         }
-
-        card.Title.Text = $"{status} [primary]{invocation}[/] [dim]· {summary}[/]";
-        card.BodyState.Value = ToolCardRenderer.FormatResultBody(call.Name, result);
+        card.Complete(result);
     }
 
     // ──────── Bulk rebuild ────────
@@ -433,7 +367,6 @@ public sealed class ChatTranscript
         FinishStreaming();
         _flow.Items.Clear();
         _toolCards.Clear();
-        _readTitles.Clear();
 
         foreach (var msg in messages)
             AppendVisualForMessage(msg);
@@ -462,7 +395,7 @@ public sealed class ChatTranscript
     internal static string FormatThinkingText(string text)
     {
         var lines = text.Replace("\r\n", "\n").Split('\n');
-        return string.Join('\n', lines.Select(l => $"[dim]{ToolCardRenderer.Escape(l)}[/]"));
+        return string.Join('\n', lines.Select(l => $"[dim]{ToolCardBase.Escape(l)}[/]"));
     }
 
     /// <summary>
@@ -479,6 +412,4 @@ public sealed class ChatTranscript
         var seconds = (int)(elapsed.TotalSeconds - minutes * 60);
         return $"{minutes}m{seconds}s";
     }
-
-    private sealed record ToolCard(ToolCall Call, Markup Title, State<Visual> BodyState);
 }

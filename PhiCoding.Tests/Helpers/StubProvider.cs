@@ -35,6 +35,12 @@ public sealed class StubProvider(Func<int, CancellationToken, IAsyncEnumerable<P
     public static StubProvider FirstCallBlocks(TaskCompletionSource gate, string text = "ok") =>
         new((call, ct) => call == 0 ? Block(gate, ct) : Emit(TextTurn(text), ct));
 
+    /// <summary>The first two calls throw (covering the auto-name probe plus
+    /// the first real run); later calls answer with <paramref name="text"/>.
+    /// Used to test that a new run clears the previous <c>LastError</c>.</summary>
+    public static StubProvider FirstTwoCallsThrow(string text = "ok") =>
+        new((call, ct) => call < 2 ? Throw(ct) : Emit(TextTurn(text), ct));
+
     public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
         string model,
         string system,
@@ -71,5 +77,12 @@ public sealed class StubProvider(Func<int, CancellationToken, IAsyncEnumerable<P
         {
             yield return ev;
         }
+    }
+
+    private static async IAsyncEnumerable<ProviderEvent> Throw(
+        [EnumeratorCancellation] CancellationToken ct)
+    {
+        if (ct.IsCancellationRequested) yield break;
+        throw new InvalidOperationException("stub provider failure");
     }
 }

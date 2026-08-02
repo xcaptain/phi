@@ -245,6 +245,28 @@ public class CodingSessionRuntimeTests : IDisposable
     }
 
     [Test]
+    public async Task NewRun_ClearsPreviousLastError()
+    {
+        // First run fails (LastError set); the next run must start with a
+        // clean LastError so the status bar can restore its normal display
+        // and a fresh failure leaves a new record.
+        var session = CodingSession.Create(ConfigWith(StubProvider.FirstTwoCallsThrow()));
+
+        session.SubmitPrompt("fail me");
+        await WaitForAsync(() => session.State.LastError is { Length: > 0 });
+        await WaitForAsync(() => !session.State.IsRunning);
+        await Assert.That(session.State.LastError).IsNotNull();
+
+        session.SubmitPrompt("succeed now");
+        // The new run clears the stale error immediately on start.
+        await WaitForAsync(() => session.State.LastError is null);
+        await WaitForAsync(() => !session.State.IsRunning);
+        await Assert.That(session.State.LastError).IsNull();
+        await Assert.That(session.State.Messages.OfType<AssistantMessage>()
+            .Any(m => m.Text == "ok")).IsTrue();
+    }
+
+    [Test]
     public async Task Resume_WithConfig_LoadsTranscriptIntoState()
     {
         var stored = CodingSession.Create(_cwd, "m");

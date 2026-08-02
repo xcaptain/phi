@@ -30,11 +30,11 @@ public class ChatTranscriptResumeTests
     }
 
     [Test]
-    public async Task AddError_RendersErrorMessage()
+    public async Task AddPersistentError_RendersErrorMessage()
     {
         var transcript = new ChatTranscript();
 
-        transcript.AddError("something broke");
+        transcript.AddPersistentError("something broke");
 
         var flow = transcript.Visual as DocumentFlow;
         await Assert.That(flow).IsNotNull();

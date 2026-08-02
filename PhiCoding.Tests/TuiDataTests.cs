@@ -9,11 +9,11 @@ namespace PhiCoding.Tests;
 public class TuiDataTests
 {
     [Test]
-    public async Task ChatTranscript_AddError_AppendsItem()
+    public async Task ChatTranscript_AddPersistentError_AppendsItem()
     {
         var t = new ChatTranscript();
         await Task.CompletedTask;
-        t.AddError("something broke");
+        t.AddPersistentError("something broke");
 
         var flow = t.Visual as DocumentFlow;
         await Assert.That(flow).IsNotNull();

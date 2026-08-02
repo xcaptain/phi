@@ -7,9 +7,12 @@ namespace PhiCoding.Tui;
 
 /// <summary>
 /// Bottom status bar: spinner + run state on the left, model/cwd/cumulative
-/// token usage on the right. Driven by <see cref="ISession.StateChanged"/>
-/// through <see cref="UpdateStats"/>; the legacy <see cref="Apply"/> hook
-/// still handles <see cref="TurnStartEvent"/> for the run indicator.
+/// token usage on the right. Transient session errors take over the right
+/// slot via <see cref="ShowError"/> and clear on the next
+/// <see cref="ISession.StateChanged"/> event. Driven by
+/// <see cref="ISession.StateChanged"/> through <see cref="UpdateStats"/>; the
+/// legacy <see cref="Apply"/> hook still handles <see cref="TurnStartEvent"/>
+/// for the run indicator.
 /// </summary>
 public sealed class PhiStatusBar
 {
@@ -18,6 +21,7 @@ public sealed class PhiStatusBar
     private readonly State<string> _tokens = new("");
     private readonly State<string> _context = new("");
     private readonly State<int> _queuedCount = new(0);
+    private readonly State<ErrorDisplay?> _currentError = new(null);
 
     public PhiStatusBar(string model)
     {
@@ -38,8 +42,7 @@ public sealed class PhiStatusBar
                 }))
             .Spacing(1);
 
-        var right = new Markup(() =>
-            $"[dim]{_model} · {ShortenPath(Environment.CurrentDirectory)}{_context.Value}{_tokens.Value}[/]");
+        var right = new Markup(() => BuildRightText());
 
         Visual = new StatusBar(left, right);
     }
@@ -55,6 +58,11 @@ public sealed class PhiStatusBar
     /// <see cref="ISession.StateChanged"/> handler.
     /// </summary>
     public State<int> QueuedCount => _queuedCount;
+
+    /// <summary>
+    /// Currently displayed error, if any. Visible for inspection and tests.
+    /// </summary>
+    public ErrorDisplay? CurrentError => _currentError.Value;
 
     /// <summary>
     /// Updates the cumulative token display. Called from the session's
@@ -86,6 +94,26 @@ public sealed class PhiStatusBar
             ? $" · {FormatCount(contextUsedTokens)}/{FormatCount(threshold + ContextWindow.DefaultCompactionReserveTokens)}"
             : $" · {FormatCount(contextUsedTokens)}";
     }
+
+    /// <summary>
+    /// Shows an error message in the right slot of the status bar.
+    /// <paramref name="isPersistent"/> chooses the highlight color: persistent
+    /// errors render red, transient (network blip, retry) render yellow.
+    /// The next <see cref="ClearError"/> call (driven by a state change in
+    /// <see cref="PhiTuiApp"/>) restores the model/path/tokens display.
+    /// </summary>
+    public void ShowError(string message, bool isPersistent)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        _currentError.Value = new ErrorDisplay(message, isPersistent);
+    }
+
+    /// <summary>
+    /// Removes any active error and restores the model/path/tokens display.
+    /// Called by <see cref="PhiTuiApp"/> on every state change that does
+    /// not carry a new <c>LastError</c>.
+    /// </summary>
+    public void ClearError() => _currentError.Value = null;
 
     public void Apply(HarnessEvent ev)
     {
@@ -119,4 +147,20 @@ public sealed class PhiStatusBar
         < 1_000_000 => $"{n / 1000.0:F1}k",
         _ => $"{n / 1_000_000.0:F1}M",
     };
+
+    private string BuildRightText()
+    {
+        var err = _currentError.Value;
+        if (err is not null)
+        {
+            var color = err.IsPersistent ? "red" : "yellow";
+            return $"[{color}]⚠ {Escape(err.Message)}[/]";
+        }
+        return $"[dim]{_model} · {ShortenPath(Environment.CurrentDirectory)}{_context.Value}{_tokens.Value}[/]";
+    }
+
+    private static string Escape(string text) => text.Replace("[", "\\[").Replace("]", "\\]");
+
+    /// <summary>Active error display state. <see cref="IsPersistent"/> drives the color.</summary>
+    public sealed record ErrorDisplay(string Message, bool IsPersistent);
 }
