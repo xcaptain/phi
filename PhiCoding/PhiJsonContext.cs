@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using PhiCoding.Providers;
 using PhiCoding.Tools;
 using PhiCoding.Tools.Details;
 
@@ -11,6 +12,8 @@ namespace PhiCoding;
 /// </summary>
 [JsonSourceGenerationOptions(WriteIndented = false)]
 [JsonSerializable(typeof(SessionRecord))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(PhiSettings))]
 [JsonSerializable(typeof(ReadDetails))]
 [JsonSerializable(typeof(WriteDetails))]
 [JsonSerializable(typeof(EditDetails))]

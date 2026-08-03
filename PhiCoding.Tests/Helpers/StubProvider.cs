@@ -15,6 +15,8 @@ public sealed class StubProvider(Func<int, CancellationToken, IAsyncEnumerable<P
 
     public int CallCount => _callCount;
 
+    public void Dispose() { }
+
     /// <summary>Every call yields the same events.</summary>
     public static StubProvider Echo(params ProviderEvent[] turnEvents) =>
         new((_, ct) => Emit(turnEvents, ct));

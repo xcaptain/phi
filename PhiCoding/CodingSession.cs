@@ -55,10 +55,10 @@ public sealed class CodingSession : ISession
     /// Returns the project's stable default session, creating and indexing
     /// it on first use.
     /// </summary>
-    public static CodingSession GetOrCreateDefault(string cwd, string model)
+    public static CodingSession GetOrCreateDefault(string cwd, string model, string providerName = "")
     {
         var manager = new SessionManager(cwd);
-        var record = manager.GetOrCreateDefaultSession(model);
+        var record = manager.GetOrCreateDefaultSession(model, providerName);
         return new(record, OpenStorage(manager, record.Id), manager, persisted: true);
     }
 
@@ -67,10 +67,10 @@ public sealed class CodingSession : ISession
     /// allocated eagerly; the transcript file and index record appear on
     /// the first persisted message.
     /// </summary>
-    public static CodingSession Create(string cwd, string model, string? title = null)
+    public static CodingSession Create(string cwd, string model, string? title = null, string providerName = "")
     {
         var manager = new SessionManager(cwd);
-        var record = manager.PrepareSession(model, title);
+        var record = manager.PrepareSession(model, title, providerName);
         return new(record, OpenStorage(manager, record.Id), manager, persisted: false);
     }
 
@@ -82,9 +82,9 @@ public sealed class CodingSession : ISession
     /// </summary>
     public static CodingSession Create(SessionConfig config)
     {
-        var session = Create(config.Cwd, config.Model);
+        var session = Create(config.Cwd, config.Model, providerName: config.ProviderName);
         var harness = BuildHarness(config);
-        session.StartRuntime(harness, config.Provider, config.Model);
+        session.StartRuntime(harness, config.Provider, config.ProviderName, config.Model);
         session.ApplyConfig(config);
         return session;
     }
@@ -111,7 +111,7 @@ public sealed class CodingSession : ISession
         var session = Resume(id, config.Cwd);
         var harness = BuildHarness(config);
         harness.ReplaceMessages(session.LoadMessages());
-        session.StartRuntime(harness, config.Provider, config.Model);
+        session.StartRuntime(harness, config.Provider, config.ProviderName, config.Model);
         session.ApplyConfig(config);
         return session;
     }
@@ -197,6 +197,7 @@ public sealed class CodingSession : ISession
 
     private Harness? _harness;
     private IPhiProvider? _provider;
+    private string _providerName = "";
     private readonly Queue<UserMessage> _steeringQueue = new();
     private readonly Queue<UserMessage> _followUpQueue = new();
     private string _runtimeModel = "";
@@ -226,10 +227,11 @@ public sealed class CodingSession : ISession
     /// Starts the runtime: binds harness, provider, and model to this
     /// session. Must be called once before any action methods.
     /// </summary>
-    public void StartRuntime(Harness harness, IPhiProvider provider, string model)
+    public void StartRuntime(Harness harness, IPhiProvider provider, string providerName, string model)
     {
         _harness = harness;
         _provider = provider;
+        _providerName = providerName;
         _runtimeModel = model;
         _lastMessageCount = harness.Messages.Count;
         _runtimeStarted = true;
@@ -240,6 +242,7 @@ public sealed class CodingSession : ISession
             Messages = messages,
             SessionId = Id,
             Model = model,
+            ProviderName = providerName,
             SessionTitle = Record.Title,
             IsPersisted = _persisted,
             Stats = SessionStatsCalculator.Calculate(messages),
@@ -288,6 +291,57 @@ public sealed class CodingSession : ISession
         ContextWindow.EstimateContextUsage(_systemPrompt, messages, _tools);
 
     // ──────── Runtime actions ────────
+
+    /// <summary>
+    /// Switches the active model within the current provider. Applies to the
+    /// next run only — an in-flight run keeps the model it started with, and
+    /// the provider's HTTP transport is untouched (the model is a per-request
+    /// parameter). Persists the change to the session record and state.
+    /// </summary>
+    public void SwitchModel(string model)
+    {
+        ThrowIfNoRuntime();
+        ArgumentException.ThrowIfNullOrWhiteSpace(model);
+        if (model == _runtimeModel) return;
+
+        _runtimeModel = model;
+        _harness!.Model = model;
+        Record = Record with { Model = model };
+        TouchRecord();
+        UpdateState(s => s with { Model = model });
+    }
+
+    /// <summary>
+    /// Switches to a different provider (and its default model). The session
+    /// takes ownership of <paramref name="provider"/>: the previous provider
+    /// is disposed (releasing its HTTP transport) unless it is the very same
+    /// instance. Applies to the next run only; an in-flight run keeps the
+    /// provider it started with. Persists the change to the session record
+    /// and state.
+    /// </summary>
+    public void SwitchProvider(IPhiProvider provider, string providerName, string model)
+    {
+        ThrowIfNoRuntime();
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentException.ThrowIfNullOrWhiteSpace(providerName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(model);
+
+        var previous = _provider;
+        _provider = provider;
+        _providerName = providerName;
+        _runtimeModel = model;
+        _harness!.Provider = provider;
+        _harness!.Model = model;
+
+        Record = Record with { Model = model, ProviderName = providerName };
+        _manager.Upsert(Record);
+        _persisted = true;
+
+        UpdateState(s => s with { Model = model, ProviderName = providerName });
+
+        if (previous is not null && !ReferenceEquals(previous, provider))
+            previous.Dispose();
+    }
 
     public void SubmitPrompt(string text)
     {
@@ -455,6 +509,7 @@ public sealed class CodingSession : ISession
             Messages = loaded,
             SessionId = record.Id,
             Model = _runtimeModel,
+            ProviderName = _providerName,
             SessionTitle = record.Title,
             IsPersisted = true,
             Stats = SessionStatsCalculator.Calculate(loaded),
@@ -644,5 +699,9 @@ public sealed class CodingSession : ISession
 
         try { cts.Dispose(); }
         catch (ObjectDisposedException) { /* already disposed by RunAgentCoreAsync */ }
+
+        // Release the provider's HTTP transport. NullProvider and fakes are
+        // no-ops; real providers dispose their HttpClient here.
+        _provider?.Dispose();
     }
 }

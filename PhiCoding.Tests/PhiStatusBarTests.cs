@@ -41,6 +41,29 @@ public class PhiStatusBarTests
     }
 
     [Test]
+    public async Task UpdateModel_WithProvider_ShowsProviderAndModel()
+    {
+        var bar = new PhiStatusBar("deepseek-v4-flash");
+        bar.UpdateModel("deepseek", "deepseek-v4-pro");
+
+        var line = RenderBar(bar, width: 120);
+
+        await Assert.That(line).Contains("deepseek · deepseek-v4-pro");
+    }
+
+    [Test]
+    public async Task UpdateModel_WithoutProvider_ShowsModelOnly()
+    {
+        var bar = new PhiStatusBar("deepseek-v4-flash");
+        bar.UpdateModel("", "deepseek-v4-flash");
+
+        var line = RenderBar(bar, width: 120);
+
+        await Assert.That(line).Contains("deepseek-v4-flash");
+        await Assert.That(line).DoesNotContain(" · deepseek");
+    }
+
+    [Test]
     public async Task Renders_Ready_And_Model_On_Init()
     {
         var bar = new PhiStatusBar("phi-3");

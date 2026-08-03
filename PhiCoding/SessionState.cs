@@ -28,6 +28,9 @@ public sealed record SessionState
     public int FollowUpCount { get; init; }
     public string SessionId { get; init; } = "";
     public string Model { get; init; } = "";
+
+    /// <summary>Active provider name (e.g. <c>"deepseek"</c>).</summary>
+    public string ProviderName { get; init; } = "";
     public string? SessionTitle { get; init; }
 
     /// <summary>

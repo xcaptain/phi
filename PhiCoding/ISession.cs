@@ -27,4 +27,17 @@ public interface ISession : IDisposable
     void RenameSession(string? title);
     Task ResumeSession(string sessionId);
     IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7);
+
+    /// <summary>
+    /// Switches the active model within the current provider. Applies to the
+    /// next run only; provider resources are untouched.
+    /// </summary>
+    void SwitchModel(string model);
+
+    /// <summary>
+    /// Switches to a new provider instance (the session takes ownership and
+    /// disposes the previous provider) with its <paramref name="model"/>.
+    /// Applies to the next run only.
+    /// </summary>
+    void SwitchProvider(IPhiProvider provider, string providerName, string model);
 }

@@ -19,14 +19,40 @@ namespace PhiAgent;
 /// <c>tau_agent.harness</c> (thin wrapper) and <c>tau_agent.loop</c>
 /// (run_agent_loop).
 /// </summary>
-public sealed class Harness(
-    IPhiProvider provider,
-    IReadOnlyList<Tool> tools,
-    string model,
-    string system = "",
-    int? maxTurns = null)
+public sealed class Harness
 {
+    private readonly IReadOnlyList<Tool> _tools;
+    private readonly string _system;
+    private readonly int? _maxTurns;
     private readonly List<IAgentMessage> _messages = new();
+
+    public Harness(
+        IPhiProvider provider,
+        IReadOnlyList<Tool> tools,
+        string model,
+        string system = "",
+        int? maxTurns = null)
+    {
+        Provider = provider;
+        Model = model;
+        _tools = tools;
+        _system = system;
+        _maxTurns = maxTurns;
+    }
+
+    /// <summary>
+    /// Provider used for the next <see cref="RunAsync"/> call. Mutable so a
+    /// session can switch providers between runs without rebuilding the
+    /// harness (the in-flight run keeps the values it started with).
+    /// </summary>
+    public IPhiProvider Provider { get; set; }
+
+    /// <summary>
+    /// Model used for the next <see cref="RunAsync"/> call. Mutable so a
+    /// session can switch models between runs; <c>AgentLoop</c> treats the
+    /// model as a per-request parameter.
+    /// </summary>
+    public string Model { get; set; }
 
     /// <summary>All messages accumulated across this session (user, assistant, tool results).</summary>
     public IReadOnlyList<IAgentMessage> Messages => _messages;
@@ -119,9 +145,9 @@ public sealed class Harness(
         // MoveNextAsync without violating CS1626 (yield in try-catch) while
         // preserving streaming semantics.
         var enumerator = AgentLoop.RunAgentAsync(
-                provider, model, system, _messages, tools,
+                Provider, Model, _system, _messages, _tools,
                 getSteeringMessages, getFollowUpMessages,
-                maxTurns, cancellationToken)
+                _maxTurns, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
         try

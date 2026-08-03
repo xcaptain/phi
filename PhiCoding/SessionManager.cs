@@ -25,19 +25,19 @@ public sealed class SessionManager(string cwd)
     /// no index entry, no session file, not even the project directory.
     /// The record becomes indexed lazily via <see cref="Upsert"/>.
     /// </summary>
-    public SessionRecord PrepareSession(string model, string? title = null)
+    public SessionRecord PrepareSession(string model, string? title = null, string providerName = "")
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         return new SessionRecord(
-            Guid.NewGuid().ToString("N"), Cwd, model, title, now, now);
+            Guid.NewGuid().ToString("N"), Cwd, model, title, now, now, providerName);
     }
 
     /// <summary>
     /// Allocates a session record and indexes it immediately.
     /// </summary>
-    public SessionRecord CreateSession(string model, string? title = null)
+    public SessionRecord CreateSession(string model, string? title = null, string providerName = "")
     {
-        var record = PrepareSession(model, title);
+        var record = PrepareSession(model, title, providerName);
         Upsert(record);
         return record;
     }
@@ -46,7 +46,7 @@ public sealed class SessionManager(string cwd)
     /// Returns the project's stable default session, creating and indexing
     /// it on first use.
     /// </summary>
-    public SessionRecord GetOrCreateDefaultSession(string model)
+    public SessionRecord GetOrCreateDefaultSession(string model, string providerName = "")
     {
         var existing = FindSession(SessionPaths.DefaultSessionId(Cwd));
         if (existing is not null) return existing;
@@ -54,7 +54,7 @@ public sealed class SessionManager(string cwd)
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var record = new SessionRecord(
             SessionPaths.DefaultSessionId(Cwd), Cwd, model,
-            "Default session", now, now);
+            "Default session", now, now, providerName);
         Upsert(record);
         return record;
     }

@@ -1,5 +1,6 @@
 using System.Globalization;
 using PhiAgent;
+using PhiCoding.Providers;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
@@ -14,9 +15,10 @@ namespace PhiCoding.Tui;
 /// <see cref="IDisposable.Dispose"/> cancels the in-flight run and
 /// releases session resources; call when the TUI exits (Ctrl+Q, /exit).
 /// </summary>
-public sealed class PhiTuiApp(ISession session) : IDisposable
+public sealed class PhiTuiApp(ISession session, ProviderManager? providers = null) : IDisposable
 {
     private readonly ISession _session = session;
+    private readonly ProviderManager _providers = providers ?? new ProviderManager();
 
     /// <summary>
     /// Chat transcript created by the latest <see cref="BuildRoot"/> call.
@@ -70,8 +72,9 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
             .MaxHeight(10)
             .AutoFocus(true);
 
-        var modelMarkup = new Markup($"[dim]{_session.State.Model}[/]") { Wrap = false };
-        _session.StateChanged += _ => modelMarkup.Text = $"[dim]{_session.State.Model}[/]";
+        var modelMarkup = new Markup($"[dim]{FormatModel(_session.State.ProviderName, _session.State.Model)}[/]") { Wrap = false };
+        _session.StateChanged += _ =>
+            modelMarkup.Text = $"[dim]{FormatModel(_session.State.ProviderName, _session.State.Model)}[/]";
 
         var header = new Header
         {
@@ -101,8 +104,28 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
                     case "/sessions":
                         ShowSessionsDialog(transcript, editor);
                         break;
+                    case "/connect":
+                        ShowConnectDialog(transcript, editor);
+                        break;
+                    case "/models":
+                        ShowModelsDialog(transcript, editor);
+                        break;
                     case "/exit":
                         editor.App?.Stop();
+                        break;
+                }
+                return;
+            }
+
+            if (SlashCommands.MatchWithArgs(text) is { } withArgs)
+            {
+                switch (withArgs.Command)
+                {
+                    case "/connect":
+                        ConnectProviderByName(withArgs.Args, transcript, editor);
+                        break;
+                    case "/models":
+                        SwitchModelByName(withArgs.Args, transcript);
                         break;
                 }
                 return;
@@ -146,6 +169,7 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
             status.QueuedCount.Value = s.SteeringCount + s.FollowUpCount;
             status.UpdateStats(s.Stats);
             status.UpdateContext(s.ContextUsedTokens, s.AutoCompactThreshold);
+            status.UpdateModel(s.ProviderName, s.Model);
 
             // Event-driven error clear: any state change without a new
             // LastError wipes the previous error from the status bar.
@@ -173,6 +197,7 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
         status.QueuedCount.Value = _session.State.SteeringCount + _session.State.FollowUpCount;
         status.UpdateStats(_session.State.Stats);
         status.UpdateContext(_session.State.ContextUsedTokens, _session.State.AutoCompactThreshold);
+        status.UpdateModel(_session.State.ProviderName, _session.State.Model);
         if (_session.State.LastError is { Length: > 0 } initial)
             RouteError(status, transcript, initial);
     }
@@ -206,43 +231,13 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
             return;
         }
 
-        var today = DateOnly.FromDateTime(DateTime.Now);
-        var grouped = sessions
-            .GroupBy(r => DateOnly.FromDateTime(
-                DateTimeOffset.FromUnixTimeMilliseconds(r.UpdatedAt).DateTime))
-            .OrderByDescending(g => g.Key)
-            .ToList();
-
-        var list = new OptionList<OptionListItem>().ActivateOnClick(true);
-        foreach (var group in grouped)
-        {
-            var label = group.Key == today ? "Today"
-                : group.Key == today.AddDays(-1) ? "Yesterday"
-                : group.Key.ToString("MMM d", CultureInfo.InvariantCulture);
-            list.Items.Add(new OptionListItem(label) { IsEnabled = false });
-
-            foreach (var r in group.OrderByDescending(x => x.UpdatedAt))
-            {
-                var time = DateTimeOffset.FromUnixTimeMilliseconds(r.UpdatedAt)
-                    .ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
-                var title = r.Title ?? r.Id[..8];
-                list.Items.Add(new OptionListItem($"  {title} · {time} · {r.Model}"));
-            }
-        }
+        var (list, recordsByIndex) = BuildSessionPicker(sessions);
 
         list.ItemActivated((_, e) =>
         {
-            SessionRecord? target = null;
-            var idx = 0;
-            foreach (var g in grouped)
-            {
-                foreach (var r in g.OrderByDescending(x => x.UpdatedAt))
-                {
-                    idx++;
-                    if (idx == e.Index) { target = r; break; }
-                }
-                if (target is not null) break;
-            }
+            var target = (uint)e.Index < (uint)recordsByIndex.Count
+                ? recordsByIndex[e.Index]
+                : null;
             if (target is null) return;
 
             if (list.Parent is Dialog d) d.Close();
@@ -266,6 +261,240 @@ public sealed class PhiTuiApp(ISession session) : IDisposable
         };
         dialog.Show();
     }
+
+    /// <summary>
+    /// Builds the /sessions picker items and a position-parallel record map.
+    /// <c>OptionList</c>'s <c>ItemActivated</c> index is the raw item position
+    /// (date-group headers included), so activation must look the record up by
+    /// position — a record-counting loop drifts once sessions span multiple
+    /// day groups.
+    /// </summary>
+    internal static (OptionList<OptionListItem> List, List<SessionRecord?> Records)
+        BuildSessionPicker(IReadOnlyList<SessionRecord> sessions)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var grouped = sessions
+            .GroupBy(r => DateOnly.FromDateTime(
+                DateTimeOffset.FromUnixTimeMilliseconds(r.UpdatedAt).DateTime))
+            .OrderByDescending(g => g.Key)
+            .ToList();
+
+        var list = new OptionList<OptionListItem>().ActivateOnClick(true);
+        var recordsByIndex = new List<SessionRecord?>();
+        foreach (var group in grouped)
+        {
+            var label = group.Key == today ? "Today"
+                : group.Key == today.AddDays(-1) ? "Yesterday"
+                : group.Key.ToString("MMM d", CultureInfo.InvariantCulture);
+            list.Items.Add(new OptionListItem(label) { IsEnabled = false });
+            recordsByIndex.Add(null);
+
+            foreach (var r in group.OrderByDescending(x => x.UpdatedAt))
+            {
+                var time = DateTimeOffset.FromUnixTimeMilliseconds(r.UpdatedAt)
+                    .ToLocalTime().ToString("HH:mm", CultureInfo.InvariantCulture);
+                var title = r.Title ?? r.Id[..8];
+                var model = r.ProviderName.Length > 0
+                    ? $"{r.ProviderName}/{r.Model}"
+                    : r.Model;
+                list.Items.Add(new OptionListItem($"  {title} · {time} · {model}"));
+                recordsByIndex.Add(r);
+            }
+        }
+        return (list, recordsByIndex);
+    }
+
+    // ──────── /connect dialog ────────
+
+    private void ShowConnectDialog(ChatTranscript transcript, PromptEditor editor)
+    {
+        var list = new OptionList<OptionListItem>().ActivateOnClick(true);
+        var currentProvider = _session.State.ProviderName;
+        foreach (var entry in _providers.Providers)
+        {
+            var connected = entry.Name.Equals(currentProvider, StringComparison.OrdinalIgnoreCase);
+            var noKey = !_providers.HasApiKey(entry);
+            var label = $"  {(connected ? "✓ " : "  ")}{entry.DisplayName} — {entry.Name}"
+                + (noKey ? "  (no key)" : "");
+            list.Items.Add(new OptionListItem(label));
+        }
+
+        list.ItemActivated((_, e) =>
+        {
+            var entry = _providers.Providers[e.Index];
+            if (list.Parent is Dialog d) d.Close();
+            ConnectProvider(entry, transcript, editor);
+        });
+
+        var dialog = new Dialog(new Markup("[bold]Connect a provider[/]"), list)
+        {
+            IsResizable = false,
+            IsDraggable = true,
+            IsModal = true,
+        };
+        dialog.KeyDownRouted += (_, ev) =>
+        {
+            if (ev.Key == TerminalKey.Escape)
+            {
+                dialog.Close();
+                editor.App?.Focus(editor);
+            }
+        };
+        dialog.Show();
+    }
+
+    internal void ConnectProviderByName(string name, ChatTranscript transcript, PromptEditor editor)
+    {
+        var entry = _providers.Providers.FirstOrDefault(
+            p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+        {
+            transcript.AddInfo($"Unknown provider '{name}'. Run /connect to pick one.");
+            return;
+        }
+        ConnectProvider(entry, transcript, editor);
+    }
+
+    internal void ConnectProvider(ProviderCatalogEntry entry, ChatTranscript transcript, PromptEditor editor)
+    {
+        // Always prompt so the user can change an existing key (or keep it by
+        // confirming the pre-filled value) — /connect must be able to modify
+        // a stored/derived API key, not just set it the first time.
+        var existingKey = _providers.ResolveApiKey(entry);
+        PromptApiKey(entry, transcript, editor, existingKey,
+            enteredKey => ApplyApiKeyAndConnect(entry, enteredKey, transcript));
+    }
+
+    /// <summary>
+    /// Persists the entered key to the credential store and connects with it.
+    /// </summary>
+    internal void ApplyApiKeyAndConnect(
+        ProviderCatalogEntry entry, string apiKey, ChatTranscript transcript)
+    {
+        _providers.SetApiKey(entry, apiKey);
+        ConnectWithKey(entry, apiKey, transcript);
+    }
+
+    internal void ConnectWithKey(ProviderCatalogEntry entry, string apiKey, ChatTranscript transcript)
+    {
+        var model = _providers.ResolveDefaultModel(entry);
+        var provider = _providers.CreateProvider(entry, apiKey);
+        _session.SwitchProvider(provider, entry.Name, model);
+        _providers.SaveDefault(entry, model);
+        transcript.AddInfo($"Connected to {entry.Name} · {model}");
+    }
+
+    private static void PromptApiKey(
+        ProviderCatalogEntry entry,
+        ChatTranscript transcript,
+        PromptEditor editor,
+        string? existingKey,
+        Action<string> onKey)
+    {
+        var textBox = new TextBox { IsPassword = true, Text = existingKey };
+        var hint = existingKey is { Length: > 0 }
+            ? $"[dim]API key for {entry.DisplayName} ({entry.Name}) — current key pre-filled; edit to replace, Enter to confirm[/]"
+            : $"[dim]API key for {entry.DisplayName} ({entry.Name}) — Enter to confirm, Esc to cancel[/]";
+        var body = new VStack(
+            new Markup(hint),
+            textBox).Spacing(1);
+
+        var dialog = new Dialog(new Markup($"[bold]Connect {entry.DisplayName}[/]"), body)
+        {
+            IsResizable = false,
+            IsDraggable = true,
+            IsModal = true,
+        };
+        dialog.KeyDownRouted += (_, ev) =>
+        {
+            if (ev.Key == TerminalKey.Enter)
+            {
+                var value = (textBox.Text ?? "").Trim();
+                if (value.Length == 0) return;
+                dialog.Close();
+                editor.App?.Focus(editor);
+                onKey(value);
+            }
+            else if (ev.Key == TerminalKey.Escape)
+            {
+                dialog.Close();
+                editor.App?.Focus(editor);
+            }
+        };
+        dialog.Show();
+        editor.App?.Focus(textBox);
+    }
+
+    // ──────── /models dialog ────────
+
+    internal ProviderCatalogEntry? GetCurrentProviderEntry() =>
+        _providers.Providers.FirstOrDefault(
+            p => p.Name.Equals(_session.State.ProviderName, StringComparison.OrdinalIgnoreCase));
+
+    private void ShowModelsDialog(ChatTranscript transcript, PromptEditor editor)
+    {
+        var entry = GetCurrentProviderEntry();
+        if (entry is null)
+        {
+            transcript.AddInfo("No provider connected. Run /connect first.");
+            return;
+        }
+
+        var currentModel = _session.State.Model;
+        var list = new OptionList<OptionListItem>().ActivateOnClick(true);
+        foreach (var model in entry.Models)
+        {
+            list.Items.Add(new OptionListItem($"  {(model == currentModel ? "✓ " : "  ")}{model}"));
+        }
+
+        list.ItemActivated((_, e) =>
+        {
+            var model = entry.Models[e.Index];
+            if (list.Parent is Dialog d) d.Close();
+            _session.SwitchModel(model);
+            _providers.SaveDefault(entry, model);
+            transcript.AddInfo($"Model: {model}");
+        });
+
+        var dialog = new Dialog(new Markup($"[bold]Models · {entry.Name}[/]"), list)
+        {
+            IsResizable = false,
+            IsDraggable = true,
+            IsModal = true,
+        };
+        dialog.KeyDownRouted += (_, ev) =>
+        {
+            if (ev.Key == TerminalKey.Escape)
+            {
+                dialog.Close();
+                editor.App?.Focus(editor);
+            }
+        };
+        dialog.Show();
+    }
+
+    internal void SwitchModelByName(string model, ChatTranscript transcript)
+    {
+        var entry = GetCurrentProviderEntry();
+        if (entry is null)
+        {
+            transcript.AddInfo("No provider connected. Run /connect first.");
+            return;
+        }
+        if (!entry.Models.Contains(model))
+        {
+            transcript.AddInfo(
+                $"Unknown model '{model}' for {entry.Name}. Available: {string.Join(", ", entry.Models)}");
+            return;
+        }
+
+        _session.SwitchModel(model);
+        _providers.SaveDefault(entry, model);
+        transcript.AddInfo($"Model: {model}");
+    }
+
+    private static string FormatModel(string providerName, string model) =>
+        providerName.Length > 0 ? $"{providerName}/{model}" : model;
 
     // ──────── Slash completion ────────
 

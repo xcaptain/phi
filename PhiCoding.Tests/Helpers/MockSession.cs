@@ -29,10 +29,35 @@ public sealed class MockSession : ISession
     /// <summary>Whether Dispose was called.</summary>
     public bool Disposed { get; private set; }
 
+    /// <summary>Last model passed to <see cref="SwitchModel"/> or <see cref="SwitchProvider"/>.</summary>
+    public string? LastSwitchedModel { get; private set; }
+
+    /// <summary>Last provider passed to <see cref="SwitchProvider"/>, or null.</summary>
+    public IPhiProvider? LastSwitchedProvider { get; private set; }
+
+    /// <summary>Last provider name passed to <see cref="SwitchProvider"/>, or null.</summary>
+    public string? LastSwitchedProviderName { get; private set; }
+
     public void SubmitPrompt(string text)
     {
         LastSubmittedText = text;
         OnSubmitPrompt?.Invoke(text);
+    }
+
+    public void SwitchModel(string model)
+    {
+        LastSwitchedModel = model;
+        State = State with { Model = model };
+        StateChanged?.Invoke(State);
+    }
+
+    public void SwitchProvider(IPhiProvider provider, string providerName, string model)
+    {
+        LastSwitchedProvider = provider;
+        LastSwitchedProviderName = providerName;
+        LastSwitchedModel = model;
+        State = State with { Model = model, ProviderName = providerName };
+        StateChanged?.Invoke(State);
     }
 
     public void Cancel()

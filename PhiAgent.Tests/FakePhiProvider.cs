@@ -10,6 +10,8 @@ public sealed class FakePhiProvider : IPhiProvider
 
     public IReadOnlyList<IReadOnlyList<IAgentMessage>> CallsReceived => _callsReceived;
 
+    public void Dispose() { }
+
     public FakePhiProvider(IEnumerable<IEnumerable<ProviderEvent>> turns)
     {
         foreach (var turn in turns)

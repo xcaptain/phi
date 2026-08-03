@@ -1,5 +1,6 @@
 using PhiAgent;
 using PhiCoding;
+using PhiCoding.Providers;
 using PhiCoding.Tui;
 using PhiProvider;
 
@@ -21,7 +22,6 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-// TODO: 应该使用一个更通用的办法来加载模型，也许是一个 yaml 文件
 // Load .env from cwd (dotnet does not auto-load .env files)
 if (File.Exists(".env"))
 {
@@ -37,32 +37,32 @@ if (File.Exists(".env"))
     }
 }
 
-var apiKey = Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
-if (string.IsNullOrWhiteSpace(apiKey))
+// Composition root: resolve the default provider from settings, build the
+// runtime provider from its API key (env var → credential store), and hand it
+// to the session. The TUI also receives the ProviderManager so /connect and
+// /models can switch provider/model at runtime.
+var providerManager = new ProviderManager();
+var defaultProvider = providerManager.ResolveDefaultProvider();
+var defaultModel = providerManager.ResolveDefaultModel(defaultProvider);
+
+IPhiProvider provider;
+if (providerManager.ResolveApiKey(defaultProvider) is { } apiKey)
 {
-    Console.Error.WriteLine(
-        "DEEPSEEK_API_KEY is empty. Set it in your shell or put it in .env at the repo root.");
-    return 1;
+    provider = providerManager.CreateProvider(defaultProvider, apiKey);
 }
-
-const string model = "deepseek-v4-flash";
-
-// Composition root: build the concrete provider here so CodingSession
-// only ever sees the IPhiProvider abstraction.
-IPhiProvider provider = new AnthropicProvider(
-    new AnthropicConfig
-    {
-        ApiKey = apiKey,
-        BaseUrl = "https://api.deepseek.com/anthropic",
-        Provider = "deepseek",
-    },
-    new HttpClient());
+else
+{
+    // No key for the default provider yet: start with a placeholder so the
+    // TUI opens and the user can run /connect instead of failing hard.
+    provider = new NullProvider();
+}
 
 var config = new SessionConfig
 {
     Cwd = Environment.CurrentDirectory,
     Provider = provider,
-    Model = model,
+    ProviderName = defaultProvider.Name,
+    Model = defaultModel,
     SystemPrompt = """
         You are an expert coding assistant operating inside Phi a coding agent harness.
         You have four tools: bash, read, write, edit.
@@ -91,7 +91,7 @@ catch (InvalidOperationException ex)
     return 1;
 }
 
-using (var app = new PhiTuiApp(session))
+using (var app = new PhiTuiApp(session, providerManager))
 {
     app.Run();
 }

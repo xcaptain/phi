@@ -16,7 +16,12 @@ namespace PhiCoding.Tui;
 /// </summary>
 public sealed class PhiStatusBar
 {
-    private readonly string _model;
+    // Model/provider are State<T> (not plain strings) so the dynamic right
+    // Markup's dependency tracking invalidates and re-renders when a /models
+    // or /connect switch updates them — the same mechanism that drives the
+    // running/token/context labels.
+    private readonly State<string> _model;
+    private readonly State<string> _providerName = new("");
     private readonly State<int> _turn = new(0);
     private readonly State<string> _tokens = new("");
     private readonly State<string> _context = new("");
@@ -25,7 +30,7 @@ public sealed class PhiStatusBar
 
     public PhiStatusBar(string model)
     {
-        _model = model;
+        _model = new State<string>(model);
         Running = new State<bool>(false);
 
         var left = new HStack(
@@ -50,6 +55,17 @@ public sealed class PhiStatusBar
     public Visual Visual { get; }
 
     public State<bool> Running { get; }
+
+    /// <summary>
+    /// Updates the provider · model label shown in the right slot. Called
+    /// from the session's <see cref="ISession.StateChanged"/> handler so a
+    /// <c>/connect</c> or <c>/models</c> switch reflects immediately.
+    /// </summary>
+    public void UpdateModel(string providerName, string model)
+    {
+        _providerName.Value = providerName;
+        _model.Value = model;
+    }
 
     /// <summary>
     /// Counter showing how many user-submitted messages are waiting to be
@@ -156,7 +172,10 @@ public sealed class PhiStatusBar
             var color = err.IsPersistent ? "red" : "yellow";
             return $"[{color}]⚠ {Escape(err.Message)}[/]";
         }
-        return $"[dim]{_model} · {ShortenPath(Environment.CurrentDirectory)}{_context.Value}{_tokens.Value}[/]";
+        var label = _providerName.Value.Length > 0
+            ? $"{_providerName.Value} · {_model.Value}"
+            : _model.Value;
+        return $"[dim]{label} · {ShortenPath(Environment.CurrentDirectory)}{_context.Value}{_tokens.Value}[/]";
     }
 
     private static string Escape(string text) => text.Replace("[", "\\[").Replace("]", "\\]");

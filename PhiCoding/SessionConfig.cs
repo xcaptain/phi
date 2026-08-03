@@ -21,6 +21,9 @@ public sealed record SessionConfig
     /// <summary>Model name (e.g. <c>"deepseek-v4-flash"</c>).</summary>
     public string Model { get; init; } = "";
 
+    /// <summary>Provider display name (e.g. <c>"deepseek"</c>).</summary>
+    public string ProviderName { get; init; } = "";
+
     /// <summary>System prompt for the agent.</summary>
     public string SystemPrompt { get; init; } = "";
 

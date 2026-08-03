@@ -14,6 +14,18 @@ namespace PhiProvider;
 /// </summary>
 public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, HttpClient http) : IPhiProvider
 {
+    private int _disposed;
+
+    /// <summary>
+    /// Releases the owned <see cref="HttpClient"/>. Idempotent; safe to call
+    /// when the provider is replaced at runtime.
+    /// </summary>
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        http.Dispose();
+    }
+
     public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
         string model,
         string system,
