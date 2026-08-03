@@ -27,21 +27,41 @@ public sealed record EditArgs
 
 public sealed partial class EditTool : TypedTool<EditArgs>
 {
+    private readonly IWorkspacePathResolver? _resolver;
+
     public override string Name => "edit";
 
     public override string Description =>
         "Edit a single file using exact text replacement. Accepts one or more edits[]; " +
         "every edits[].oldText must match a unique, non-overlapping region of the ORIGINAL file " +
         "(not after earlier edits are applied). When changing multiple separate locations, use " +
-        "one call with multiple edits[] entries instead of multiple edit calls.";
+        "one call with multiple edits[] entries instead of multiple edit calls. " +
+        "Relative paths resolve against the session working directory.";
+
+    /// <summary>Creates an edit tool bound to <paramref name="cwd"/>.</summary>
+    public EditTool(string cwd) : this(new WorkspacePathResolver(cwd)) { }
+
+    /// <summary>Creates an edit tool bound to <paramref name="resolver"/>.</summary>
+    public EditTool(IWorkspacePathResolver resolver)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+        _resolver = resolver;
+    }
+
+    /// <summary>
+    /// Creates an edit tool that uses the process working directory. Kept
+    /// for backward compatibility.
+    /// </summary>
+    public EditTool() { }
 
     public override async Task<ToolResult> ExecuteTypedAsync(EditArgs args, CancellationToken cancellationToken)
     {
+        var path = _resolver?.Resolve(args.Path) ?? args.Path;
         try
         {
-            if (!File.Exists(args.Path))
+            if (!File.Exists(path))
                 return new ToolResult(
-                    [new TextBlock($"File not found: {args.Path}")],
+                    [new TextBlock($"File not found: {path}")],
                     IsError: true);
 
             if (args.Edits.Length == 0)
@@ -51,7 +71,7 @@ public sealed partial class EditTool : TypedTool<EditArgs>
 
             // Read raw bytes: File.ReadAllText would strip the UTF-8 BOM
             // (encoding auto-detection), losing it before we can preserve it.
-            var rawBytes = await File.ReadAllBytesAsync(args.Path, cancellationToken);
+            var rawBytes = await File.ReadAllBytesAsync(path, cancellationToken);
             var (bom, content) = StripBom(rawBytes);
             var originalEnding = DetectLineEnding(content);
             var normalized = NormalizeToLf(content);
@@ -69,11 +89,11 @@ public sealed partial class EditTool : TypedTool<EditArgs>
                 var occurrences = CountOccurrences(normalized, oldText);
                 if (occurrences == 0)
                     return new ToolResult(
-                        [new TextBlock($"edits[{i}].oldText not found in {args.Path}")],
+                        [new TextBlock($"edits[{i}].oldText not found in {path}")],
                         IsError: true);
                 if (occurrences > 1)
                     return new ToolResult(
-                        [new TextBlock($"edits[{i}].oldText appears {occurrences} times in {args.Path} — must be unique")],
+                        [new TextBlock($"edits[{i}].oldText appears {occurrences} times in {path} — must be unique")],
                         IsError: true);
 
                 var start = normalized.IndexOf(oldText, StringComparison.Ordinal);
@@ -101,7 +121,7 @@ public sealed partial class EditTool : TypedTool<EditArgs>
 
             if (newNormalized == normalized)
                 return new ToolResult(
-                    [new TextBlock($"No change made to {args.Path}")],
+                    [new TextBlock($"No change made to {path}")],
                     IsError: true);
 
             var finalContent = bom + RestoreLineEndings(newNormalized, originalEnding);
@@ -111,14 +131,14 @@ public sealed partial class EditTool : TypedTool<EditArgs>
             var finalBytes = new System.Text.UTF8Encoding(
                 encoderShouldEmitUTF8Identifier: false)
                 .GetBytes(finalContent);
-            await File.WriteAllBytesAsync(args.Path, finalBytes, cancellationToken);
+            await File.WriteAllBytesAsync(path, finalBytes, cancellationToken);
 
             var (diffText, firstChangedLine) = GenerateDiffString(normalized, newNormalized);
             var patch = UnidiffRenderer.GenerateUnidiff(
                 oldText: normalized,
                 newText: newNormalized,
-                oldFileName: args.Path,
-                newFileName: args.Path);
+                oldFileName: path,
+                newFileName: path);
 
             var editOps = matches
                 .OrderBy(m => m.Start)
@@ -128,7 +148,7 @@ public sealed partial class EditTool : TypedTool<EditArgs>
                 .ToList();
 
             var details = new EditDetails(
-                Path: args.Path,
+                Path: path,
                 Edits: editOps,
                 Diff: diffText,
                 Patch: patch,
@@ -136,19 +156,19 @@ public sealed partial class EditTool : TypedTool<EditArgs>
 
             var opCount = matches.Count;
             return new ToolResult(
-                [new TextBlock($"Edited {args.Path} ({opCount} block(s), {args.Edits.Length} edit(s))")],
+                [new TextBlock($"Edited {path} ({opCount} block(s), {args.Edits.Length} edit(s))")],
                 Details: ToolDetails.Node(details));
         }
         catch (UnauthorizedAccessException)
         {
             return new ToolResult(
-                [new TextBlock($"Permission denied editing: {args.Path}")],
+                [new TextBlock($"Permission denied editing: {path}")],
                 IsError: true);
         }
         catch (Exception ex)
         {
             return new ToolResult(
-                [new TextBlock($"Error editing {args.Path}: {ex.Message}")],
+                [new TextBlock($"Error editing {path}: {ex.Message}")],
                 IsError: true);
         }
     }

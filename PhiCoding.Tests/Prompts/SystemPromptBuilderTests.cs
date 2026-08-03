@@ -312,15 +312,10 @@ public class SystemPromptBuilderTests
     }
 }
 
-internal sealed class PromptTestTool : PhiAgent.Tool
+internal sealed class PromptTestTool(string name, string description) : PhiAgent.Tool
 {
-    public PromptTestTool(string name, string description)
-    {
-        Name = name;
-        Description = description;
-    }
-    public override string Name { get; }
-    public override string Description { get; }
+    public override string Name { get; } = name;
+    public override string Description { get; } = description;
     public override System.Text.Json.Nodes.JsonObject Parameters =>
         new() { ["type"] = "object" };
     public override Task<PhiAgent.ToolResult> ExecuteAsync(

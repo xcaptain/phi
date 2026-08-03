@@ -37,7 +37,7 @@ public sealed record SessionConfig
     /// <summary>Max turns before the agent stops.</summary>
     public int MaxTurns { get; init; } = 50;
 
-    /// <summary>Tools available to the agent. Defaults to <see cref="BuiltInTools.CreateDefault"/>.</summary>
+    /// <summary>Tools available to the agent. Defaults to <see cref="BuiltInTools.CreateDefault(string)"/>.</summary>
     public IReadOnlyList<Tool>? Tools { get; init; }
 
     /// <summary>

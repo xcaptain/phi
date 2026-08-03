@@ -5,16 +5,23 @@ namespace PhiCoding.Prompts;
 /// <summary>
 /// Contributes the four built-in tools (<c>bash</c>, <c>read</c>,
 /// <c>write</c>, <c>edit</c>) with their prompt snippets, guidelines and
-/// capabilities. Cwd binding is added in a later phase; the first version
-/// exposes metadata only.
+/// capabilities. Each tool is bound to the supplied working directory.
 /// </summary>
 public sealed class BuiltInToolProvider
 {
-    public static IReadOnlyList<ToolContribution> GetTools() =>
+    private readonly string _cwd;
+
+    public BuiltInToolProvider(string cwd)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(cwd);
+        _cwd = cwd;
+    }
+
+    public IReadOnlyList<ToolContribution> GetTools() =>
     [
         new()
         {
-            Tool = new BashTool(),
+            Tool = new BashTool(_cwd),
             PromptSnippet = "bash: Run a shell command and return stdout, stderr and exit code.",
             PromptGuidelines =
             [
@@ -25,7 +32,7 @@ public sealed class BuiltInToolProvider
         },
         new()
         {
-            Tool = new ReadTool(),
+            Tool = new ReadTool(_cwd),
             PromptSnippet = "read: Read a file from the local workspace, with optional offset/limit.",
             PromptGuidelines =
             [
@@ -36,7 +43,7 @@ public sealed class BuiltInToolProvider
         },
         new()
         {
-            Tool = new WriteTool(),
+            Tool = new WriteTool(_cwd),
             PromptSnippet = "write: Create a new file or overwrite an existing file.",
             PromptGuidelines =
             [
@@ -46,7 +53,7 @@ public sealed class BuiltInToolProvider
         },
         new()
         {
-            Tool = new EditTool(),
+            Tool = new EditTool(_cwd),
             PromptSnippet = "edit: Make a surgical edit to an existing file (old_string must be unique).",
             PromptGuidelines =
             [

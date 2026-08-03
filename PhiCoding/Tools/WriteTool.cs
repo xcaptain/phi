@@ -15,27 +15,48 @@ public sealed record WriteArgs
 
 public sealed partial class WriteTool : TypedTool<WriteArgs>
 {
+    private readonly IWorkspacePathResolver? _resolver;
+
     public override string Name => "write";
     public override string Description =>
-        "Write content to a file at the given path, overwriting if it exists. Creates parent directories as needed.";
+        "Write content to a file at the given path, overwriting if it exists. " +
+        "Creates parent directories as needed. Relative paths resolve against " +
+        "the session working directory.";
+
+    /// <summary>Creates a write tool bound to <paramref name="cwd"/>.</summary>
+    public WriteTool(string cwd) : this(new WorkspacePathResolver(cwd)) { }
+
+    /// <summary>Creates a write tool bound to <paramref name="resolver"/>.</summary>
+    public WriteTool(IWorkspacePathResolver resolver)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+        _resolver = resolver;
+    }
+
+    /// <summary>
+    /// Creates a write tool that uses the process working directory. Kept
+    /// for backward compatibility.
+    /// </summary>
+    public WriteTool() { }
 
     public override async Task<ToolResult> ExecuteTypedAsync(WriteArgs args, CancellationToken cancellationToken)
     {
         try
         {
-            var dir = Path.GetDirectoryName(args.Path);
+            var path = _resolver?.Resolve(args.Path) ?? args.Path;
+            var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir))
                 Directory.CreateDirectory(dir);
 
-            var existed = File.Exists(args.Path);
-            await File.WriteAllTextAsync(args.Path, args.Content, cancellationToken);
+            var existed = File.Exists(path);
+            await File.WriteAllTextAsync(path, args.Content, cancellationToken);
 
             var details = new WriteDetails(
-                Path: args.Path,
+                Path: path,
                 BytesWritten: System.Text.Encoding.UTF8.GetByteCount(args.Content),
                 Mode: existed ? "overwrote" : "created");
             return new ToolResult(
-                [new TextBlock($"Wrote {args.Content.Length} chars to {args.Path} ({details.Mode})")],
+                [new TextBlock($"Wrote {args.Content.Length} chars to {path} ({details.Mode})")],
                 Details: ToolDetails.Node(details));
         }
         catch (UnauthorizedAccessException)

@@ -174,17 +174,11 @@ public class CodingSessionModelSwitchTests : IDisposable
     /// with a single text turn. Optionally blocks a chosen call on a gate.
     /// Tracks disposal for ownership assertions.
     /// </summary>
-    private sealed class RecordingProvider : IPhiProvider
+    private sealed class RecordingProvider(TaskCompletionSource? gate = null, int? gateOnCall = null) : IPhiProvider
     {
-        private readonly TaskCompletionSource? _gate;
-        private readonly int? _gateOnCall;
+        private readonly TaskCompletionSource? _gate = gate;
+        private readonly int? _gateOnCall = gateOnCall;
         private int _calls;
-
-        public RecordingProvider(TaskCompletionSource? gate = null, int? gateOnCall = null)
-        {
-            _gate = gate;
-            _gateOnCall = gateOnCall;
-        }
 
         public List<string> Models { get; } = [];
         public int CallCount => _calls;

@@ -25,6 +25,8 @@ public sealed partial class ReadTool : TypedTool<ReadArgs>
     /// </summary>
     internal const int MaxLinesPerCall = 2000;
 
+    private readonly IWorkspacePathResolver? _resolver;
+
     public override string Name => "read";
 
     public override string Description =>
@@ -32,20 +34,37 @@ public sealed partial class ReadTool : TypedTool<ReadArgs>
         "and positive integer `limit` arguments to slice the file. For large files, " +
         "use offset/limit to read a window at a time and increment offset to continue. " +
         "When `offset` is null it defaults to line 1; when `limit` is null it reads " +
-        "to end of file.";
+        "to end of file. Relative paths resolve against the session working directory.";
+
+    /// <summary>Creates a read tool that resolves relative paths against <paramref name="cwd"/>.</summary>
+    public ReadTool(string cwd) : this(new WorkspacePathResolver(cwd)) { }
+
+    /// <summary>Creates a read tool that resolves relative paths through <paramref name="resolver"/>.</summary>
+    public ReadTool(IWorkspacePathResolver resolver)
+    {
+        ArgumentNullException.ThrowIfNull(resolver);
+        _resolver = resolver;
+    }
+
+    /// <summary>
+    /// Creates a read tool that only handles absolute paths and otherwise
+    /// uses the process working directory. Kept for backward compatibility.
+    /// </summary>
+    public ReadTool() { }
 
     public override async Task<ToolResult> ExecuteTypedAsync(ReadArgs args, CancellationToken cancellationToken)
     {
+        var path = _resolver?.Resolve(args.Path) ?? args.Path;
         try
         {
-            if (Directory.Exists(args.Path))
+            if (Directory.Exists(path))
                 return new ToolResult(
-                    [new TextBlock($"Path is a directory, not a file: {args.Path}")],
+                    [new TextBlock($"Path is a directory, not a file: {path}")],
                     IsError: true);
 
-            if (!File.Exists(args.Path))
+            if (!File.Exists(path))
                 return new ToolResult(
-                    [new TextBlock($"File not found: {args.Path}")],
+                    [new TextBlock($"File not found: {path}")],
                     IsError: true);
 
             if (args.Offset is { } off && off < 1)
@@ -58,7 +77,7 @@ public sealed partial class ReadTool : TypedTool<ReadArgs>
                     [new TextBlock($"limit must be at least 1 (got {lim})")],
                     IsError: true);
 
-            var content = await File.ReadAllTextAsync(args.Path, cancellationToken);
+            var content = await File.ReadAllTextAsync(path, cancellationToken);
             var allLines = content.Replace("\r\n", "\n").Split('\n');
             var totalLines = allLines.Length;
 
@@ -108,7 +127,7 @@ public sealed partial class ReadTool : TypedTool<ReadArgs>
             if (hint is not null) output += hint;
 
             var details = new ReadDetails(
-                Path: args.Path,
+                Path: path,
                 Offset: displayStart,
                 Limit: returnedLines,
                 LineCount: returnedLines,
@@ -121,13 +140,13 @@ public sealed partial class ReadTool : TypedTool<ReadArgs>
         catch (UnauthorizedAccessException)
         {
             return new ToolResult(
-                [new TextBlock($"Permission denied reading: {args.Path}")],
+                [new TextBlock($"Permission denied reading: {path}")],
                 IsError: true);
         }
         catch (Exception ex)
         {
             return new ToolResult(
-                [new TextBlock($"Error reading {args.Path}: {ex.Message}")],
+                [new TextBlock($"Error reading {path}: {ex.Message}")],
                 IsError: true);
         }
     }

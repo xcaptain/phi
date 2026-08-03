@@ -11,10 +11,24 @@ public sealed record BashArgs
     public required string Command { get; init; }
 }
 
-public sealed partial class BashTool : TypedTool<BashArgs>
+/// <summary>
+/// Creates a bash tool bound to <paramref name="cwd"/>. Commands execute
+/// with that directory as their working directory so relative paths
+/// resolve against the session root, not the process cwd.
+/// </summary>
+public sealed partial class BashTool(string cwd) : TypedTool<BashArgs>
 {
+    private readonly string? _cwd = cwd;
+
     public override string Name => "bash";
     public override string Description => "Run a shell command and return stdout/stderr/exit code.";
+
+    /// <summary>
+    /// Creates a bash tool that inherits the process working directory. Kept
+    /// for backward compatibility with code paths that have not been
+    /// migrated to a session-cwd model yet.
+    /// </summary>
+    public BashTool() : this(Environment.CurrentDirectory) { }
 
     public override async Task<ToolResult> ExecuteTypedAsync(BashArgs args, CancellationToken cancellationToken)
     {
@@ -24,6 +38,8 @@ public sealed partial class BashTool : TypedTool<BashArgs>
             RedirectStandardError = true,
             UseShellExecute = false,
         };
+        if (_cwd is not null)
+            psi.WorkingDirectory = _cwd;
 
         using var process = Process.Start(psi)!;
         var stopwatch = Stopwatch.StartNew();

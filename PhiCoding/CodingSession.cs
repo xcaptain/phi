@@ -120,7 +120,7 @@ public sealed class CodingSession : ISession
     private static Harness BuildHarness(SessionConfig config) =>
         new(
             config.Provider,
-            config.Tools ?? BuiltInTools.CreateDefault(),
+            config.Tools ?? BuiltInTools.CreateDefault(config.Cwd),
             model: config.Model,
             system: ResolveSystemPrompt(config),
             maxTurns: config.MaxTurns);
@@ -130,7 +130,7 @@ public sealed class CodingSession : ISession
         if (config.SystemPrompt.ResolvedSystemPrompt is { } resolved)
             return resolved;
         var contributions = config.Tools is null or { Count: 0 }
-            ? BuiltInToolProvider.GetTools()
+            ? new BuiltInToolProvider(config.Cwd).GetTools()
             : config.Tools.Select(WrapCustomTool).ToArray();
         return new SystemPromptBuilder().Build(new SystemPromptBuildContext
         {
@@ -287,7 +287,7 @@ public sealed class CodingSession : ISession
     {
         ArgumentNullException.ThrowIfNull(config);
         _systemPrompt = ResolveSystemPrompt(config);
-        _tools = config.Tools ?? BuiltInTools.CreateDefault();
+        _tools = config.Tools ?? BuiltInTools.CreateDefault(config.Cwd);
         _contextWindowTokens = config.ContextWindowTokens;
         _autoCompactEnabled = config.AutoCompactEnabled;
         _compactionKeepRecentTokens = config.CompactionKeepRecentTokens;

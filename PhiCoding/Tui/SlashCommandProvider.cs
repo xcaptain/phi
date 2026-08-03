@@ -7,14 +7,9 @@ namespace PhiCoding.Tui;
 /// (leading <c>/</c> included), so accepting a suggestion replaces just that
 /// token.
 /// </summary>
-public sealed class SlashCommandProvider : ISuggestionProvider
+public sealed class SlashCommandProvider(IReadOnlyList<SlashCommandDef>? commands = null) : ISuggestionProvider
 {
-    private readonly IReadOnlyList<SlashCommandDef> _commands;
-
-    public SlashCommandProvider(IReadOnlyList<SlashCommandDef>? commands = null)
-    {
-        _commands = commands ?? SlashCommandCatalog.All;
-    }
+    private readonly IReadOnlyList<SlashCommandDef> _commands = commands ?? SlashCommandCatalog.All;
 
     public SuggestionMatch? GetSuggestion(ReadOnlySpan<char> text, int caret)
     {

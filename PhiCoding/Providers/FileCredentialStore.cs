@@ -9,15 +9,10 @@ namespace PhiCoding.Providers;
 /// same protection model as <c>~/.ssh</c> private keys. Secrets are not
 /// encrypted at rest; that is the OS-keyring store's job if one is added.
 /// </summary>
-public sealed class FileCredentialStore : ICredentialStore
+public sealed class FileCredentialStore(string filePath) : ICredentialStore
 {
-    private readonly string _filePath;
+    private readonly string _filePath = filePath;
     private readonly Lock _lock = new();
-
-    public FileCredentialStore(string filePath)
-    {
-        _filePath = filePath;
-    }
 
     /// <summary>Default location under Phi home.</summary>
     public static string DefaultPath => Path.Combine(SessionPaths.PhiHome, "credentials.json");

@@ -17,21 +17,14 @@ namespace PhiCoding.Providers;
 /// </para>
 /// </summary>
 [SuppressMessage("Performance", "CA1822", Justification = "Service facade; instance members stay swappable/injectable")]
-public sealed class ProviderManager
+public sealed class ProviderManager(
+    ICredentialStore? credentials = null,
+    string? settingsPath = null,
+    Func<string, string?>? getEnv = null)
 {
-    private readonly ICredentialStore _credentials;
-    private readonly string _settingsPath;
-    private readonly Func<string, string?> _getEnv;
-
-    public ProviderManager(
-        ICredentialStore? credentials = null,
-        string? settingsPath = null,
-        Func<string, string?>? getEnv = null)
-    {
-        _credentials = credentials ?? new FileCredentialStore(FileCredentialStore.DefaultPath);
-        _settingsPath = settingsPath ?? PhiSettings.DefaultPath;
-        _getEnv = getEnv ?? Environment.GetEnvironmentVariable;
-    }
+    private readonly ICredentialStore _credentials = credentials ?? new FileCredentialStore(FileCredentialStore.DefaultPath);
+    private readonly string _settingsPath = settingsPath ?? PhiSettings.DefaultPath;
+    private readonly Func<string, string?> _getEnv = getEnv ?? Environment.GetEnvironmentVariable;
 
     /// <summary>All connectable providers, in <c>/connect</c> display order.</summary>
     public IReadOnlyList<ProviderCatalogEntry> Providers => ProviderCatalog.All;
