@@ -256,6 +256,55 @@ public class SystemPromptBuilderTests
     }
 
     [Test]
+    public async Task Skills_InstructionsExplainProgressiveDisclosureAndRelativePaths()
+    {
+        var builder = new SystemPromptBuilder();
+        var skill = new SkillDescriptor
+        {
+            Name = "dotnet",
+            Description = "C# guidance",
+            AbsolutePath = "/abs/dotnet/SKILL.md",
+        };
+
+        var prompt = builder.Build(BuildContext(
+            tools: [ReadToolContribution()],
+            skills: [skill]));
+
+        await Assert.That(prompt).Contains("The following skills provide specialized instructions for specific tasks.");
+        await Assert.That(prompt).Contains("Use the read tool to load a skill's file when the task matches its description.");
+        await Assert.That(prompt).Contains("resolve it against the skill directory");
+
+        var instructionsIdx = prompt.IndexOf(
+            "The following skills provide", StringComparison.Ordinal);
+        var blockIdx = prompt.IndexOf("<available_skills>", StringComparison.Ordinal);
+        await Assert.That(instructionsIdx).IsGreaterThanOrEqualTo(0);
+        await Assert.That(blockIdx).IsGreaterThan(instructionsIdx);
+    }
+
+    [Test]
+    public async Task Skills_InstructionsGatedBehindReadTool_WithNoReadTool()
+    {
+        var builder = new SystemPromptBuilder();
+        var skill = new SkillDescriptor
+        {
+            Name = "dotnet",
+            Description = "C# guidance",
+            AbsolutePath = "/abs/dotnet/SKILL.md",
+        };
+        var noRead = new ToolContribution
+        {
+            Tool = new PromptTestTool("bash", "shell"),
+            PromptSnippet = "bash",
+            Capabilities = ToolCapabilities.ExecuteCommands,
+        };
+
+        var prompt = builder.Build(BuildContext(tools: [noRead], skills: [skill]));
+
+        await Assert.That(prompt).DoesNotContain("The following skills provide specialized instructions");
+        await Assert.That(prompt).DoesNotContain("<available_skills>");
+    }
+
+    [Test]
     public async Task DateAndCwd_AppearAtEnd()
     {
         var builder = new SystemPromptBuilder();

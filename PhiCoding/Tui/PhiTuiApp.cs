@@ -244,22 +244,19 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
     // ──────── /skill:NAME ────────
 
     /// <summary>
-    /// Loads a skill's <c>SKILL.md</c> body into the conversation as a user
-    /// message, then submits any trailing prompt so the model acts on the
-    /// skill immediately. Unknown or unloadable skills surface an info line
+    /// Loads a skill and submits it as the user prompt, then re-renders the
+    /// transcript. The returned content (skill body, plus any trailing prompt)
+    /// is shown as the user bubble so the submission is visible before the
+    /// model's response streams in. Unknown skills surface an info line
     /// instead of crashing.
     /// </summary>
     private async Task LoadSkillAsync(string name, string? prompt, ChatTranscript transcript)
     {
         try
         {
-            await _session.LoadSkillAsync(name);
+            var content = await _session.LoadSkillAsync(name, prompt);
+            transcript.AddUserMessage(content);
             transcript.ResetRenderedCount();
-            if (prompt is { Length: > 0 })
-            {
-                transcript.AddUserMessage(prompt);
-                _session.SubmitPrompt(prompt);
-            }
         }
         catch (InvalidOperationException ex)
         {

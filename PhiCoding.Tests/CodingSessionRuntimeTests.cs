@@ -288,7 +288,7 @@ public class CodingSessionRuntimeTests : IDisposable
     }
 
     [Test]
-    public async Task LoadSkill_AppendsBodyAsUserMessage_AndPersists()
+    public async Task LoadSkill_SubmitsSkillAsPrompt_AndRunsTurn()
     {
         // Project-root skills come from <projectRoot>/.agents/skills — a
         // .git marker makes the temp dir the project root, so the factory
@@ -307,18 +307,54 @@ public class CodingSessionRuntimeTests : IDisposable
         };
         var session = _factory.Create(config);
 
-        await ((ISession)session).LoadSkillAsync("dotnet-testing");
+        // Returns the content that was submitted as the user prompt.
+        var content = await ((ISession)session).LoadSkillAsync("dotnet-testing");
 
-        var user = session.State.Messages.OfType<UserMessage>().FirstOrDefault();
-        await Assert.That(user).IsNotNull();
-        await Assert.That(user!.Text).Contains("Test the dotnet code with xUnit.");
+        await Assert.That(content).Contains("Test the dotnet code with xUnit.");
         // The message anchors the skill's directory so the model can resolve
         // relative references (references/, scripts/) to absolute paths.
-        await Assert.That(user.Text).Contains(skillDir);
-        await Assert.That(user.Text).Contains("dotnet-testing");
+        await Assert.That(content).Contains(skillDir);
+        await Assert.That(content).Contains("dotnet-testing");
+
+        // A bare /skill:name triggers a turn: the skill content becomes a
+        // user message and the model replies (previously nothing ran).
+        await WaitForAsync(() =>
+            session.State.Messages.OfType<AssistantMessage>().Any(m => m.Text == "ok"));
+        await Assert.That(session.State.Messages.OfType<UserMessage>()
+            .Any(u => u.Text.Contains("xUnit"))).IsTrue();
+
         // Persisted: the message survives a reload from disk.
         var reloaded = CodingSession.Resume(session.Id, projectRoot).LoadMessages();
         await Assert.That(reloaded.OfType<UserMessage>().Any(u => u.Text.Contains("xUnit"))).IsTrue();
+    }
+
+    [Test]
+    public async Task LoadSkill_WithPrompt_FusesPromptIntoTheSkillMessage()
+    {
+        var projectRoot = Path.GetFullPath(Path.Combine(_cwd, "..", "proj-" + Guid.NewGuid().ToString("N")));
+        Directory.CreateDirectory(Path.Combine(projectRoot, ".git"));
+        var skillDir = Path.GetFullPath(Path.Combine(projectRoot, ".agents", "skills", "dotnet-testing"));
+        Directory.CreateDirectory(skillDir);
+        File.WriteAllText(Path.Combine(skillDir, "SKILL.md"),
+            "---\nname: dotnet-testing\ndescription: Write xUnit tests\n---\nWrite xUnit tests.\n");
+
+        var config = ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))) with
+        {
+            Cwd = projectRoot,
+        };
+        var session = _factory.Create(config);
+
+        var content = await ((ISession)session).LoadSkillAsync("dotnet-testing", "translate to spanish");
+
+        await Assert.That(content).Contains("Write xUnit tests.");
+        await Assert.That(content).Contains("translate to spanish");
+        await WaitForAsync(() => !session.State.IsRunning);
+
+        // One fused user message — the trailing prompt rides inside the same
+        // message as the skill body, mirroring pi's /skill:name args behavior.
+        var user = session.State.Messages.OfType<UserMessage>().SingleOrDefault(u => u.Text.Contains("Write xUnit tests."));
+        await Assert.That(user).IsNotNull();
+        await Assert.That(user!.Text).Contains("translate to spanish");
     }
 
     [Test]
@@ -329,6 +365,26 @@ public class CodingSessionRuntimeTests : IDisposable
         var ex = await Assert.That(async () => await ((ISession)session).LoadSkillAsync("nope"))
             .Throws<InvalidOperationException>();
         await Assert.That(ex!.Message).Contains("nope");
+    }
+
+    [Test]
+    public async Task LoadSkill_WhileRunning_Throws()
+    {
+        var gate = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        // The auto-namer answers instantly; the real run blocks on the gate
+        // so the session stays busy while LoadSkillAsync is called.
+        var session = _factory.Create(ConfigWith(StubProvider.SecondCallBlocks(gate)));
+
+        session.SubmitPrompt("long running");
+        await WaitForAsync(() => session.State.IsRunning);
+
+        var ex = await Assert.That(async () => await ((ISession)session).LoadSkillAsync("anything"))
+            .Throws<InvalidOperationException>();
+        await Assert.That(ex!.Message).Contains("in progress");
+
+        session.Cancel();
+        await WaitForAsync(() => !session.State.IsRunning);
     }
 
     [Test]

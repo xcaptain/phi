@@ -32,6 +32,11 @@ public sealed class StubProvider(Func<int, CancellationToken, IAsyncEnumerable<P
         }),
     ];
 
+    /// <summary>First call (session auto-namer) answers instantly; later calls
+    /// (the real run) block until <paramref name="gate"/> completes.</summary>
+    public static StubProvider SecondCallBlocks(TaskCompletionSource gate, string text = "ok") =>
+        new((call, ct) => call == 0 ? Emit(TextTurn(text), ct) : Block(gate, ct));
+
     /// <summary>First call blocks until <paramref name="gate"/> completes
     /// (or the token cancels); later calls answer with <paramref name="text"/>.</summary>
     public static StubProvider FirstCallBlocks(TaskCompletionSource gate, string text = "ok") =>

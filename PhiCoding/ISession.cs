@@ -34,7 +34,13 @@ public interface ISession : IDisposable
     void RenameSession(string? title);
     Task ResumeSession(string sessionId);
     Task NewSession();
-    Task LoadSkillAsync(string name);
+    /// <summary>
+    /// Loads a skill's <c>SKILL.md</c> into the conversation and starts a run
+    /// so the model acts on it immediately (bare <c>/skill:NAME</c> runs the
+    /// skill; a trailing <c>prompt</c> is fused into the same user message).
+    /// Returns the submitted message content so frontends can render it.
+    /// </summary>
+    Task<string> LoadSkillAsync(string name, string? prompt = null);
     IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7);
 
     /// <summary>

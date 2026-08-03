@@ -74,7 +74,7 @@ public sealed class MockSession : ISession
     public void RenameSession(string? title) { }
     public Task ResumeSession(string sessionId) => Task.CompletedTask;
     public Task NewSession() => Task.CompletedTask;
-    public Task LoadSkillAsync(string name) => Task.CompletedTask;
+    public Task<string> LoadSkillAsync(string name, string? prompt = null) => Task.FromResult(name);
     public IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7) => [];
 
     public void Dispose()

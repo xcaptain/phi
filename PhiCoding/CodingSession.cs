@@ -161,8 +161,8 @@ public sealed class CodingSession : ISession
     Task ISession.NewSession()
         => NewSessionAsync();
 
-    Task ISession.LoadSkillAsync(string name)
-        => LoadSkillAsync(name);
+    Task<string> ISession.LoadSkillAsync(string name, string? prompt)
+        => LoadSkillAsync(name, prompt);
 
     IReadOnlyList<SessionRecord> ISession.ListRecentSessions(int days)
         => ListRecentSessions(days);
@@ -375,16 +375,22 @@ public sealed class CodingSession : ISession
     }
 
     /// <summary>
-    /// Loads a skill's <c>SKILL.md</c> body into the conversation as a user
-    /// message (the model then sees the skill instructions and can follow
-    /// them, reading references / running scripts via its own tools).
-    /// Throws <see cref="InvalidOperationException"/> when the skill name is
-    /// unknown or unloadable.
+    /// Loads a skill's <c>SKILL.md</c> body into the conversation and starts
+    /// a run so the model acts on the skill immediately — matching pi, where
+    /// <c>/skill:NAME</c> submits the skill block as the user prompt and
+    /// executes the skill (bare invocation runs it; a trailing prompt is
+    /// fused into the same user message as <c>&lt;skill body&gt;\n\n&lt;args&gt;</c>).
+    /// Returns the submitted content so frontends can render it. Throws
+    /// <see cref="InvalidOperationException"/> when the skill name is unknown
+    /// or a run is already in progress.
     /// </summary>
-    public async Task LoadSkillAsync(string name)
+    public async Task<string> LoadSkillAsync(string name, string? prompt)
     {
         ThrowIfNoRuntime();
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (_state.IsRunning)
+            throw new InvalidOperationException(
+                "Cannot load a skill while a run is in progress. Wait for it to finish or press Esc to cancel.");
 
         var skill = _skills.FirstOrDefault(s =>
             s.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"Unknown skill: {name}, available skills: {string.Join(", ", _skills.Select(s => s.Name))}");
@@ -404,18 +410,11 @@ public sealed class CodingSession : ISession
 
             {body}
             """;
+        if (prompt is { Length: > 0 })
+            content = $"{content}\n\n{prompt}";
 
-        var msg = new UserMessage { Content = content };
-        _harness!.AppendMessage(msg);
-        AppendMessage(msg);
-        _lastMessageCount = _harness.Messages.Count;
-
-        UpdateState(s => s with
-        {
-            Messages = [.. _harness.Messages],
-            Stats = SessionStatsCalculator.Calculate(_harness.Messages),
-            ContextUsedTokens = EstimateContextUsage(_harness.Messages),
-        });
+        SubmitPrompt(content);
+        return content;
     }
 
     public void EnqueueSteering(UserMessage message)
