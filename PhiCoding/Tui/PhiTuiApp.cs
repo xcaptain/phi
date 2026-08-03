@@ -33,6 +33,12 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
     /// </summary>
     public PhiStatusBar? StatusBar { get; private set; }
 
+    /// <summary>
+    /// Suggestion strip created by the latest <see cref="BuildRoot"/> call.
+    /// Null until <see cref="BuildRoot"/> is invoked.
+    /// </summary>
+    public SuggestionStrip? SuggestionStrip { get; private set; }
+
     // Last message already recorded in the transcript as a persistent error.
     // LastError stays set between StateChanged events until the next run
     // clears it, so the same message can re-arrive on consecutive state
@@ -61,6 +67,11 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         BindTranscriptToSession(transcript);
         BindStatusBarToEngine(status, transcript);
 
+        // Live autocomplete strip: shows filtered slash commands + descriptions
+        // as you type; collapses when the input isn't a command token.
+        var suggestionStrip = new SuggestionStrip(inputText, [new SlashCommandProvider()]);
+        SuggestionStrip = suggestionStrip;
+
         var editor = new PromptEditor()
             .Prompt(new Markup("[primary]❯[/] "))
             .ContinuationPromptMarkup("[dim]·[/]")
@@ -85,7 +96,7 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         var root = new DockLayout()
             .Top(header)
             .Content(transcript.Visual)
-            .Bottom(new VStack(editor.Scrollable(), status.Visual).Spacing(0)
+            .Bottom(new VStack(editor.Scrollable(), suggestionStrip.Visual, status.Visual).Spacing(0)
                 .Margin(new Thickness(0, 1, 0, 0)))
             .HorizontalAlignment(Align.Stretch)
             .VerticalAlignment(Align.Stretch);
@@ -498,24 +509,27 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
 
     // ──────── Slash completion ────────
 
+    private static readonly SlashCommandProvider SlashProvider = new();
+
     private static PromptEditorCompletion CompleteSlashCommand(in PromptEditorCompletionRequest request)
     {
         var snapshot = request.Snapshot;
         var caret = Math.Clamp(request.CaretIndex, 0, snapshot.Length);
         var text = string.Create(snapshot.Length, snapshot, static (span, s) => s.CopyTo(0, span));
 
-        var prefix = text[..caret];
-        if (prefix.Contains(' ') || prefix.Contains('\n'))
+        // Same tokenizer/filter as the suggestion strip, so Tab completion and
+        // the live strip always agree.
+        var match = SlashProvider.GetSuggestion(text, caret);
+        if (match is null)
             return new PromptEditorCompletion(false, null, 0, 0);
 
-        var candidates = SlashCommands.Complete(prefix);
-        if (candidates.Count == 0)
-            return new PromptEditorCompletion(false, null, 0, 0);
+        List<string> candidates = [.. match.Items.Select(i => i.Replacement)];
+        var prefixLength = caret - match.ReplaceStart;
 
         string? ghost = null;
-        if (caret == text.Length && candidates[0].Length > prefix.Length)
-            ghost = candidates[0][prefix.Length..];
+        if (caret == text.Length && candidates[0].Length > prefixLength)
+            ghost = candidates[0][prefixLength..];
 
-        return new PromptEditorCompletion(true, candidates, 0, caret, 0, ghost);
+        return new PromptEditorCompletion(true, candidates, match.ReplaceStart, prefixLength, 0, ghost);
     }
 }

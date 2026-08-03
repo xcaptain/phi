@@ -2,17 +2,21 @@ namespace PhiCoding.Tui;
 
 /// <summary>
 /// Slash-command matching and completion for the prompt. Pure logic —
-/// execution is wired up in <see cref="PhiTuiApp"/>.
+/// execution is wired up in <see cref="PhiTuiApp"/>. The command list comes
+/// from <see cref="SlashCommandCatalog"/>; this class only matches and
+/// completes against it.
 /// </summary>
 internal static class SlashCommands
 {
-    public static readonly IReadOnlyList<string> All = ["/connect", "/exit", "/models", "/sessions"];
+    public static IReadOnlyList<string> All { get; } =
+        [.. SlashCommandCatalog.All.Select(c => c.Name)];
 
     /// <summary>
     /// Commands that additionally accept an argument (<c>/connect &lt;provider&gt;</c>,
     /// <c>/models &lt;model&gt;</c>). Everything else must be typed exactly.
     /// </summary>
-    private static readonly string[] ArgCommands = ["/connect", "/models"];
+    private static readonly string[] ArgCommands =
+        [.. SlashCommandCatalog.All.Where(c => c.SupportsArgs).Select(c => c.Name)];
 
     /// <summary>
     /// Returns the canonical command when the whole input is exactly a known
