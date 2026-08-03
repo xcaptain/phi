@@ -1,11 +1,13 @@
 using PhiAgent;
+using PhiCoding.Prompts;
 
 namespace PhiCoding.Sessions;
 
 /// <summary>
 /// The fully-built runtime a <see cref="CodingSession"/> needs to operate:
 /// the harness (with its resolved system prompt and tool set), the injected
-/// provider, and the config knobs that feed the state machine.
+/// provider, the available skills, and the config knobs that feed the
+/// state machine.
 /// <para>
 /// Built once by <see cref="CodingSessionFactory"/> from a
 /// <see cref="SessionConfig"/> via the shared resources, tools, prompt,
@@ -27,6 +29,12 @@ public sealed record SessionRuntime
     public required string SystemPrompt { get; init; }
 
     public required IReadOnlyList<Tool> Tools { get; init; }
+
+    /// <summary>
+    /// Skills available to this session, used by <c>/skill:NAME</c> and
+    /// surfaced in the system prompt's <c>&lt;available_skills&gt;</c>.
+    /// </summary>
+    public required IReadOnlyList<SkillDescriptor> Skills { get; init; }
 
     public required SessionConfig Config { get; init; }
 }

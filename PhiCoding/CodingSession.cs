@@ -1,4 +1,5 @@
 using PhiAgent;
+using PhiCoding.Prompts;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
 
@@ -43,6 +44,9 @@ public sealed class CodingSession : ISession
     public string Model => Record.Model;
     public SessionRecord Record { get; private set; }
     public SessionStorage Storage => _storage;
+
+    /// <summary>Skills available to this session, for <c>/skill:NAME</c> autocomplete.</summary>
+    public IReadOnlyList<SkillDescriptor> Skills => _skills;
 
     /// <summary>
     /// Whether this session has been written to disk yet. Fresh sessions
@@ -157,6 +161,9 @@ public sealed class CodingSession : ISession
     Task ISession.NewSession()
         => NewSessionAsync();
 
+    Task ISession.LoadSkillAsync(string name)
+        => LoadSkillAsync(name);
+
     IReadOnlyList<SessionRecord> ISession.ListRecentSessions(int days)
         => ListRecentSessions(days);
 
@@ -171,6 +178,7 @@ public sealed class CodingSession : ISession
     private string _runtimeModel = "";
     private string _systemPrompt = "";
     private IReadOnlyList<Tool> _tools = [];
+    private IReadOnlyList<SkillDescriptor> _skills = [];
     private CancellationTokenSource? _runCts;
     private Task? _currentRunTask;
     private int _lastMessageCount;
@@ -220,6 +228,7 @@ public sealed class CodingSession : ISession
         _runtimeModel = runtime.Model;
         _systemPrompt = runtime.SystemPrompt;
         _tools = runtime.Tools;
+        _skills = runtime.Skills;
         _contextWindowTokens = runtime.Config.ContextWindowTokens;
         _autoCompactEnabled = runtime.Config.AutoCompactEnabled;
         _compactionKeepRecentTokens = runtime.Config.CompactionKeepRecentTokens;
@@ -363,6 +372,50 @@ public sealed class CodingSession : ISession
         }
 
         NewSessionCore();
+    }
+
+    /// <summary>
+    /// Loads a skill's <c>SKILL.md</c> body into the conversation as a user
+    /// message (the model then sees the skill instructions and can follow
+    /// them, reading references / running scripts via its own tools).
+    /// Throws <see cref="InvalidOperationException"/> when the skill name is
+    /// unknown or unloadable.
+    /// </summary>
+    public async Task LoadSkillAsync(string name)
+    {
+        ThrowIfNoRuntime();
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+
+        var skill = _skills.FirstOrDefault(s =>
+            s.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"Unknown skill: {name}, available skills: {string.Join(", ", _skills.Select(s => s.Name))}");
+        var body = await File.ReadAllTextAsync(skill.AbsolutePath);
+
+        // The SKILL.md body may reference relative paths (references/,
+        // scripts/). The read/bash tools resolve relative paths against
+        // the session cwd, NOT the skill directory — so we must anchor the
+        // skill's absolute directory in the message for the model to build
+        // correct absolute paths when following those references.
+        var skillDir = Path.GetDirectoryName(skill.AbsolutePath) ?? "";
+        var content = $"""
+            [Loaded skill "{skill.Name}". The skill lives in {skillDir}.
+            Relative paths in this skill (references/, scripts/, ...) are
+            relative to that directory — use absolute paths with the read and
+            bash tools.]
+
+            {body}
+            """;
+
+        var msg = new UserMessage { Content = content };
+        _harness!.AppendMessage(msg);
+        AppendMessage(msg);
+        _lastMessageCount = _harness.Messages.Count;
+
+        UpdateState(s => s with
+        {
+            Messages = [.. _harness.Messages],
+            Stats = SessionStatsCalculator.Calculate(_harness.Messages),
+            ContextUsedTokens = EstimateContextUsage(_harness.Messages),
+        });
     }
 
     public void EnqueueSteering(UserMessage message)

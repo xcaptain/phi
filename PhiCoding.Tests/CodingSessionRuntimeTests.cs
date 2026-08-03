@@ -288,6 +288,50 @@ public class CodingSessionRuntimeTests : IDisposable
     }
 
     [Test]
+    public async Task LoadSkill_AppendsBodyAsUserMessage_AndPersists()
+    {
+        // Project-root skills come from <projectRoot>/.agents/skills — a
+        // .git marker makes the temp dir the project root, so the factory
+        // finds the skill without touching the real home dir.
+        var projectRoot = Path.GetFullPath(Path.Combine(_cwd, "..", "proj-" + Guid.NewGuid().ToString("N")));
+        Directory.CreateDirectory(Path.Combine(projectRoot, ".git"));
+        var skillDir = Path.GetFullPath(Path.Combine(projectRoot, ".agents", "skills", "dotnet-testing"));
+        Directory.CreateDirectory(skillDir);
+        var body = "Test the dotnet code with xUnit.\nUse references/xunit.md for patterns.";
+        File.WriteAllText(Path.Combine(skillDir, "SKILL.md"),
+            $"---\nname: dotnet-testing\ndescription: Write xUnit tests\n---\n{body}\n");
+
+        var config = ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))) with
+        {
+            Cwd = projectRoot,
+        };
+        var session = _factory.Create(config);
+
+        await ((ISession)session).LoadSkillAsync("dotnet-testing");
+
+        var user = session.State.Messages.OfType<UserMessage>().FirstOrDefault();
+        await Assert.That(user).IsNotNull();
+        await Assert.That(user!.Text).Contains("Test the dotnet code with xUnit.");
+        // The message anchors the skill's directory so the model can resolve
+        // relative references (references/, scripts/) to absolute paths.
+        await Assert.That(user.Text).Contains(skillDir);
+        await Assert.That(user.Text).Contains("dotnet-testing");
+        // Persisted: the message survives a reload from disk.
+        var reloaded = CodingSession.Resume(session.Id, projectRoot).LoadMessages();
+        await Assert.That(reloaded.OfType<UserMessage>().Any(u => u.Text.Contains("xUnit"))).IsTrue();
+    }
+
+    [Test]
+    public async Task LoadSkill_UnknownSkill_Throws()
+    {
+        var session = _factory.Create(ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
+
+        var ex = await Assert.That(async () => await ((ISession)session).LoadSkillAsync("nope"))
+            .Throws<InvalidOperationException>();
+        await Assert.That(ex!.Message).Contains("nope");
+    }
+
+    [Test]
     public async Task NewRun_ClearsPreviousLastError()
     {
         // First run fails (LastError set); the next run must start with a

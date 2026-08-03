@@ -67,9 +67,10 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         BindTranscriptToSession(transcript);
         BindStatusBarToEngine(status, transcript);
 
-        // Live autocomplete strip: shows filtered slash commands + descriptions
-        // as you type; collapses when the input isn't a command token.
-        var suggestionStrip = new SuggestionStrip(inputText, [new SlashCommandProvider()]);
+        // Live autocomplete strip: shows filtered slash commands + skill
+        // names as you type; collapses when the input isn't a command token.
+        var suggestionStrip = new SuggestionStrip(inputText,
+            [new SlashCommandProvider(), new SkillSuggestionProvider(_session.Skills)]);
         SuggestionStrip = suggestionStrip;
 
         var editor = new PromptEditor()
@@ -128,6 +129,12 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
                         editor.App?.Stop();
                         break;
                 }
+                return;
+            }
+
+            if (SlashCommands.MatchSkill(text) is { } skillMatch)
+            {
+                _ = LoadSkillAsync(skillMatch.SkillName, skillMatch.Prompt, transcript);
                 return;
             }
 
@@ -232,6 +239,32 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         if (_lastRoutedError == message) return;
         _lastRoutedError = message;
         transcript.AddPersistentError(message);
+    }
+
+    // ──────── /skill:NAME ────────
+
+    /// <summary>
+    /// Loads a skill's <c>SKILL.md</c> body into the conversation as a user
+    /// message, then submits any trailing prompt so the model acts on the
+    /// skill immediately. Unknown or unloadable skills surface an info line
+    /// instead of crashing.
+    /// </summary>
+    private async Task LoadSkillAsync(string name, string? prompt, ChatTranscript transcript)
+    {
+        try
+        {
+            await _session.LoadSkillAsync(name);
+            transcript.ResetRenderedCount();
+            if (prompt is { Length: > 0 })
+            {
+                transcript.AddUserMessage(prompt);
+                _session.SubmitPrompt(prompt);
+            }
+        }
+        catch (InvalidOperationException ex)
+        {
+            transcript.AddInfo(ex.Message);
+        }
     }
 
     // ──────── /new ────────
@@ -527,9 +560,15 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
 
     // ──────── Slash completion ────────
 
-    private static readonly SlashCommandProvider SlashProvider = new();
+    private readonly SlashCommandProvider _slashProvider = new();
+    private SkillSuggestionProvider? _skillProvider;
 
-    private static PromptEditorCompletion CompleteSlashCommand(in PromptEditorCompletionRequest request)
+    private void EnsureSkillProvider()
+    {
+        _skillProvider ??= new SkillSuggestionProvider(_session.Skills);
+    }
+
+    private PromptEditorCompletion CompleteSlashCommand(in PromptEditorCompletionRequest request)
     {
         var snapshot = request.Snapshot;
         var caret = Math.Clamp(request.CaretIndex, 0, snapshot.Length);
@@ -537,7 +576,9 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
 
         // Same tokenizer/filter as the suggestion strip, so Tab completion and
         // the live strip always agree.
-        var match = SlashProvider.GetSuggestion(text, caret);
+        EnsureSkillProvider();
+        var match = _slashProvider.GetSuggestion(text, caret)
+            ?? _skillProvider!.GetSuggestion(text, caret);
         if (match is null)
             return new PromptEditorCompletion(false, null, 0, 0);
 

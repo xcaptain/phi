@@ -1,4 +1,5 @@
 using PhiAgent;
+using PhiCoding.Prompts;
 
 namespace PhiCoding.Tests.Helpers;
 
@@ -13,6 +14,8 @@ public sealed class MockSession : ISession
     public event Action<HarnessEvent>? HarnessEvent;
 
     public SessionState State { get; private set; } = SessionState.Empty;
+
+    public IReadOnlyList<SkillDescriptor> Skills { get; private set; } = [];
 
     /// <summary>Override to capture SubmitPrompt calls.</summary>
     public Action<string>? OnSubmitPrompt { get; set; }
@@ -71,6 +74,7 @@ public sealed class MockSession : ISession
     public void RenameSession(string? title) { }
     public Task ResumeSession(string sessionId) => Task.CompletedTask;
     public Task NewSession() => Task.CompletedTask;
+    public Task LoadSkillAsync(string name) => Task.CompletedTask;
     public IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7) => [];
 
     public void Dispose()

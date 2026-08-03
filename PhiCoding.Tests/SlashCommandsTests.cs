@@ -93,4 +93,46 @@ public class SlashCommandsTests
         await Assert.That(SlashCommands.MatchWithArgs("/bogus arg")).IsNull();
         await Assert.That(SlashCommands.MatchWithArgs("hello world")).IsNull();
     }
+
+    [Test]
+    public async Task MatchSkill_ColonSyntax_ExtractsName()
+    {
+        var parsed = SlashCommands.MatchSkill("/skill:dotnet-testing");
+        await Assert.That(parsed).IsNotNull();
+        await Assert.That(parsed!.Value.SkillName).IsEqualTo("dotnet-testing");
+        await Assert.That(parsed.Value.Prompt).IsNull();
+    }
+
+    [Test]
+    public async Task MatchSkill_WithTrailingPrompt_SplitsNameAndPrompt()
+    {
+        var parsed = SlashCommands.MatchSkill("/skill:find-skills 找一个写小说的技能");
+        await Assert.That(parsed).IsNotNull();
+        await Assert.That(parsed!.Value.SkillName).IsEqualTo("find-skills");
+        await Assert.That(parsed.Value.Prompt).IsEqualTo("找一个写小说的技能");
+    }
+
+    [Test]
+    public async Task MatchSkill_TrailingWhitespaceOnly_NoPrompt()
+    {
+        var parsed = SlashCommands.MatchSkill("/skill:dotnet-testing   ");
+        await Assert.That(parsed).IsNotNull();
+        await Assert.That(parsed!.Value.SkillName).IsEqualTo("dotnet-testing");
+        await Assert.That(parsed.Value.Prompt).IsNull();
+    }
+
+    [Test]
+    public async Task MatchSkill_NoPrefix_ReturnsNull()
+    {
+        await Assert.That(SlashCommands.MatchSkill("dotnet-testing")).IsNull();
+        await Assert.That(SlashCommands.MatchSkill("/sessions")).IsNull();
+        await Assert.That(SlashCommands.MatchSkill("/skill")).IsNull();
+    }
+
+    [Test]
+    public async Task MatchSkill_EmptyName_ReturnsNull()
+    {
+        await Assert.That(SlashCommands.MatchSkill("/skill:")).IsNull();
+        await Assert.That(SlashCommands.MatchSkill("/skill:   ")).IsNull();
+    }
 }

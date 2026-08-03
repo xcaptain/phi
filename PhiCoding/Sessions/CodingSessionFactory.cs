@@ -100,9 +100,12 @@ public sealed class CodingSessionFactory
         SessionConfig config, IPhiProvider provider, string model, string providerName)
     {
         ArgumentNullException.ThrowIfNull(provider);
-        var resources = ProjectContextLoader.Load(
+        var contextResources = ProjectContextLoader.Load(
             new SessionResourceOptions { Cwd = config.Cwd });
+        var skillResult = SkillLoader.Load(
+            new SkillLoadOptions { Cwd = config.Cwd });
 
+        var skills = skillResult.Skills;
         var contributions = config.Tools is null or { Count: 0 }
             ? new BuiltInToolProvider(config.Cwd).GetTools()
             : config.Tools.Select(WrapCustomTool).ToArray();
@@ -114,8 +117,8 @@ public sealed class CodingSessionFactory
                 Cwd = config.Cwd,
                 CurrentDate = DateOnly.FromDateTime(DateTime.UtcNow),
                 Tools = contributions,
-                Skills = resources.Skills,
-                ContextFiles = resources.ContextFiles,
+                Skills = skills,
+                ContextFiles = contextResources.ContextFiles,
                 Options = config.SystemPrompt,
             });
 
@@ -131,6 +134,7 @@ public sealed class CodingSessionFactory
             Model = model,
             SystemPrompt = systemPrompt,
             Tools = tools,
+            Skills = skills,
             Config = config,
         };
     }

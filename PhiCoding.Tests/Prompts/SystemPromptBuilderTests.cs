@@ -218,7 +218,12 @@ public class SystemPromptBuilderTests
     public async Task Skills_AppearOnlyWhenReadToolPresent()
     {
         var builder = new SystemPromptBuilder();
-        var skill = new SkillDescriptor("dotnet", "C# guidance", "/abs/dotnet/SKILL.md");
+        var skill = new SkillDescriptor
+        {
+            Name = "dotnet",
+            Description = "C# guidance",
+            AbsolutePath = "/abs/dotnet/SKILL.md",
+        };
         var toolsWithoutRead = new ToolContribution
         {
             Tool = new PromptTestTool("bash", "shell"),
@@ -296,7 +301,7 @@ public class SystemPromptBuilderTests
             Cwd = "/work",
             CurrentDate = new DateOnly(2026, 1, 1),
             Tools = [ReadToolContribution()],
-            Skills = [new SkillDescriptor("foo", "bar", "/abs/foo/SKILL.md")],
+            Skills = [new SkillDescriptor { Name = "foo", Description = "bar", AbsolutePath = "/abs/foo/SKILL.md" }],
             ContextFiles = [new ProjectContextFile("/abs/AGENTS.md", "no")],
             Options = new SystemPromptOptions
             {

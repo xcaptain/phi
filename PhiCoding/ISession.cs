@@ -1,4 +1,5 @@
 using PhiAgent;
+using PhiCoding.Prompts;
 
 namespace PhiCoding;
 
@@ -20,6 +21,12 @@ public interface ISession : IDisposable
     event Action<HarnessEvent>? HarnessEvent;
     SessionState State { get; }
 
+    /// <summary>
+    /// Skills available to this session (project + user level), for
+    /// autocompleting <c>/skill:NAME</c> and surfacing in the prompt.
+    /// </summary>
+    IReadOnlyList<SkillDescriptor> Skills { get; }
+
     void SubmitPrompt(string text);
     void Cancel();
     void EnqueueSteering(UserMessage message);
@@ -27,6 +34,7 @@ public interface ISession : IDisposable
     void RenameSession(string? title);
     Task ResumeSession(string sessionId);
     Task NewSession();
+    Task LoadSkillAsync(string name);
     IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7);
 
     /// <summary>

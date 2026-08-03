@@ -47,6 +47,32 @@ internal static class SlashCommands
     }
 
     /// <summary>
+    /// Matches the <c>/skill:NAME [prompt]</c> pattern (command + argument
+    /// fused with a colon, optional trailing prompt after whitespace).
+    /// Returns the skill name and any trailing prompt, or null when the
+    /// input is not a skill invocation. The skill name is everything up to
+    /// the first whitespace after <c>/skill:</c> — the rest is the prompt.
+    /// </summary>
+    public static (string SkillName, string? Prompt)? MatchSkill(string text)
+    {
+        var trimmed = text.Trim();
+        if (!trimmed.StartsWith("/skill:", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var rest = trimmed["/skill:".Length..].TrimStart();
+        if (rest.Length == 0)
+            return null;
+
+        var space = rest.IndexOf(' ');
+        if (space < 0)
+            return (rest, null);
+
+        var skillName = rest[..space];
+        var prompt = rest[(space + 1)..].Trim();
+        return (skillName, prompt.Length == 0 ? null : prompt);
+    }
+
+    /// <summary>
     /// Completion candidates for the given input prefix. Only inputs starting
     /// with '/' complete; anything else yields no candidates.
     /// </summary>
