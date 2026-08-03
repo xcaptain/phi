@@ -1,5 +1,6 @@
 using PhiAgent;
 using PhiCoding.Prompts;
+using PhiCoding.Resources;
 using PhiCoding.Sessions;
 using PhiCoding.Tests.Helpers;
 
@@ -311,10 +312,17 @@ public class CodingSessionRuntimeTests : IDisposable
         var content = await ((ISession)session).LoadSkillAsync("dotnet-testing");
 
         await Assert.That(content).Contains("Test the dotnet code with xUnit.");
-        // The message anchors the skill's directory so the model can resolve
+        // The block anchors the skill's directory so the model can resolve
         // relative references (references/, scripts/) to absolute paths.
         await Assert.That(content).Contains(skillDir);
         await Assert.That(content).Contains("dotnet-testing");
+        // pi-style <skill> block: the frontmatter is stripped, the body is
+        // trimmed, and the whole message round-trips through the parser.
+        await Assert.That(content).DoesNotContain("description: Write xUnit tests");
+        await Assert.That(content).StartsWith("<skill name=\"dotnet-testing\"");
+        await Assert.That(content).EndsWith("</skill>");
+        await Assert.That(SkillInvocation.TryParse(content, out var parsed)).IsTrue();
+        await Assert.That(parsed!.Content).Contains("Test the dotnet code with xUnit.");
 
         // A bare /skill:name triggers a turn: the skill content becomes a
         // user message and the model replies (previously nothing ran).

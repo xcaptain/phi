@@ -98,4 +98,42 @@ public class SkillFrontmatterParserTests
         await Assert.That(result.Name).IsEqualTo("foo");
         await Assert.That(result.Body).IsEqualTo("body\n");
     }
+
+    // ──────── StripFrontmatter ────────
+
+    [Test]
+    public async Task StripFrontmatter_RemovesFrontmatter_AndTrimsBody()
+    {
+        var content = "---\nname: foo\ndescription: bar\n---\n\n# Body\nWith trailing space.  \n";
+
+        var body = SkillFrontmatterParser.StripFrontmatter(content);
+
+        await Assert.That(body).IsEqualTo("# Body\nWith trailing space.");
+        await Assert.That(body).DoesNotContain("name: foo");
+    }
+
+    [Test]
+    public async Task StripFrontmatter_NoFrontmatter_ReturnsTrimmedContent()
+    {
+        await Assert.That(
+            SkillFrontmatterParser.StripFrontmatter("  \n# Just a body\n\n"))
+            .IsEqualTo("# Just a body");
+    }
+
+    [Test]
+    public async Task StripFrontmatter_UnterminatedFrontmatter_ReturnsTrimmedContent()
+    {
+        var content = "---\nname: foo\nno closing fence";
+
+        await Assert.That(SkillFrontmatterParser.StripFrontmatter(content))
+            .IsEqualTo("---\nname: foo\nno closing fence");
+    }
+
+    [Test]
+    public async Task StripFrontmatter_WindowsLineEndings_Handled()
+    {
+        var content = "---\r\nname: foo\r\n---\r\n# Body\r\n";
+
+        await Assert.That(SkillFrontmatterParser.StripFrontmatter(content)).IsEqualTo("# Body");
+    }
 }

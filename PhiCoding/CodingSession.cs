@@ -1,6 +1,7 @@
 using PhiAgent;
 using PhiCoding.Prompts;
 using PhiCoding.Providers;
+using PhiCoding.Resources;
 using PhiCoding.Sessions;
 
 namespace PhiCoding;
@@ -375,12 +376,15 @@ public sealed class CodingSession : ISession
     }
 
     /// <summary>
-    /// Loads a skill's <c>SKILL.md</c> body into the conversation and starts
-    /// a run so the model acts on the skill immediately — matching pi, where
+    /// Loads a skill's <c>SKILL.md</c> into the conversation and starts a run
+    /// so the model acts on the skill immediately — matching pi, where
     /// <c>/skill:NAME</c> submits the skill block as the user prompt and
     /// executes the skill (bare invocation runs it; a trailing prompt is
-    /// fused into the same user message as <c>&lt;skill body&gt;\n\n&lt;args&gt;</c>).
-    /// Returns the submitted content so frontends can render it. Throws
+    /// fused into the same user message after the block). The block is the
+    /// pi-style <c>&lt;skill&gt;</c> XML format with the frontmatter stripped,
+    /// so <see cref="Resources.SkillInvocation.TryParse"/> can parse it back
+    /// and the UI can render it as a collapsible card. Returns the submitted
+    /// content so frontends can render it. Throws
     /// <see cref="InvalidOperationException"/> when the skill name is unknown
     /// or a run is already in progress.
     /// </summary>
@@ -394,24 +398,11 @@ public sealed class CodingSession : ISession
 
         var skill = _skills.FirstOrDefault(s =>
             s.Name.Equals(name, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"Unknown skill: {name}, available skills: {string.Join(", ", _skills.Select(s => s.Name))}");
-        var body = await File.ReadAllTextAsync(skill.AbsolutePath);
 
-        // The SKILL.md body may reference relative paths (references/,
-        // scripts/). The read/bash tools resolve relative paths against
-        // the session cwd, NOT the skill directory — so we must anchor the
-        // skill's absolute directory in the message for the model to build
-        // correct absolute paths when following those references.
         var skillDir = Path.GetDirectoryName(skill.AbsolutePath) ?? "";
-        var content = $"""
-            [Loaded skill "{skill.Name}". The skill lives in {skillDir}.
-            Relative paths in this skill (references/, scripts/, ...) are
-            relative to that directory — use absolute paths with the read and
-            bash tools.]
-
-            {body}
-            """;
-        if (prompt is { Length: > 0 })
-            content = $"{content}\n\n{prompt}";
+        var body = SkillFrontmatterParser.StripFrontmatter(
+            await File.ReadAllTextAsync(skill.AbsolutePath));
+        var content = SkillInvocation.Build(skill.Name, skill.AbsolutePath, skillDir, body, prompt);
 
         SubmitPrompt(content);
         return content;

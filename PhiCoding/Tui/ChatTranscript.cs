@@ -1,5 +1,6 @@
 using System.Text;
 using PhiAgent;
+using PhiCoding.Resources;
 using PhiCoding.Tui.ToolCards;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
@@ -225,6 +226,13 @@ public sealed class ChatTranscript
     public void AddUserMessage(string text)
     {
         FinishStreaming();
+        // A skill invocation (<skill> block) renders as a collapsible
+        // [skill] card instead of a plain "You" bubble with raw XML text.
+        if (SkillInvocation.TryParse(text, out var block))
+        {
+            Add(new SkillInvocationCard(block!).Visual);
+            return;
+        }
         Add(new Group(new Markup("[primary]You[/]"), new XenoAtom.Terminal.UI.Controls.TextBlock(text).Wrap(true))
             .HorizontalAlignment(Align.Stretch)
             .VerticalAlignment(Align.Start));

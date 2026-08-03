@@ -91,6 +91,29 @@ public static class SkillFrontmatterParser
         return new ParseResult(name, description, body, diagnostics);
     }
 
+    /// <summary>
+    /// Returns the body of a <c>SKILL.md</c> with the frontmatter block removed
+    /// and leading/trailing whitespace trimmed — what gets injected when a
+    /// skill is invoked (frontmatter is index metadata, not instructions).
+    /// Falls back to the whole (trimmed) content when there is no parseable
+    /// frontmatter block.
+    /// </summary>
+    public static string StripFrontmatter(string content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        var normalized = content.Replace("\r\n", "\n");
+        if (!StartsWithFrontmatterOpen(normalized)) return content.Trim();
+
+        var afterOpen = normalized.IndexOf('\n') + 1;
+        var closeStart = normalized.IndexOf("\n---", afterOpen, StringComparison.Ordinal);
+        if (closeStart < 0) return content.Trim();
+
+        var bodyStart = closeStart + 1 + CloseMarker.Length; // skip "\n---"
+        var body = bodyStart < normalized.Length ? normalized[bodyStart..] : "";
+        if (body.StartsWith('\n')) body = body[1..];
+        return body.Trim();
+    }
+
     private static bool StartsWithFrontmatterOpen(string text) =>
         text.StartsWith(OpenMarker + "\n", StringComparison.Ordinal)
         || string.Equals(text, OpenMarker, StringComparison.Ordinal);
