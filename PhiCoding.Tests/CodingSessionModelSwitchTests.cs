@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using PhiAgent;
 using PhiCoding.Prompts;
+using PhiCoding.Sessions;
 
 namespace PhiCoding.Tests;
 
@@ -15,6 +16,8 @@ public class CodingSessionModelSwitchTests : IDisposable
 {
     private readonly string _cwd;
     private readonly string _phiHome;
+    private readonly PhiCoding.Providers.ProviderManager _providerManager = new();
+    private readonly CodingSessionFactory _factory;
 
     public CodingSessionModelSwitchTests()
     {
@@ -22,6 +25,7 @@ public class CodingSessionModelSwitchTests : IDisposable
         Directory.CreateDirectory(_cwd);
         _phiHome = Path.Combine(Path.GetTempPath(), "phi-switch-home-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
+        _factory = new CodingSessionFactory(_providerManager);
     }
 
     public void Dispose()
@@ -61,7 +65,7 @@ public class CodingSessionModelSwitchTests : IDisposable
     public async Task SwitchModel_UpdatesStateAndRecord_WithoutDisposingProvider()
     {
         var provider = new RecordingProvider();
-        var session = CodingSession.Create(ConfigWith(provider));
+        var session = _factory.Create(ConfigWith(provider));
 
         session.SwitchModel("model-b");
 
@@ -77,7 +81,7 @@ public class CodingSessionModelSwitchTests : IDisposable
     public async Task SwitchModel_NextRun_UsesNewModel_OnSameProvider()
     {
         var provider = new RecordingProvider();
-        var session = CodingSession.Create(ConfigWith(provider));
+        var session = _factory.Create(ConfigWith(provider));
 
         session.SubmitPrompt("first");
         await WaitForAsync(() =>
@@ -96,7 +100,7 @@ public class CodingSessionModelSwitchTests : IDisposable
     public async Task SwitchProvider_DisposesPrevious_UpdatesStateAndRecord()
     {
         var providerA = new RecordingProvider();
-        var session = CodingSession.Create(ConfigWith(providerA, providerName: "deepseek"));
+        var session = _factory.Create(ConfigWith(providerA, providerName: "deepseek"));
 
         var providerB = new RecordingProvider();
         session.SwitchProvider(providerB, "glm", "glm-5.1");
@@ -116,7 +120,7 @@ public class CodingSessionModelSwitchTests : IDisposable
     public async Task SwitchProvider_NextRun_UsesNewProvider()
     {
         var providerA = new RecordingProvider();
-        var session = CodingSession.Create(ConfigWith(providerA, providerName: "deepseek"));
+        var session = _factory.Create(ConfigWith(providerA, providerName: "deepseek"));
         var providerB = new RecordingProvider();
         session.SwitchProvider(providerB, "glm", "glm-5.1");
 
@@ -132,7 +136,7 @@ public class CodingSessionModelSwitchTests : IDisposable
     public async Task SwitchProvider_SameInstance_DoesNotDispose()
     {
         var provider = new RecordingProvider();
-        var session = CodingSession.Create(ConfigWith(provider, providerName: "deepseek"));
+        var session = _factory.Create(ConfigWith(provider, providerName: "deepseek"));
 
         session.SwitchProvider(provider, "deepseek", "deepseek-v4-pro");
 
@@ -147,7 +151,7 @@ public class CodingSessionModelSwitchTests : IDisposable
         var gate = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var provider = new RecordingProvider(gate, gateOnCall: 2);
-        var session = CodingSession.Create(ConfigWith(provider, model: "model-a"));
+        var session = _factory.Create(ConfigWith(provider, model: "model-a"));
 
         // Run 1 (auto-name + run consume calls 0 and 1), then a blocked run 2.
         session.SubmitPrompt("first");

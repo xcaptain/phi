@@ -1,5 +1,6 @@
 using PhiAgent;
 using PhiCoding.Prompts;
+using PhiCoding.Sessions;
 using PhiCoding.Tests.Helpers;
 
 namespace PhiCoding.Tests;
@@ -9,6 +10,8 @@ public class CodingSessionCompactionTests : IDisposable
 {
     private readonly string _cwd;
     private readonly string _phiHome;
+    private readonly PhiCoding.Providers.ProviderManager _providerManager = new();
+    private readonly CodingSessionFactory _factory;
 
     public CodingSessionCompactionTests()
     {
@@ -16,6 +19,7 @@ public class CodingSessionCompactionTests : IDisposable
         Directory.CreateDirectory(_cwd);
         _phiHome = Path.Combine(Path.GetTempPath(), "phi-home-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
+        _factory = new CodingSessionFactory(_providerManager);
     }
 
     public void Dispose()
@@ -97,7 +101,7 @@ public class CodingSessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = CodingSession.Resume(
+        var resumed = _factory.Resume(
             ConfigWith(StubProvider.Echo(summaryEvents),
                 ("CompactionKeepRecentTokens", 50)), storedId);
 
@@ -139,7 +143,7 @@ public class CodingSessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = CodingSession.Resume(
+        var resumed = _factory.Resume(
             ConfigWith(StubProvider.Echo(summaryEvents),
                 ("CompactionKeepRecentTokens", 50)), storedId);
 
@@ -180,7 +184,7 @@ public class CodingSessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = CodingSession.Resume(
+        var resumed = _factory.Resume(
             ConfigWith(StubProvider.Echo(summaryEvents),
                 ("CompactionKeepRecentTokens", 50)), storedId);
 
@@ -224,7 +228,7 @@ public class CodingSessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = CodingSession.Resume(
+        var resumed = _factory.Resume(
             ConfigWith(StubProvider.Echo(summaryEvents),
                 ("CompactionKeepRecentTokens", 50)), storedId);
 
@@ -258,7 +262,7 @@ public class CodingSessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = CodingSession.Resume(
+        var resumed = _factory.Resume(
             ConfigWith(StubProvider.Echo(summaryEvents),
                 ("CompactionKeepRecentTokens", 50),
                 ("AutoCompactEnabled", false)), storedId);
@@ -299,14 +303,14 @@ public class CodingSessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var live = CodingSession.Resume(
+        var live = _factory.Resume(
             ConfigWith(StubProvider.Echo(summaryEvents),
                 ("CompactionKeepRecentTokens", 50)), storedId);
         live.SubmitPrompt("hi");
         await WaitForAsync(() => !live.State.IsRunning);
 
         // A fresh resume from disk sees the rewritten transcript.
-        var reloaded = CodingSession.Resume(
+        var reloaded = _factory.Resume(
             ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))), storedId);
         await Assert.That(reloaded.LoadMessages()[0]).IsTypeOf<UserMessage>();
         await Assert.That(

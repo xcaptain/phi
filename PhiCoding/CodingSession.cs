@@ -1,6 +1,6 @@
 using PhiAgent;
-using PhiCoding.Prompts;
-using PhiCoding.Resources;
+using PhiCoding.Providers;
+using PhiCoding.Sessions;
 
 namespace PhiCoding;
 
@@ -77,24 +77,9 @@ public sealed class CodingSession : ISession
     }
 
     /// <summary>
-    /// Creates a fresh, fully initialized session from
-    /// <see cref="SessionConfig"/>: builds the harness around the injected
-    /// provider and calls <see cref="StartRuntime"/>. Persistence stays
-    /// lazy — nothing hits disk until the first message.
-    /// </summary>
-    public static CodingSession Create(SessionConfig config)
-    {
-        var session = Create(config.Cwd, config.Model, providerName: config.ProviderName);
-        var harness = BuildHarness(config);
-        session.StartRuntime(harness, config.Provider, config.ProviderName, config.Model);
-        session.ApplyConfig(config);
-        return session;
-    }
-
-    /// <summary>
-    /// Opens an already-indexed session (persistence only — call
-    /// <see cref="StartRuntime"/> before submitting prompts). Throws when
-    /// the id is unknown.
+    /// Opens an already-indexed session (persistence only — bind a runtime
+    /// via <see cref="CodingSessionFactory"/> before submitting prompts).
+    /// Throws when the id is unknown.
     /// </summary>
     public static CodingSession Resume(string id, string cwd)
     {
@@ -102,57 +87,6 @@ public sealed class CodingSession : ISession
         var record = manager.GetSession(id);
         return new(record, OpenStorage(manager, id), manager, persisted: true);
     }
-
-    /// <summary>
-    /// Opens an already-indexed session with a full runtime: the stored
-    /// transcript is loaded into the harness so the conversation can
-    /// continue where it left off.
-    /// </summary>
-    public static CodingSession Resume(SessionConfig config, string id)
-    {
-        var session = Resume(id, config.Cwd);
-        var harness = BuildHarness(config);
-        harness.ReplaceMessages(session.LoadMessages());
-        session.StartRuntime(harness, config.Provider, config.ProviderName, config.Model);
-        session.ApplyConfig(config);
-        return session;
-    }
-
-    private static Harness BuildHarness(SessionConfig config) =>
-        new(
-            config.Provider,
-            config.Tools ?? BuiltInTools.CreateDefault(config.Cwd),
-            model: config.Model,
-            system: ResolveSystemPrompt(config),
-            maxTurns: config.MaxTurns);
-
-    private static string ResolveSystemPrompt(SessionConfig config)
-    {
-        if (config.SystemPrompt.ResolvedSystemPrompt is { } resolved)
-            return resolved;
-        var contributions = config.Tools is null or { Count: 0 }
-            ? new BuiltInToolProvider(config.Cwd).GetTools()
-            : config.Tools.Select(WrapCustomTool).ToArray();
-        var resources = ProjectContextLoader.Load(
-            new SessionResourceOptions { Cwd = config.Cwd });
-        return new SystemPromptBuilder().Build(new SystemPromptBuildContext
-        {
-            Cwd = config.Cwd,
-            CurrentDate = DateOnly.FromDateTime(DateTime.UtcNow),
-            Tools = contributions,
-            Skills = resources.Skills,
-            ContextFiles = resources.ContextFiles,
-            Options = config.SystemPrompt,
-        });
-    }
-
-    private static ToolContribution WrapCustomTool(Tool tool) =>
-        new()
-        {
-            Tool = tool,
-            PromptSnippet = tool.Description,
-            Source = "custom",
-        };
 
     private static SessionStorage OpenStorage(SessionManager manager, string id) =>
         new(manager.SessionFileFor(id));
@@ -220,6 +154,9 @@ public sealed class CodingSession : ISession
     Task ISession.ResumeSession(string sessionId)
         => ResumeSessionById(sessionId);
 
+    Task ISession.NewSession()
+        => NewSessionAsync();
+
     IReadOnlyList<SessionRecord> ISession.ListRecentSessions(int days)
         => ListRecentSessions(days);
 
@@ -228,6 +165,7 @@ public sealed class CodingSession : ISession
     private Harness? _harness;
     private IPhiProvider? _provider;
     private string _providerName = "";
+    private IProviderResolver? _resolver;
     private readonly Queue<UserMessage> _steeringQueue = new();
     private readonly Queue<UserMessage> _followUpQueue = new();
     private string _runtimeModel = "";
@@ -254,49 +192,55 @@ public sealed class CodingSession : ISession
     public SessionState State => _state;
 
     /// <summary>
-    /// Starts the runtime: binds harness, provider, and model to this
-    /// session. Must be called once before any action methods.
+    /// Binds a fully-built <see cref="SessionRuntime"/> to this session:
+    /// harness, provider, model, resolved system prompt, tool set, and the
+    /// compaction knobs derived from the runtime's config. Must be called
+    /// once before any action methods. Unlike the old split between runtime
+    /// startup and config application, the initial
+    /// <see cref="SessionState"/> is built with the resolved prompt and
+    /// tools already in place, so the initial context estimate is correct.
     /// </summary>
-    public void StartRuntime(Harness harness, IPhiProvider provider, string providerName, string model)
+    /// <summary>
+    /// Grants the session access to an <see cref="IProviderResolver"/> so
+    /// the hot-switch path (<c>ISession.ResumeSession</c>) can rebuild the
+    /// live provider from the target record's provider name. Called by
+    /// <see cref="CodingSessionFactory"/> after construction.
+    /// </summary>
+    internal void BindResolver(IProviderResolver resolver)
     {
-        _harness = harness;
-        _provider = provider;
-        _providerName = providerName;
-        _runtimeModel = model;
-        _lastMessageCount = harness.Messages.Count;
+        _resolver = resolver;
+    }
+
+    internal void ApplyRuntime(SessionRuntime runtime)
+    {
+        ArgumentNullException.ThrowIfNull(runtime);
+        _harness = runtime.Harness;
+        _provider = runtime.Provider;
+        _providerName = runtime.ProviderName;
+        _runtimeModel = runtime.Model;
+        _systemPrompt = runtime.SystemPrompt;
+        _tools = runtime.Tools;
+        _contextWindowTokens = runtime.Config.ContextWindowTokens;
+        _autoCompactEnabled = runtime.Config.AutoCompactEnabled;
+        _compactionKeepRecentTokens = runtime.Config.CompactionKeepRecentTokens;
+        _autoCompactThreshold = runtime.Config.AutoCompactTokenThreshold
+            ?? ContextWindow.AutoCompactionThresholdForContextWindow(_contextWindowTokens);
+        _lastMessageCount = runtime.Harness.Messages.Count;
         _runtimeStarted = true;
 
-        var messages = harness.Messages.ToList();
+        var messages = runtime.Harness.Messages.ToList();
         _state = new SessionState
         {
             Messages = messages,
             SessionId = Id,
-            Model = model,
-            ProviderName = providerName,
+            Model = _runtimeModel,
+            ProviderName = _providerName,
             SessionTitle = Record.Title,
             IsPersisted = _persisted,
             Stats = SessionStatsCalculator.Calculate(messages),
             ContextUsedTokens = EstimateContextUsage(messages),
             AutoCompactThreshold = _autoCompactThreshold,
         };
-    }
-
-    /// <summary>
-    /// Applies the session's compression configuration. Must be called once
-    /// after <see cref="StartRuntime"/> and before any <c>SubmitPrompt</c>.
-    /// Idempotent.
-    /// </summary>
-    public void ApplyConfig(SessionConfig config)
-    {
-        ArgumentNullException.ThrowIfNull(config);
-        _systemPrompt = ResolveSystemPrompt(config);
-        _tools = config.Tools ?? BuiltInTools.CreateDefault(config.Cwd);
-        _contextWindowTokens = config.ContextWindowTokens;
-        _autoCompactEnabled = config.AutoCompactEnabled;
-        _compactionKeepRecentTokens = config.CompactionKeepRecentTokens;
-        _autoCompactThreshold = config.AutoCompactTokenThreshold
-            ?? ContextWindow.AutoCompactionThresholdForContextWindow(_contextWindowTokens);
-        UpdateState(s => s with { AutoCompactThreshold = _autoCompactThreshold });
     }
 
     /// <summary>
@@ -405,6 +349,22 @@ public sealed class CodingSession : ISession
         ResumeSessionCore(sessionId);
     }
 
+    public async Task NewSessionAsync()
+    {
+        ThrowIfNoRuntime();
+
+        // Cancel any in-flight run before swapping the storage/record, for
+        // the same reason ResumeSessionById does.
+        var run = _currentRunTask;
+        if (run is not null)
+        {
+            _runCts?.Cancel();
+            await run;
+        }
+
+        NewSessionCore();
+    }
+
     public void EnqueueSteering(UserMessage message)
     {
         ThrowIfNoRuntime();
@@ -505,7 +465,12 @@ public sealed class CodingSession : ISession
     /// <summary>
     /// Adopts another session in place: loads its transcript and swaps
     /// record + storage, keeping this object's identity (frontends hold a
-    /// single <see cref="ISession"/> reference across resumes).
+    /// single <see cref="ISession"/> reference across resumes). When a
+    /// resolver is bound (via <see cref="BindResolver"/>), the live
+    /// provider is rebuilt from the target record's provider name and the
+    /// runtime model is restored to the record's model — so switching
+    /// sessions switches the actual HTTP transport + auth, not just the
+    /// label.
     /// </summary>
     private void ResumeSessionCore(string sessionId)
     {
@@ -530,6 +495,28 @@ public sealed class CodingSession : ISession
             loaded = [.. _storage.ReadAll().Select(SessionEntryConverter.ToAgentMessage)];
         }
 
+        // Rebuild the live provider + runtime model from the target record.
+        // The old provider is disposed unless it's the very same instance
+        // (mirrors SwitchProvider semantics).
+        if (_resolver is not null)
+        {
+            var previous = _provider;
+            var providerName = string.IsNullOrEmpty(record.ProviderName)
+                ? _providerName
+                : record.ProviderName;
+            var newProvider = _resolver.Resolve(providerName);
+            _provider = newProvider;
+            _providerName = providerName;
+            _runtimeModel = string.IsNullOrEmpty(record.Model)
+                ? _runtimeModel
+                : record.Model;
+            _harness!.Provider = newProvider;
+            _harness!.Model = _runtimeModel;
+
+            if (previous is not null && !ReferenceEquals(previous, newProvider))
+                previous.Dispose();
+        }
+
         _harness!.ReplaceMessages(loaded);
         _lastMessageCount = loaded.Count;
         _autoNamed = record.Title is { Length: > 0 };
@@ -544,6 +531,43 @@ public sealed class CodingSession : ISession
             IsPersisted = true,
             Stats = SessionStatsCalculator.Calculate(loaded),
             ContextUsedTokens = EstimateContextUsage(loaded),
+            AutoCompactThreshold = _autoCompactThreshold,
+        });
+    }
+
+    /// <summary>
+    /// Replaces this session with a fresh, empty one in place: allocates a
+    /// new unpersisted record, swaps storage, and clears the harness.
+    /// Keeps the current provider + model (the user is already connected;
+    /// /new just starts a blank conversation). Persistence stays lazy — the
+    /// new session hits disk on its first message.
+    /// </summary>
+    private void NewSessionCore()
+    {
+        FlushNewMessages();
+
+        var fresh = _manager.PrepareSession(_runtimeModel, providerName: _providerName);
+        lock (_lock)
+        {
+            _storage = OpenStorage(_manager, fresh.Id);
+            Record = fresh;
+            _persisted = false;
+        }
+
+        _harness!.ReplaceMessages([]);
+        _lastMessageCount = 0;
+        _autoNamed = false;
+
+        UpdateState(s => new SessionState
+        {
+            Messages = [],
+            SessionId = fresh.Id,
+            Model = _runtimeModel,
+            ProviderName = _providerName,
+            SessionTitle = null,
+            IsPersisted = false,
+            Stats = SessionStatsCalculator.Calculate([]),
+            ContextUsedTokens = EstimateContextUsage([]),
             AutoCompactThreshold = _autoCompactThreshold,
         });
     }

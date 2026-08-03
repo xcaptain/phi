@@ -8,16 +8,23 @@ namespace PhiCoding;
 /// runtime. The provider is injected ready-made — session construction
 /// never touches HTTP or concrete provider types; wiring those up is the
 /// composition root's job (Program.cs). Passed to
-/// <see cref="CodingSession.Create(SessionConfig)"/> or
-/// <see cref="CodingSession.Resume(SessionConfig, string)"/>.
+/// <see cref="Sessions.CodingSessionFactory.Create"/> or
+/// <see cref="Sessions.CodingSessionFactory.Resume"/>.
 /// </summary>
 public sealed record SessionConfig
 {
     /// <summary>Working directory for this session.</summary>
     public string Cwd { get; init; } = Environment.CurrentDirectory;
 
-    /// <summary>LLM provider, constructed by the caller.</summary>
-    public required IPhiProvider Provider { get; init; }
+    /// <summary>
+    /// LLM provider. When set, the factory uses this live instance (the
+    /// caller has already resolved an HTTP transport, API key, etc.). When
+    /// null, the factory falls back to <see cref="Providers.IProviderResolver"/>
+    /// — useful for the resume path where the live provider must be
+    /// reconstructed from the session record's provider name rather than
+    /// inherited from startup defaults.
+    /// </summary>
+    public IPhiProvider? Provider { get; init; }
 
     /// <summary>Model name (e.g. <c>"deepseek-v4-flash"</c>).</summary>
     public string Model { get; init; } = "";

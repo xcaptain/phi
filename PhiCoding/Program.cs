@@ -2,6 +2,7 @@ using PhiAgent;
 using PhiCoding;
 using PhiCoding.Prompts;
 using PhiCoding.Providers;
+using PhiCoding.Sessions;
 using PhiCoding.Tui;
 using PhiProvider;
 
@@ -68,12 +69,33 @@ var config = new SessionConfig
     MaxTurns = 50,
 };
 
+var factory = new CodingSessionFactory(providerManager);
 CodingSession session;
 try
 {
-    session = resumeSessionId is null
-        ? CodingSession.Create(config)
-        : CodingSession.Resume(config, resumeSessionId);
+    if (resumeSessionId is null)
+    {
+        // Fresh: the startup provider (built above from the default name)
+        // is the one the session owns and disposes on exit.
+        session = factory.Create(config);
+    }
+    else
+    {
+        // Resuming: the session record's provider/model win by default so a
+        // later switch is not silently undone by the current default. The
+        // config only overrides when the caller explicitly sets a value
+        // (no --model/--provider CLI flags exist yet, so record wins today).
+        // The factory rebuilds the live provider from record.ProviderName
+        // via the resolver, so API key, base URL, and HTTP transport all
+        // come back to the recorded provider — not the startup default.
+        var resumeConfig = config with
+        {
+            Model = "",
+            ProviderName = "",
+            Provider = null,
+        };
+        session = factory.Resume(resumeConfig, resumeSessionId);
+    }
 }
 catch (InvalidOperationException ex)
 {
@@ -81,8 +103,6 @@ catch (InvalidOperationException ex)
     return 1;
 }
 
-using (var app = new PhiTuiApp(session, providerManager))
-{
-    app.Run();
-}
+using var app = new PhiTuiApp(session, providerManager);
+app.Run();
 return 0;

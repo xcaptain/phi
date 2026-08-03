@@ -26,6 +26,7 @@ public interface ISession : IDisposable
     void EnqueueFollowUp(UserMessage message);
     void RenameSession(string? title);
     Task ResumeSession(string sessionId);
+    Task NewSession();
     IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7);
 
     /// <summary>

@@ -70,6 +70,7 @@ public sealed class MockSession : ISession
     public void EnqueueFollowUp(UserMessage message) { }
     public void RenameSession(string? title) { }
     public Task ResumeSession(string sessionId) => Task.CompletedTask;
+    public Task NewSession() => Task.CompletedTask;
     public IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7) => [];
 
     public void Dispose()

@@ -79,11 +79,12 @@ public class SuggestionStripTests
 
         // Row 1: command chips. Row 2: best-match description. No tall list.
         await Assert.That(lines.Length).IsEqualTo(2);
+        await Assert.That(lines[0]).Contains("/new");
         await Assert.That(lines[0]).Contains("/connect");
         await Assert.That(lines[0]).Contains("/models");
         await Assert.That(lines[0]).Contains("/sessions");
         await Assert.That(lines[0]).Contains("/exit");
-        await Assert.That(lines[1]).Contains("Connect an LLM provider");
+        await Assert.That(lines[1]).Contains("Start a new, empty session");
     }
 
     [Test]

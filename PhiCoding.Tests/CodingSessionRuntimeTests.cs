@@ -1,5 +1,6 @@
 using PhiAgent;
 using PhiCoding.Prompts;
+using PhiCoding.Sessions;
 using PhiCoding.Tests.Helpers;
 
 namespace PhiCoding.Tests;
@@ -15,6 +16,8 @@ public class CodingSessionRuntimeTests : IDisposable
 {
     private readonly string _cwd;
     private readonly string _phiHome;
+    private readonly PhiCoding.Providers.ProviderManager _providerManager = new();
+    private readonly CodingSessionFactory _factory;
 
     public CodingSessionRuntimeTests()
     {
@@ -22,6 +25,7 @@ public class CodingSessionRuntimeTests : IDisposable
         Directory.CreateDirectory(_cwd);
         _phiHome = Path.Combine(Path.GetTempPath(), "phi-home-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
+        _factory = new CodingSessionFactory(_providerManager);
     }
 
     public void Dispose()
@@ -98,7 +102,7 @@ public class CodingSessionRuntimeTests : IDisposable
     public async Task Create_WithConfig_UsesInjectedProvider()
     {
         var provider = StubProvider.Echo(StubProvider.TextTurn("pong"));
-        var session = CodingSession.Create(ConfigWith(provider));
+        var session = _factory.Create(ConfigWith(provider));
 
         session.SubmitPrompt("ping");
 
@@ -110,7 +114,7 @@ public class CodingSessionRuntimeTests : IDisposable
     [Test]
     public async Task StartRuntime_StateCarriesIdentityAndPersistenceFlag()
     {
-        var session = CodingSession.Create(ConfigWith(StubProvider.Echo(StubProvider.TextTurn("x"))));
+        var session = _factory.Create(ConfigWith(StubProvider.Echo(StubProvider.TextTurn("x"))));
 
         await Assert.That(session.State.SessionId).IsEqualTo(session.Id);
         await Assert.That(session.State.Model).IsEqualTo("stub-model");
@@ -124,7 +128,7 @@ public class CodingSessionRuntimeTests : IDisposable
     {
         var gate = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var session = CodingSession.Create(ConfigWith(StubProvider.FirstCallBlocks(gate)));
+        var session = _factory.Create(ConfigWith(StubProvider.FirstCallBlocks(gate)));
 
         session.SubmitPrompt("hello world");
 
@@ -143,7 +147,7 @@ public class CodingSessionRuntimeTests : IDisposable
     [Test]
     public async Task SubmitPrompt_CompletedRun_FlushesAssistantMessage()
     {
-        var session = CodingSession.Create(
+        var session = _factory.Create(
             ConfigWith(StubProvider.Echo(StubProvider.TextTurn("done"))));
 
         session.SubmitPrompt("go");
@@ -163,7 +167,7 @@ public class CodingSessionRuntimeTests : IDisposable
     [Test]
     public async Task ResumeSession_SwapsMessagesAndIdentity()
     {
-        var session = CodingSession.Create(
+        var session = _factory.Create(
             ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
 
         var target = CodingSession.Create(_cwd, "m", title: "target");
@@ -183,7 +187,7 @@ public class CodingSessionRuntimeTests : IDisposable
     {
         // Regression: previously resume swapped the record but kept the old
         // storage, leaking new messages into the previous session's file.
-        var session = CodingSession.Create(
+        var session = _factory.Create(
             ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
         session.AppendMessage(new UserMessage { Content = "mine" });
         var originalId = session.Id;
@@ -208,7 +212,7 @@ public class CodingSessionRuntimeTests : IDisposable
     {
         var gate = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var sessionA = CodingSession.Create(
+        var sessionA = _factory.Create(
             ConfigWith(StubProvider.FirstCallBlocks(gate, "unblocked")));
         var sessionA_originalId = sessionA.Id;
         var sessionB = CodingSession.Create(_cwd, "m");
@@ -236,7 +240,7 @@ public class CodingSessionRuntimeTests : IDisposable
     [Test]
     public async Task ResumeSession_UnknownId_SetsErrorState()
     {
-        var session = CodingSession.Create(
+        var session = _factory.Create(
             ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
 
         await ((ISession)session).ResumeSession("does-not-exist");
@@ -245,12 +249,51 @@ public class CodingSessionRuntimeTests : IDisposable
     }
 
     [Test]
+    public async Task NewSession_StartsFreshEmptyUnpersistedSession()
+    {
+        var session = _factory.Create(
+            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
+        session.SubmitPrompt("first conversation");
+        await WaitForAsync(() => !session.State.IsRunning);
+        var oldId = session.Id;
+        await Assert.That(session.State.Messages).IsNotEmpty();
+
+        await ((ISession)session).NewSession();
+
+        await Assert.That(session.Id).IsNotEqualTo(oldId);
+        await Assert.That(session.State.SessionId).IsEqualTo(session.Id);
+        await Assert.That(session.State.Messages).IsEmpty();
+        await Assert.That(session.State.IsPersisted).IsFalse();
+        // Provider/model carry over: the user stays connected, just a
+        // blank conversation.
+        await Assert.That(session.State.Model).IsEqualTo("stub-model");
+        await Assert.That(File.Exists(SessionPaths.SessionFileFor(_cwd, session.Id))).IsFalse();
+    }
+
+    [Test]
+    public async Task NewSession_CanSubmitPromptAfterwards()
+    {
+        var session = _factory.Create(
+            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
+        session.SubmitPrompt("old");
+        await WaitForAsync(() => !session.State.IsRunning);
+
+        await ((ISession)session).NewSession();
+
+        session.SubmitPrompt("new");
+        await WaitForAsync(() => !session.State.IsRunning);
+
+        await Assert.That(session.State.Messages.OfType<UserMessage>().Any(u => u.Text == "new")).IsTrue();
+        await Assert.That(session.State.Messages.OfType<UserMessage>().Any(u => u.Text == "old")).IsFalse();
+    }
+
+    [Test]
     public async Task NewRun_ClearsPreviousLastError()
     {
         // First run fails (LastError set); the next run must start with a
         // clean LastError so the status bar can restore its normal display
         // and a fresh failure leaves a new record.
-        var session = CodingSession.Create(ConfigWith(StubProvider.FirstTwoCallsThrow()));
+        var session = _factory.Create(ConfigWith(StubProvider.FirstTwoCallsThrow()));
 
         session.SubmitPrompt("fail me");
         await WaitForAsync(() => session.State.LastError is { Length: > 0 });
@@ -272,7 +315,7 @@ public class CodingSessionRuntimeTests : IDisposable
         var stored = CodingSession.Create(_cwd, "m");
         stored.AppendMessage(new UserMessage { Content = "from disk" });
 
-        var session = CodingSession.Resume(
+        var session = _factory.Resume(
             ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))), stored.Id);
 
         await Assert.That(session.State.SessionId).IsEqualTo(stored.Id);
@@ -305,7 +348,7 @@ public class CodingSessionRuntimeTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var session = CodingSession.Create(
+        var session = _factory.Create(
             ConfigWith(StubProvider.Echo(turnEvents)));
 
         session.SubmitPrompt("hello");
@@ -362,7 +405,7 @@ public class CodingSessionRuntimeTests : IDisposable
 
         // Resume via the runtime factory — this is what the TUI does on
         // popup resume or `phi --session <id>`.
-        var resumed = CodingSession.Resume(
+        var resumed = _factory.Resume(
             ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))), storedId);
 
         await Assert.That(resumed.State.SessionId).IsEqualTo(storedId);
@@ -391,7 +434,7 @@ public class CodingSessionRuntimeTests : IDisposable
             StopReason = StopReasons.Stop,
         });
 
-        var live = CodingSession.Create(
+        var live = _factory.Create(
             ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
 
         await ((ISession)live).ResumeSession(stored.Id);
@@ -409,7 +452,7 @@ public class CodingSessionRuntimeTests : IDisposable
         // burning tokens after the user quits.
         var gate = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var session = CodingSession.Create(
+        var session = _factory.Create(
             ConfigWith(StubProvider.FirstCallBlocks(gate, "unblocked")));
 
         session.SubmitPrompt("long running");

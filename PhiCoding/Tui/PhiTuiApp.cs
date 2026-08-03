@@ -112,6 +112,9 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
             {
                 switch (command)
                 {
+                    case "/new":
+                        _ = NewSessionAsync(transcript);
+                        break;
                     case "/sessions":
                         ShowSessionsDialog(transcript, editor);
                         break;
@@ -229,6 +232,21 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         if (_lastRoutedError == message) return;
         _lastRoutedError = message;
         transcript.AddPersistentError(message);
+    }
+
+    // ──────── /new ────────
+
+    /// <summary>
+    /// Starts a fresh session: the session swaps itself in place to a new
+    /// empty record and the transcript is rebuilt empty. The status bar
+    /// keeps the current provider/model (the user is already connected).
+    /// </summary>
+    private async Task NewSessionAsync(ChatTranscript transcript)
+    {
+        transcript.ClearAndLoad([]);
+        await _session.NewSession();
+        _lastRoutedError = null;
+        transcript.AddInfo("New session started");
     }
 
     // ──────── /sessions dialog ────────

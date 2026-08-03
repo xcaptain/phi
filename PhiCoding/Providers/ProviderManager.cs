@@ -15,12 +15,17 @@ namespace PhiCoding.Providers;
 /// resolved <c>env var → credential store</c>; the env lookup is injectable
 /// for hermetic tests.
 /// </para>
+/// <para>
+/// Also implements <see cref="IProviderResolver"/> so the session factory
+/// can rebuild a live provider from a name stored in a
+/// <see cref="SessionRecord"/> on resume.
+/// </para>
 /// </summary>
 [SuppressMessage("Performance", "CA1822", Justification = "Service facade; instance members stay swappable/injectable")]
 public sealed class ProviderManager(
     ICredentialStore? credentials = null,
     string? settingsPath = null,
-    Func<string, string?>? getEnv = null)
+    Func<string, string?>? getEnv = null) : IProviderResolver
 {
     private readonly ICredentialStore _credentials = credentials ?? new FileCredentialStore(FileCredentialStore.DefaultPath);
     private readonly string _settingsPath = settingsPath ?? PhiSettings.DefaultPath;
@@ -84,6 +89,27 @@ public sealed class ProviderManager(
             new HttpClient()),
         _ => throw new NotSupportedException($"Provider kind {entry.Kind} is not implemented"),
     };
+
+    /// <summary>
+    /// Resolves a runtime provider by catalog name: looks up the entry,
+    /// picks up the API key from env or the credential store, and
+    /// constructs the live instance. An empty <paramref name="providerName"/>
+    /// falls through to <see cref="ResolveDefaultProvider"/>, so callers
+    /// that have no preference (e.g. a session record written before the
+    /// provider was ever recorded) still get a working instance. Falls
+    /// back to <see cref="NullProvider"/> when no key is available so the
+    /// TUI can open and prompt for <c>/connect</c>. Throws when the name
+    /// is non-empty but not in the catalog.
+    /// </summary>
+    public IPhiProvider Resolve(string providerName)
+    {
+        var entry = string.IsNullOrEmpty(providerName)
+            ? ResolveDefaultProvider()
+            : GetProvider(providerName);
+        if (ResolveApiKey(entry) is { } apiKey)
+            return CreateProvider(entry, apiKey);
+        return new NullProvider();
+    }
 
     /// <summary>Persists the default provider + model for the next launch.</summary>
     public void SaveDefault(ProviderCatalogEntry entry, string model) =>
