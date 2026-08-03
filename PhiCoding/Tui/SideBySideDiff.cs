@@ -3,6 +3,7 @@ using System.Text;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 using PhiCoding.Tools.Details;
+using PhiCoding.Tui.ToolCards;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 

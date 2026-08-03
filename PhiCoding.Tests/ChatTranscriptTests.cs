@@ -1,6 +1,7 @@
 using System.Reflection;
 using PhiAgent;
 using PhiCoding.Tui;
+using PhiCoding.Tui.ToolCards;
 
 namespace PhiCoding.Tests;
 

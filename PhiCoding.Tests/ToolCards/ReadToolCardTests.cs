@@ -1,9 +1,9 @@
 using System.Text.Json.Nodes;
 using PhiAgent;
-using PhiCoding.Tui;
+using PhiCoding.Tui.ToolCards;
 using XenoAtom.Terminal.UI.Rendering;
 
-namespace PhiCoding.Tests;
+namespace PhiCoding.Tests.ToolCards;
 
 [NotInParallel("tool-card-render-tests")]
 public class ReadToolCardTests

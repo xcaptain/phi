@@ -16,3 +16,9 @@ indent_size = 4
 # like System.Threading, System.IO, System.Linq are already imported by
 # the SDK and any explicit `using` for them is dead code.
 dotnet_diagnostic.IDE0005.severity = warning
+
+# Namespace must match the folder structure (e.g. a file in Tools/Details/
+# must declare namespace PhiCoding.Tools.Details). Promoted from the default
+# "hint" so editors and `dotnet build` both flag it; CI turns it into an
+# error via TreatWarningsAsErrors.
+dotnet_diagnostic.IDE0130.severity = warning

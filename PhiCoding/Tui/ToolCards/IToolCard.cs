@@ -1,7 +1,7 @@
 using PhiAgent;
 using XenoAtom.Terminal.UI;
 
-namespace PhiCoding.Tui;
+namespace PhiCoding.Tui.ToolCards;
 
 /// <summary>
 /// Per-tool visual component for a single tool call in the chat transcript.

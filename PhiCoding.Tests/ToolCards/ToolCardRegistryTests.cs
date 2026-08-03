@@ -1,6 +1,6 @@
-using PhiCoding.Tui;
+using PhiCoding.Tui.ToolCards;
 
-namespace PhiCoding.Tests;
+namespace PhiCoding.Tests.ToolCards;
 
 public class ToolCardRegistryTests
 {

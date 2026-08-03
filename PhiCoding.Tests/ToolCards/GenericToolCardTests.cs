@@ -1,9 +1,9 @@
 using System.Text.Json.Nodes;
 using PhiAgent;
-using PhiCoding.Tui;
+using PhiCoding.Tui.ToolCards;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Tests;
+namespace PhiCoding.Tests.ToolCards;
 
 public class GenericToolCardTests
 {

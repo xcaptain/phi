@@ -2,7 +2,7 @@ using PhiAgent;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Tui;
+namespace PhiCoding.Tui.ToolCards;
 
 /// <summary>
 /// Default card shape: a title <see cref="Markup"/> on top, a body <see cref="Visual"/>

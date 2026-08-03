@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 using PhiAgent;
 using PhiCoding.Tools.Details;
 
-namespace PhiCoding.Tui;
+namespace PhiCoding.Tui.ToolCards;
 
 /// <summary>
 /// Card for <c>bash</c>: title is <c>$ command</c> + exit/duration summary, body
