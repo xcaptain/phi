@@ -30,7 +30,7 @@ public class SkillFrontmatterParserTests
     }
 
     [Test]
-    public async Task Parse_MissingDescription_ProducesDiagnostic_NullDescription()
+    public async Task Parse_MissingDescription_ReturnsNullDescription_NoDiagnostic()
     {
         var content = "---\nname: foo\n---\nbody\n";
 
@@ -38,8 +38,9 @@ public class SkillFrontmatterParserTests
 
         await Assert.That(result.Name).IsEqualTo("foo");
         await Assert.That(result.Description).IsNull();
-        await Assert.That(result.Diagnostics).Count().IsEqualTo(1);
-        await Assert.That(result.Diagnostics[0].Message).Contains("description");
+        // The parser only extracts; a missing description is a fatal
+        // validation issue surfaced by the loader, not the parser.
+        await Assert.That(result.Diagnostics).IsEmpty();
     }
 
     [Test]

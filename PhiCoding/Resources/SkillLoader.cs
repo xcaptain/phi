@@ -7,16 +7,17 @@ namespace PhiCoding.Resources;
 /// Discovers Agent Skills on disk: walks the user-level
 /// (<c>~/.agents/skills</c>) and project-level
 /// (<c>&lt;projectRoot&gt;/.agents/skills</c>) directories, parses each
-/// skill's <c>SKILL.md</c> frontmatter, and returns the resulting
-/// descriptors + diagnostics.
+/// skill's <c>SKILL.md</c> frontmatter, validates it against the Agent
+/// Skills standard, and returns the resulting descriptors + diagnostics.
 /// <para>
-/// Project skills override user skills of the same name (the project
-/// version wins, with an informational diagnostic). Individual files are
-/// capped at <see cref="MaxFileSizeBytes"/>; missing or malformed
-/// frontmatter produces warnings, not load failures — a missing
-/// <c>description</c> is recoverable (the skill still appears, with an
-/// empty description), while a missing or broken <c>name</c> falls back to
-/// the directory name.
+/// Validation mirrors pi: name/description violations
+/// (<see cref="SkillValidator"/>) produce warnings but the skill still
+/// loads; a missing or empty <c>description</c> is the one fatal case and
+/// the skill is skipped. Name collisions (same effective name from
+/// different sources) keep the first skill found and warn — since the user
+/// directory loads first, the user version wins over a project copy.
+/// Individual files are capped at <see cref="MaxFileSizeBytes"/>. Unknown
+/// frontmatter fields are ignored.
 /// </para>
 /// </summary>
 public static class SkillLoader
@@ -98,28 +99,41 @@ public static class SkillLoader
                 diagnostics.AddRange(parse.Diagnostics);
                 if (parse.Name is null) continue; // unparseable frontmatter — skip
 
+                // Agent Skills validation: most violations warn but still
+                // load; a missing description is the one fatal case.
+                foreach (var message in SkillValidator.ValidateName(parse.Name))
+                    diagnostics.Add(new ResourceDiagnostic(
+                        Source: $"SKILL.md:{skillFile}",
+                        Message: $"Skill '{parse.Name}': {message}.",
+                        Severity: DiagnosticSeverity.Warning));
+                foreach (var message in SkillValidator.ValidateDescription(parse.Description))
+                    diagnostics.Add(new ResourceDiagnostic(
+                        Source: $"SKILL.md:{skillFile}",
+                        Message: $"Skill '{parse.Name}': {message}.",
+                        Severity: DiagnosticSeverity.Warning));
+                if (string.IsNullOrWhiteSpace(parse.Description)) continue;
+
                 var descriptor = new SkillDescriptor
                 {
                     Name = parse.Name,
-                    Description = parse.Description ?? "",
+                    Description = parse.Description,
                     AbsolutePath = skillFile,
                     Source = source,
                 };
 
-                if (byName.TryGetValue(skillName, out var existing))
+                // Name collisions (same effective name from different
+                // sources) keep the first skill found, per the standard.
+                if (byName.TryGetValue(parse.Name, out _))
                 {
-                    var previousSource = bySource[skillName];
-                    if (!previousSource.Equals(source, StringComparison.Ordinal))
-                    {
-                        diagnostics.Add(new ResourceDiagnostic(
-                            Source: $"SKILL.md:{skillFile}",
-                            Message: $"Skill '{skillName}' from {source} overrides the same skill from {previousSource}.",
-                            Severity: DiagnosticSeverity.Info));
-                    }
+                    diagnostics.Add(new ResourceDiagnostic(
+                        Source: $"SKILL.md:{skillFile}",
+                        Message: $"Skill '{parse.Name}' from {source} collides with the same skill from {bySource[parse.Name]}; keeping the first.",
+                        Severity: DiagnosticSeverity.Warning));
+                    continue;
                 }
 
-                byName[skillName] = descriptor;
-                bySource[skillName] = source;
+                byName[parse.Name] = descriptor;
+                bySource[parse.Name] = source;
             }
             catch (Exception ex)
             {

@@ -80,13 +80,6 @@ public static class SkillFrontmatterParser
         var description = map.TryGetValue("description", out var declaredDesc)
             ? declaredDesc
             : null;
-        if (description is null)
-        {
-            diagnostics.Add(new ResourceDiagnostic(
-                Source: $"SKILL.md:{filePath}",
-                Message: $"Skill '{name}' has no 'description' in frontmatter; will appear empty in the prompt.",
-                Severity: DiagnosticSeverity.Warning));
-        }
 
         return new ParseResult(name, description, body, diagnostics);
     }

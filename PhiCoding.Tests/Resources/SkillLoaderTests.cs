@@ -78,7 +78,7 @@ public class SkillLoaderTests : IDisposable
     }
 
     [Test]
-    public async Task Load_ProjectOverridesUser_ForSameName()
+    public async Task Load_SameNameAcrossSources_KeepsFirstSkill_Warns()
     {
         Directory.CreateDirectory(Path.Combine(_projectRoot, ".git"));
         WriteSkill(_home, "shared", "user body", "User version");
@@ -86,12 +86,14 @@ public class SkillLoaderTests : IDisposable
 
         var result = SkillLoader.Load(OptionsFor(_home, _cwd));
 
+        // User skills load first, so per the Agent Skills standard the user
+        // version is kept and the collision is reported as a warning.
         await Assert.That(result.Skills).Count().IsEqualTo(1);
-        await Assert.That(result.Skills[0].Source).IsEqualTo("project");
-        await Assert.That(result.Skills[0].Description).IsEqualTo("Project version");
+        await Assert.That(result.Skills[0].Source).IsEqualTo("user");
+        await Assert.That(result.Skills[0].Description).IsEqualTo("User version");
         await Assert.That(result.Diagnostics).Count().IsEqualTo(1);
-        await Assert.That(result.Diagnostics[0].Severity).IsEqualTo(DiagnosticSeverity.Info);
-        await Assert.That(result.Diagnostics[0].Message).Contains("overrides");
+        await Assert.That(result.Diagnostics[0].Severity).IsEqualTo(DiagnosticSeverity.Warning);
+        await Assert.That(result.Diagnostics[0].Message).Contains("collides");
     }
 
     [Test]
@@ -141,7 +143,7 @@ public class SkillLoaderTests : IDisposable
     }
 
     [Test]
-    public async Task Load_NoFrontmatter_UsesDirectoryName_AndDiagnostic()
+    public async Task Load_NoFrontmatter_SkipsSkill_MissingDescription()
     {
         var dir = Path.Combine(_home, ".agents", "skills", "no-fm");
         Directory.CreateDirectory(dir);
@@ -149,13 +151,15 @@ public class SkillLoaderTests : IDisposable
 
         var result = SkillLoader.Load(OptionsFor(_home, _cwd));
 
-        await Assert.That(result.Skills).Count().IsEqualTo(1);
-        await Assert.That(result.Skills[0].Name).IsEqualTo("no-fm");
-        await Assert.That(result.Skills[0].Description).IsEmpty();
+        // No frontmatter means no description, which is the one fatal
+        // validation case — the skill is not loaded.
+        await Assert.That(result.Skills).IsEmpty();
+        await Assert.That(result.Diagnostics).Count().IsEqualTo(1);
+        await Assert.That(result.Diagnostics[0].Message).Contains("description is required");
     }
 
     [Test]
-    public async Task Load_OrderingIsProjectThenUser_ThenByName()
+    public async Task Load_DuplicateAcrossSources_KeepsFirstUserSkill()
     {
         Directory.CreateDirectory(Path.Combine(_projectRoot, ".git"));
         WriteSkill(_projectRoot, "zebra", "p", "p");
@@ -165,9 +169,151 @@ public class SkillLoaderTests : IDisposable
 
         var result = SkillLoader.Load(OptionsFor(_home, _cwd));
 
+        // The user copies load first, so both duplicate project copies are
+        // dropped with warnings; the kept skills order by source then name.
         await Assert.That(result.Skills.Select(s => s.Name)).IsEquivalentTo(["alpha", "zebra"]);
-        await Assert.That(result.Skills[0].Source).IsEqualTo("project");
-        await Assert.That(result.Skills[1].Source).IsEqualTo("project");
+        await Assert.That(result.Skills.All(s => s.Source == "user")).IsTrue();
+        await Assert.That(result.Diagnostics).Count().IsEqualTo(2);
+        await Assert.That(result.Diagnostics.All(d => d.Message.Contains("collides"))).IsTrue();
+    }
+
+    // ──────── Validation (Agent Skills standard) ────────
+
+    [Test]
+    public async Task Load_MissingDescription_SkipsSkill_WithWarning()
+    {
+        var dir = Path.Combine(_home, ".agents", "skills", "no-desc");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"),
+            "---\nname: no-desc\n---\nbody\n");
+
+        var result = SkillLoader.Load(OptionsFor(_home, _cwd));
+
+        await Assert.That(result.Skills).IsEmpty();
+        await Assert.That(result.Diagnostics).Count().IsEqualTo(1);
+        await Assert.That(result.Diagnostics[0].Severity).IsEqualTo(DiagnosticSeverity.Warning);
+        await Assert.That(result.Diagnostics[0].Message).Contains("description is required");
+    }
+
+    [Test]
+    public async Task Load_EmptyDescription_SkipsSkill()
+    {
+        var dir = Path.Combine(_home, ".agents", "skills", "empty-desc");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"),
+            "---\nname: empty-desc\ndescription:\n---\nbody\n");
+
+        var result = SkillLoader.Load(OptionsFor(_home, _cwd));
+
+        await Assert.That(result.Skills).IsEmpty();
+        await Assert.That(result.Diagnostics).Count().IsEqualTo(1);
+        await Assert.That(result.Diagnostics[0].Message).Contains("description is required");
+    }
+
+    [Test]
+    public async Task Load_NameTooLong_WarnsButStillLoads()
+    {
+        var longName = new string('n', 65);
+        var dir = Path.Combine(_home, ".agents", "skills", longName);
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"),
+            $"---\nname: {longName}\ndescription: d\n---\nbody\n");
+
+        var result = SkillLoader.Load(OptionsFor(_home, _cwd));
+
+        await Assert.That(result.Skills).Count().IsEqualTo(1);
+        await Assert.That(result.Skills[0].Name).IsEqualTo(longName);
+        await Assert.That(result.Diagnostics).Count().IsEqualTo(1);
+        await Assert.That(result.Diagnostics[0].Severity).IsEqualTo(DiagnosticSeverity.Warning);
+        await Assert.That(result.Diagnostics[0].Message).Contains("exceeds 64");
+    }
+
+    [Test]
+    public async Task Load_NameInvalidCharacters_WarnsButStillLoads()
+    {
+        var dir = Path.Combine(_home, ".agents", "skills", "PDF-Processing");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"),
+            "---\nname: PDF-Processing\ndescription: d\n---\nbody\n");
+
+        var result = SkillLoader.Load(OptionsFor(_home, _cwd));
+
+        await Assert.That(result.Skills).Count().IsEqualTo(1);
+        await Assert.That(result.Skills[0].Name).IsEqualTo("PDF-Processing");
+        await Assert.That(result.Diagnostics).Count().IsEqualTo(1);
+        await Assert.That(result.Diagnostics[0].Message).Contains("invalid characters");
+    }
+
+    [Test]
+    public async Task Load_NameHyphenViolations_WarnButStillLoad()
+    {
+        // Frontmatter names differ from the directory names so the hyphen
+        // rules are exercised without needing odd directory names.
+        var violations = new (string Dir, string FmName)[]
+        {
+            ("a", "-lead"),
+            ("b", "trail-"),
+            ("c", "doub--le"),
+        };
+        foreach (var (dirName, fmName) in violations)
+        {
+            var dir = Path.Combine(_home, ".agents", "skills", dirName);
+            Directory.CreateDirectory(dir);
+            File.WriteAllText(Path.Combine(dir, "SKILL.md"),
+                $"---\nname: {fmName}\ndescription: d\n---\nbody\n");
+        }
+
+        var result = SkillLoader.Load(OptionsFor(_home, _cwd));
+
+        await Assert.That(result.Skills).Count().IsEqualTo(3);
+        await Assert.That(result.Diagnostics).Count().IsEqualTo(3);
+        await Assert.That(result.Diagnostics.All(d => d.Message.Contains("hyphen"))).IsTrue();
+    }
+
+    [Test]
+    public async Task Load_DescriptionTooLong_WarnsButStillLoads()
+    {
+        var longDesc = new string('d', 1025);
+        var dir = Path.Combine(_home, ".agents", "skills", "long-desc");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"),
+            $"---\nname: long-desc\ndescription: {longDesc}\n---\nbody\n");
+
+        var result = SkillLoader.Load(OptionsFor(_home, _cwd));
+
+        await Assert.That(result.Skills).Count().IsEqualTo(1);
+        await Assert.That(result.Skills[0].Description).IsEqualTo(longDesc);
+        await Assert.That(result.Diagnostics).Count().IsEqualTo(1);
+        await Assert.That(result.Diagnostics[0].Message).Contains("exceeds 1024");
+    }
+
+    [Test]
+    public async Task Load_FrontmatterNameDiffersFromDirectory_Loads_NoWarning()
+    {
+        var dir = Path.Combine(_home, ".agents", "skills", "dir-name");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"),
+            "---\nname: declared-name\ndescription: d\n---\nbody\n");
+
+        var result = SkillLoader.Load(OptionsFor(_home, _cwd));
+
+        await Assert.That(result.Skills).Count().IsEqualTo(1);
+        await Assert.That(result.Skills[0].Name).IsEqualTo("declared-name");
+        await Assert.That(result.Diagnostics).IsEmpty();
+    }
+
+    [Test]
+    public async Task Load_UnknownFrontmatterFields_Ignored()
+    {
+        var dir = Path.Combine(_home, ".agents", "skills", "extra");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"),
+            "---\nname: extra\ndescription: d\nlicense: MIT\nmetadata:\n  x: 1\n---\nbody\n");
+
+        var result = SkillLoader.Load(OptionsFor(_home, _cwd));
+
+        await Assert.That(result.Skills).Count().IsEqualTo(1);
+        await Assert.That(result.Diagnostics).IsEmpty();
     }
 
     [Test]
