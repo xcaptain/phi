@@ -1,5 +1,6 @@
 using PhiAgent;
 using PhiCoding.Prompts;
+using PhiCoding.Resources;
 
 namespace PhiCoding;
 
@@ -132,13 +133,15 @@ public sealed class CodingSession : ISession
         var contributions = config.Tools is null or { Count: 0 }
             ? new BuiltInToolProvider(config.Cwd).GetTools()
             : config.Tools.Select(WrapCustomTool).ToArray();
+        var resources = ProjectContextLoader.Load(
+            new SessionResourceOptions { Cwd = config.Cwd });
         return new SystemPromptBuilder().Build(new SystemPromptBuildContext
         {
             Cwd = config.Cwd,
             CurrentDate = DateOnly.FromDateTime(DateTime.UtcNow),
             Tools = contributions,
-            Skills = [],
-            ContextFiles = [],
+            Skills = resources.Skills,
+            ContextFiles = resources.ContextFiles,
             Options = config.SystemPrompt,
         });
     }
