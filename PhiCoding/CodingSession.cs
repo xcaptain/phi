@@ -1,4 +1,5 @@
 using PhiAgent;
+using PhiCoding.Prompts;
 
 namespace PhiCoding;
 
@@ -121,8 +122,34 @@ public sealed class CodingSession : ISession
             config.Provider,
             config.Tools ?? BuiltInTools.CreateDefault(),
             model: config.Model,
-            system: config.SystemPrompt,
+            system: ResolveSystemPrompt(config),
             maxTurns: config.MaxTurns);
+
+    private static string ResolveSystemPrompt(SessionConfig config)
+    {
+        if (config.SystemPrompt.ResolvedSystemPrompt is { } resolved)
+            return resolved;
+        var contributions = config.Tools is null or { Count: 0 }
+            ? BuiltInToolProvider.GetTools()
+            : config.Tools.Select(WrapCustomTool).ToArray();
+        return new SystemPromptBuilder().Build(new SystemPromptBuildContext
+        {
+            Cwd = config.Cwd,
+            CurrentDate = DateOnly.FromDateTime(DateTime.UtcNow),
+            Tools = contributions,
+            Skills = [],
+            ContextFiles = [],
+            Options = config.SystemPrompt,
+        });
+    }
+
+    private static ToolContribution WrapCustomTool(Tool tool) =>
+        new()
+        {
+            Tool = tool,
+            PromptSnippet = tool.Description,
+            Source = "custom",
+        };
 
     private static SessionStorage OpenStorage(SessionManager manager, string id) =>
         new(manager.SessionFileFor(id));
@@ -259,7 +286,7 @@ public sealed class CodingSession : ISession
     public void ApplyConfig(SessionConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
-        _systemPrompt = config.SystemPrompt;
+        _systemPrompt = ResolveSystemPrompt(config);
         _tools = config.Tools ?? BuiltInTools.CreateDefault();
         _contextWindowTokens = config.ContextWindowTokens;
         _autoCompactEnabled = config.AutoCompactEnabled;

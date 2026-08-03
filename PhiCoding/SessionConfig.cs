@@ -1,4 +1,5 @@
 using PhiAgent;
+using PhiCoding.Prompts;
 
 namespace PhiCoding;
 
@@ -24,8 +25,14 @@ public sealed record SessionConfig
     /// <summary>Provider display name (e.g. <c>"deepseek"</c>).</summary>
     public string ProviderName { get; init; } = "";
 
-    /// <summary>System prompt for the agent.</summary>
-    public string SystemPrompt { get; init; } = "";
+    /// <summary>
+    /// System-prompt options for the agent. When
+    /// <see cref="SystemPromptOptions.ResolvedSystemPrompt"/> is null, the
+    /// <see cref="SystemPromptBuilder"/> assembles the final string from
+    /// these options, the active tool contributions, project-context files
+    /// and skills.
+    /// </summary>
+    public SystemPromptOptions SystemPrompt { get; init; } = new();
 
     /// <summary>Max turns before the agent stops.</summary>
     public int MaxTurns { get; init; } = 50;

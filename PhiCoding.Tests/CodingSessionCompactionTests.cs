@@ -1,4 +1,5 @@
 using PhiAgent;
+using PhiCoding.Prompts;
 using PhiCoding.Tests.Helpers;
 
 namespace PhiCoding.Tests;
@@ -33,7 +34,7 @@ public class CodingSessionCompactionTests : IDisposable
             Cwd = _cwd,
             Provider = provider,
             Model = "stub-model",
-            SystemPrompt = "test",
+            SystemPrompt = new SystemPromptOptions { ResolvedSystemPrompt = "test" },
             MaxTurns = 5,
             Tools = [],
             ContextWindowTokens = dict.GetValueOrDefault("ContextWindowTokens") is int w ? w : 128_000,

@@ -1,5 +1,6 @@
 using PhiAgent;
 using PhiCoding;
+using PhiCoding.Prompts;
 using PhiCoding.Providers;
 using PhiCoding.Tui;
 using PhiProvider;
@@ -63,18 +64,7 @@ var config = new SessionConfig
     Provider = provider,
     ProviderName = defaultProvider.Name,
     Model = defaultModel,
-    SystemPrompt = """
-        You are an expert coding assistant operating inside Phi a coding agent harness.
-        You have four tools: bash, read, write, edit.
-
-        Use read to inspect files before editing them.
-        For large files, use offset/limit on read to read a slice at a time
-        and increment offset to continue. Do not use cat, sed, or head to read files.
-        Use edit for surgical changes (old_string must be unique).
-        Use write for new files or full rewrites.
-        Use bash for shell inspection and commands.
-        Be concise.
-        """,
+    SystemPrompt = new SystemPromptOptions(),
     MaxTurns = 50,
 };
 

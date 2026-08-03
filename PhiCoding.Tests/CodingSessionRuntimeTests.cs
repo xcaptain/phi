@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using PhiAgent;
+using PhiCoding.Prompts;
 using PhiCoding.Tests.Helpers;
 
 namespace PhiCoding.Tests;
@@ -37,7 +38,7 @@ public class CodingSessionRuntimeTests : IDisposable
         Cwd = _cwd,
         Provider = provider,
         Model = "stub-model",
-        SystemPrompt = "test",
+        SystemPrompt = new SystemPromptOptions { ResolvedSystemPrompt = "test" },
         MaxTurns = 5,
         Tools = [],
     };

@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using PhiAgent;
+using PhiCoding.Prompts;
 
 namespace PhiCoding.Tests;
 
@@ -40,7 +41,7 @@ public class CodingSessionModelSwitchTests : IDisposable
             Provider = provider,
             ProviderName = providerName,
             Model = model,
-            SystemPrompt = "test",
+            SystemPrompt = new SystemPromptOptions { ResolvedSystemPrompt = "test" },
             MaxTurns = 5,
             Tools = [],
         };
