@@ -29,7 +29,7 @@ public sealed class Harness(
     private readonly IReadOnlyList<Tool> _tools = tools;
     private readonly string _system = system;
     private readonly int? _maxTurns = maxTurns;
-    private readonly List<IAgentMessage> _messages = new();
+    private readonly List<IAgentMessage> _messages = [];
 
     /// <summary>
     /// Provider used for the next <see cref="RunAsync"/> call. Mutable so a

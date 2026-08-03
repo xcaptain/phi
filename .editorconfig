@@ -22,3 +22,6 @@ dotnet_diagnostic.IDE0005.severity = warning
 # "hint" so editors and `dotnet build` both flag it; CI turns it into an
 # error via TreatWarningsAsErrors.
 dotnet_diagnostic.IDE0130.severity = warning
+
+# 使用简化的集合表达式
+dotnet_diagnostic.IDE0028.severity = warning

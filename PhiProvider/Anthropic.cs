@@ -574,15 +574,15 @@ internal sealed class AnthropicToolCallBuilder
 
     private static JsonObject ParseArguments(string json)
     {
-        if (string.IsNullOrWhiteSpace(json)) return new JsonObject();
+        if (string.IsNullOrWhiteSpace(json)) return [];
         try
         {
             var node = JsonNode.Parse(json);
-            return node as JsonObject ?? new JsonObject();
+            return node as JsonObject ?? [];
         }
         catch (JsonException)
         {
-            return new JsonObject();
+            return [];
         }
     }
 }

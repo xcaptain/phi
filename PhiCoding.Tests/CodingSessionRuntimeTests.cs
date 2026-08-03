@@ -1,4 +1,3 @@
-using System.Text.Json.Nodes;
 using PhiAgent;
 using PhiCoding.Prompts;
 using PhiCoding.Tests.Helpers;
@@ -329,7 +328,7 @@ public class CodingSessionRuntimeTests : IDisposable
         {
             Content = [
                 new TextBlock("answer"),
-                new ToolCall("t1", "read") { Arguments = new JsonObject() },
+                new ToolCall("t1", "read") { Arguments = [] },
             ],
             Usage = new Usage
             {

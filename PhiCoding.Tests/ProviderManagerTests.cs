@@ -6,7 +6,7 @@ namespace PhiCoding.Tests;
 public class ProviderManagerTests : IDisposable
 {
     private readonly string _settingsPath;
-    private readonly Dictionary<string, string> _env = new();
+    private readonly Dictionary<string, string> _env = [];
     private readonly List<string> _tempPaths = [];
 
     public ProviderManagerTests()

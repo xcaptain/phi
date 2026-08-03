@@ -11,7 +11,7 @@ public class NullProviderTests
         var events = new List<ProviderEvent>();
 
         await foreach (var ev in provider.StreamResponseAsync(
-            "m", "system", new List<IAgentMessage>(), new List<Tool>()))
+            "m", "system", [], []))
         {
             events.Add(ev);
         }
@@ -28,7 +28,7 @@ public class NullProviderTests
         var events = new List<ProviderEvent>();
 
         await foreach (var ev in provider.StreamResponseAsync(
-            "m", "system", new List<IAgentMessage>(), new List<Tool>()))
+            "m", "system", [], []))
         {
             events.Add(ev);
         }

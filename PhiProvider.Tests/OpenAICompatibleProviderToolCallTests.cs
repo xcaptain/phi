@@ -73,8 +73,8 @@ public class OpenAICompatibleProviderToolCallTests
             system: "You are helpful",
             messages: [new UserMessage { Content = "Check the system" }],
             tools: [
-                new StubTool("bash", "Run a shell command", new JsonObject()),
-                new StubTool("read", "Read a file", new JsonObject()),
+                new StubTool("bash", "Run a shell command", []),
+                new StubTool("read", "Read a file", []),
             ]))
         {
             events.Add(ev);

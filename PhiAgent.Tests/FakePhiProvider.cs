@@ -6,7 +6,7 @@ namespace PhiAgent.Tests;
 public sealed class FakePhiProvider : IPhiProvider
 {
     private readonly Queue<List<ProviderEvent>> _turns = new();
-    private readonly List<List<IAgentMessage>> _callsReceived = new();
+    private readonly List<List<IAgentMessage>> _callsReceived = [];
 
     public IReadOnlyList<IReadOnlyList<IAgentMessage>> CallsReceived => _callsReceived;
 

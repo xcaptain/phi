@@ -63,16 +63,16 @@ public sealed class FileCredentialStore(string filePath) : ICredentialStore
 
     private Dictionary<string, string> Load()
     {
-        if (!File.Exists(_filePath)) return new Dictionary<string, string>();
+        if (!File.Exists(_filePath)) return [];
         try
         {
             return JsonSerializer.Deserialize(
                     File.ReadAllText(_filePath), PhiJsonContext.Default.DictionaryStringString)
-                ?? new Dictionary<string, string>();
+                ?? [];
         }
         catch (JsonException)
         {
-            return new Dictionary<string, string>();
+            return [];
         }
     }
 

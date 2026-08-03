@@ -20,7 +20,7 @@ public sealed class ChatTranscript
     private enum StreamMode { None, Thinking, Text }
 
     private readonly DocumentFlow _flow;
-    private readonly Dictionary<string, IToolCard> _toolCards = new();
+    private readonly Dictionary<string, IToolCard> _toolCards = [];
     private StreamMode _streamMode = StreamMode.None;
     private StringBuilder? _streamText;
     private MarkdownControl? _streamControl;

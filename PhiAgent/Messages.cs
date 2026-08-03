@@ -34,7 +34,7 @@ public sealed record ThinkingBlock(string Thinking) : ContentBlock
 
 public sealed record ToolCall(string Id, string Name) : ContentBlock
 {
-    public JsonObject Arguments { get; init; } = new();
+    public JsonObject Arguments { get; init; } = [];
     public string? ThoughtSignature { get; init; }
 }
 
