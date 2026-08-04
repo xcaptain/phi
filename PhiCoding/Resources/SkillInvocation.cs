@@ -29,13 +29,11 @@ public sealed record SkillBlock(
 /// Trailing args (from <c>/skill:NAME &lt;args&gt;</c>) ride after the block
 /// as the parsed <see cref="SkillBlock.UserMessage"/>.
 /// </summary>
-public static class SkillInvocation
+public static partial class SkillInvocation
 {
     // Port of pi's parseSkillBlock regex (packages/coding-agent/.../agent-session.ts):
     //   /^<skill name="([^"]+)" location="([^"]+)">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]+))?$/
-    private static readonly Regex BlockRegex = new(
-        @"^<skill name=""([^""]+)"" location=""([^""]+)"">\n([\s\S]*?)\n</skill>(?:\n\n([\s\S]+))?$",
-        RegexOptions.Compiled);
+    private static readonly Regex BlockRegex = MyRegex();
 
     public static string Build(string name, string location, string baseDir, string body, string? args = null)
     {
@@ -69,4 +67,7 @@ public static class SkillInvocation
             UserMessage: userMessage.Length == 0 ? null : userMessage);
         return true;
     }
+
+    [GeneratedRegex(@"^<skill name=""([^""]+)"" location=""([^""]+)"">\n([\s\S]*?)\n</skill>(?:\n\n([\s\S]+))?$", RegexOptions.Compiled)]
+    private static partial Regex MyRegex();
 }

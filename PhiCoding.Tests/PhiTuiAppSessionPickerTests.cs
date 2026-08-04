@@ -9,6 +9,7 @@ namespace PhiCoding.Tests;
 /// record lookup must be position-parallel. Regression: a record-counting
 /// loop silently missed sessions once the list spanned multiple day groups.
 /// </summary>
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class PhiTuiAppSessionPickerTests
 {
     private static SessionRecord Record(string id, long updatedAt, string model = "m") => new(

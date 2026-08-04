@@ -9,7 +9,7 @@ namespace PhiCoding.Tests;
 /// repeated identical errors between runs and resets the dedup state when
 /// the underlying <c>LastError</c> clears.
 /// </summary>
-[NotInParallel("phi-tui-app-error-routing-tests")]
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class PhiTuiAppErrorRoutingTests
 {
     private static int ItemCount(PhiCoding.Tui.PhiTuiApp app)

@@ -6,7 +6,7 @@ using XenoAtom.Terminal.UI.Rendering;
 
 namespace PhiCoding.Tests.ToolCards;
 
-[NotInParallel("tool-card-render-tests")]
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class WriteToolCardTests
 {
     private static ToolCall Call(string path)

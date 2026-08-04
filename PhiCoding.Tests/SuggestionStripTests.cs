@@ -4,7 +4,7 @@ using XenoAtom.Terminal.UI.Rendering;
 
 namespace PhiCoding.Tests;
 
-[NotInParallel("suggestion-strip-render-tests")]
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class SuggestionStripTests
 {
     private static string Render(SuggestionStrip strip, int width = 100)

@@ -2,7 +2,7 @@ using PhiCoding.Tests.Helpers;
 
 namespace PhiCoding.Tests;
 
-[NotInParallel("phi-tui-suggestion-tests")]
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class PhiTuiAppSuggestionTests
 {
     [Test]

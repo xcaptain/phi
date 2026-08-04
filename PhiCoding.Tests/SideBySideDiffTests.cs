@@ -4,6 +4,7 @@ using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tests;
 
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class SideBySideDiffTests
 {
     private static EditDetails Edit(string oldText, string newText) =>

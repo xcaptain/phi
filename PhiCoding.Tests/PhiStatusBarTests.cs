@@ -4,7 +4,7 @@ using XenoAtom.Terminal.UI.Rendering;
 
 namespace PhiCoding.Tests;
 
-[NotInParallel("phi-status-bar-render-tests")]
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class PhiStatusBarTests
 {
     [Test]

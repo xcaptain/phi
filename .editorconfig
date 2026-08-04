@@ -25,3 +25,6 @@ dotnet_diagnostic.IDE0130.severity = warning
 
 # 使用简化的集合表达式
 dotnet_diagnostic.IDE0028.severity = warning
+
+# 使用“GeneratedRegexAttribute”在编译时生成正则表达式实现。
+dotnet_diagnostic.SYSLIB1045.severity = warning

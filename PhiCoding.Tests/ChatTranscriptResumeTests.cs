@@ -5,6 +5,7 @@ using DocumentFlow = XenoAtom.Terminal.UI.Controls.DocumentFlow;
 
 namespace PhiCoding.Tests;
 
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class ChatTranscriptResumeTests
 {
     [Test]

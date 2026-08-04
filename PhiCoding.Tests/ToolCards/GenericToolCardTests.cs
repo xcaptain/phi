@@ -5,6 +5,7 @@ using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tests.ToolCards;
 
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class GenericToolCardTests
 {
     private static ToolCall Call(string name, params (string Key, string Value)[] args)

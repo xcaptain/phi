@@ -5,6 +5,7 @@ using PhiCoding.Tui.ToolCards;
 
 namespace PhiCoding.Tests;
 
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class ChatTranscriptTests
 {
     [Test]

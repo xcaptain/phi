@@ -8,12 +8,12 @@ namespace PhiCoding.Resources;
 /// still loads, while a missing/empty <c>description</c> is the single fatal
 /// case. Unknown frontmatter fields are ignored (no warning) by design.
 /// </summary>
-public static class SkillValidator
+public static partial class SkillValidator
 {
     public const int MaxNameLength = 64;
     public const int MaxDescriptionLength = 1024;
 
-    private static readonly Regex NamePattern = new("^[a-z0-9-]+$", RegexOptions.Compiled);
+    private static readonly Regex NamePattern = MyRegex();
 
     /// <summary>Warning messages for a skill name. Empty when valid.</summary>
     public static IReadOnlyList<string> ValidateName(string name)
@@ -43,4 +43,7 @@ public static class SkillValidator
             ? [$"description exceeds {MaxDescriptionLength} characters ({description.Length})"]
             : [];
     }
+
+    [GeneratedRegex("^[a-z0-9-]+$", RegexOptions.Compiled)]
+    private static partial Regex MyRegex();
 }

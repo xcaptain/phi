@@ -15,7 +15,7 @@ namespace PhiCoding;
 /// <c>home-github-phi</c>); the <c>{hash}</c> is a stable 6-char hex suffix
 /// that disambiguates projects with the same leaf name.
 /// </summary>
-public static class SessionPaths
+public static partial class SessionPaths
 {
     private const string DefaultRootSegment = "sessions";
     private const string IndexFileName = "index.jsonl";
@@ -88,7 +88,7 @@ public static class SessionPaths
         }
 
         var slugParts = parts
-            .Select(p => Regex.Replace(p, @"[^a-zA-Z0-9._-]+", "-").Trim('-', '.', '_').ToLowerInvariant())
+            .Select(p => MyRegex().Replace(p, "-").Trim('-', '.', '_').ToLowerInvariant())
             .Where(p => p.Length > 0)
             .ToList();
 
@@ -110,4 +110,7 @@ public static class SessionPaths
             ? string.Join("-", suffixParts)
             : slug[..Math.Min(slug.Length, maxLength)].Trim('-');
     }
+
+    [GeneratedRegex(@"[^a-zA-Z0-9._-]+")]
+    private static partial Regex MyRegex();
 }

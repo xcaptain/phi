@@ -5,7 +5,7 @@ using PhiCoding.Tests.Helpers;
 
 namespace PhiCoding.Tests;
 
-[NotInParallel("session-tests")]
+[NotInParallel(["session-tests", TuiTestGroups.BindingManager])]
 public class CodingSessionCompactionTests : IDisposable
 {
     private readonly string _cwd;

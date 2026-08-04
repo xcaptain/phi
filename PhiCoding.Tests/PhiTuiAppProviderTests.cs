@@ -12,7 +12,7 @@ namespace PhiCoding.Tests;
 /// connection logic against a <see cref="MockSession"/>; the live dialogs
 /// themselves are terminal-bound and not tested here.
 /// </summary>
-[NotInParallel("phi-tui-provider-tests")]
+[NotInParallel(TuiTestGroups.BindingManager)]
 public class PhiTuiAppProviderTests : IDisposable
 {
     private readonly string _credentialsPath;
