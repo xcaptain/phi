@@ -145,9 +145,6 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
                     case "/connect":
                         ConnectProviderByName(withArgs.Args, transcript, editor);
                         break;
-                    case "/models":
-                        SwitchModelByName(withArgs.Args, transcript);
-                        break;
                 }
                 return;
             }
@@ -368,13 +365,10 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
     private void ShowConnectDialog(ChatTranscript transcript, PromptEditor editor)
     {
         var list = new OptionList<OptionListItem>().ActivateOnClick(true);
-        var currentProvider = _session.State.ProviderName;
         foreach (var entry in _providers.Providers)
         {
-            var connected = entry.Name.Equals(currentProvider, StringComparison.OrdinalIgnoreCase);
-            var noKey = !_providers.HasApiKey(entry);
-            var label = $"  {(connected ? "✓ " : "  ")}{entry.DisplayName} — {entry.Name}"
-                + (noKey ? "  (no key)" : "");
+            var label = FormatProviderLabel(
+                entry, _session.State.ProviderName, _providers.HasApiKey(entry), _session.State.Model);
             list.Items.Add(new OptionListItem(label));
         }
 
@@ -434,9 +428,16 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         ConnectWithKey(entry, apiKey, transcript);
     }
 
-    internal void ConnectWithKey(ProviderCatalogEntry entry, string apiKey, ChatTranscript transcript)
+    internal void ConnectWithKey(ProviderCatalogEntry entry, string apiKey, ChatTranscript transcript) =>
+        ConnectWithModel(entry, apiKey, _providers.ResolveDefaultModel(entry), transcript);
+
+    /// <summary>
+    /// Builds a runtime provider for <paramref name="entry"/>, switches the
+    /// session to it with <paramref name="model"/>, and persists the default.
+    /// </summary>
+    internal void ConnectWithModel(
+        ProviderCatalogEntry entry, string apiKey, string model, ChatTranscript transcript)
     {
-        var model = _providers.ResolveDefaultModel(entry);
         var provider = _providers.CreateProvider(entry, apiKey);
         _session.SwitchProvider(provider, entry.Name, model);
         _providers.SaveDefault(entry, model);
@@ -486,36 +487,31 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
 
     // ──────── /models dialog ────────
 
-    internal ProviderCatalogEntry? GetCurrentProviderEntry() =>
-        _providers.Providers.FirstOrDefault(
-            p => p.Name.Equals(_session.State.ProviderName, StringComparison.OrdinalIgnoreCase));
-
     private void ShowModelsDialog(ChatTranscript transcript, PromptEditor editor)
     {
-        var entry = GetCurrentProviderEntry();
-        if (entry is null)
+        var providers = BuildModelPickerProviders(
+            _providers.Providers, _session.State.ProviderName, _providers.HasApiKey);
+        if (providers.Count == 0)
         {
             transcript.AddInfo("No provider connected. Run /connect first.");
             return;
         }
 
-        var currentModel = _session.State.Model;
+        var (items, map) = BuildModelPicker(
+            providers, _session.State.ProviderName, _session.State.Model);
         var list = new OptionList<OptionListItem>().ActivateOnClick(true);
-        foreach (var model in entry.Models)
-        {
-            list.Items.Add(new OptionListItem($"  {(model == currentModel ? "✓ " : "  ")}{model}"));
-        }
+        foreach (var item in items)
+            list.Items.Add(new OptionListItem(item.Label) { IsEnabled = item.IsEnabled });
 
         list.ItemActivated((_, e) =>
         {
-            var model = entry.Models[e.Index];
+            var target = (uint)e.Index < (uint)map.Count ? map[e.Index] : null;
+            if (target is not { } selection) return;
             if (list.Parent is Dialog d) d.Close();
-            _session.SwitchModel(model);
-            _providers.SaveDefault(entry, model);
-            transcript.AddInfo($"Model: {model}");
+            SwitchToModel(selection.Entry, selection.Model, transcript);
         });
 
-        var dialog = new Dialog(new Markup($"[bold]Models · {entry.Name}[/]"), list)
+        var dialog = new Dialog(new Markup("[bold]Models[/]"), list)
         {
             IsResizable = false,
             IsDraggable = true,
@@ -532,24 +528,95 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         dialog.Show();
     }
 
-    internal void SwitchModelByName(string model, ChatTranscript transcript)
+    /// <summary>
+    /// Switches to a model. A model of the current provider is a pure model
+    /// switch; a model of another provider rebuilds the live provider from
+    /// that provider's stored API key.
+    /// </summary>
+    private void SwitchToModel(ProviderCatalogEntry entry, string model, ChatTranscript transcript)
     {
-        var entry = GetCurrentProviderEntry();
-        if (entry is null)
+        if (entry.Name.Equals(_session.State.ProviderName, StringComparison.OrdinalIgnoreCase))
         {
-            transcript.AddInfo("No provider connected. Run /connect first.");
-            return;
-        }
-        if (!entry.Models.Contains(model))
-        {
-            transcript.AddInfo(
-                $"Unknown model '{model}' for {entry.Name}. Available: {string.Join(", ", entry.Models)}");
+            _session.SwitchModel(model);
+            _providers.SaveDefault(entry, model);
+            transcript.AddInfo($"Model: {model}");
             return;
         }
 
-        _session.SwitchModel(model);
-        _providers.SaveDefault(entry, model);
-        transcript.AddInfo($"Model: {model}");
+        if (_providers.ResolveApiKey(entry) is { } apiKey)
+        {
+            ConnectWithModel(entry, apiKey, model, transcript);
+            return;
+        }
+
+        transcript.AddInfo($"No API key for {entry.Name}. Run /connect first.");
+    }
+
+    /// <summary>
+    /// Providers shown in the <c>/models</c> picker: the current provider
+    /// (even when keyless) plus every provider with a configured key, in
+    /// catalog order, deduplicated.
+    /// </summary>
+    internal static IReadOnlyList<ProviderCatalogEntry> BuildModelPickerProviders(
+        IReadOnlyList<ProviderCatalogEntry> catalog,
+        string? currentProviderName,
+        Func<ProviderCatalogEntry, bool> hasKey)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var providers = new List<ProviderCatalogEntry>();
+        foreach (var entry in catalog)
+        {
+            var isCurrent = entry.Name.Equals(currentProviderName, StringComparison.OrdinalIgnoreCase);
+            if ((isCurrent || hasKey(entry)) && seen.Add(entry.Name))
+                providers.Add(entry);
+        }
+        return providers;
+    }
+
+    /// <summary>One row in the <c>/models</c> picker; disabled rows are group headers.</summary>
+    public sealed record ModelPickerItem(string Label, bool IsEnabled);
+
+    /// <summary>
+    /// Builds the <c>/models</c> picker: a disabled header row per provider
+    /// followed by its models, plus a position-parallel map (null for
+    /// headers). The active model on the current provider is marked with a
+    /// check, so the picker doubles as a cross-provider model switcher.
+    /// </summary>
+    internal static (IReadOnlyList<ModelPickerItem> Items, IReadOnlyList<(ProviderCatalogEntry Entry, string Model)?> Map)
+        BuildModelPicker(
+            IReadOnlyList<ProviderCatalogEntry> providers,
+            string currentProviderName,
+            string currentModel)
+    {
+        var items = new List<ModelPickerItem>();
+        var map = new List<(ProviderCatalogEntry Entry, string Model)?>();
+        foreach (var entry in providers)
+        {
+            items.Add(new ModelPickerItem($"  {entry.DisplayName}", IsEnabled: false));
+            map.Add(null);
+
+            var isCurrentProvider = entry.Name.Equals(currentProviderName, StringComparison.OrdinalIgnoreCase);
+            foreach (var model in entry.Models)
+            {
+                var mark = isCurrentProvider && model == currentModel ? "✓ " : "  ";
+                items.Add(new ModelPickerItem($"  {mark}{model}", IsEnabled: true));
+                map.Add((entry, model));
+            }
+        }
+        return (items, map);
+    }
+
+    /// <summary>Renders one <c>/connect</c> provider row.</summary>
+    internal static string FormatProviderLabel(
+        ProviderCatalogEntry entry,
+        string? currentProviderName,
+        bool hasKey,
+        string? currentModel)
+    {
+        var connected = entry.Name.Equals(currentProviderName, StringComparison.OrdinalIgnoreCase);
+        var model = connected && !string.IsNullOrEmpty(currentModel) ? $" · {currentModel}" : "";
+        var noKey = hasKey ? "" : "  (no key)";
+        return $"  {(connected ? "✓ " : "  ")}{entry.DisplayName} — {entry.Name}{model}{noKey}";
     }
 
     private static string FormatModel(string providerName, string model) =>

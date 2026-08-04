@@ -22,7 +22,7 @@ public static class SlashCommandCatalog
     [
         new("/new", "Start a new, empty session."),
         new("/connect", "Connect an LLM provider (API key).", "/connect [provider]", SupportsArgs: true),
-        new("/models", "Switch model for the current provider.", "/models [model]", SupportsArgs: true),
+        new("/models", "Switch provider/model across configured providers."),
         new("/sessions", "Browse and resume previous sessions."),
         new("/exit", "Quit Phi."),
     ];

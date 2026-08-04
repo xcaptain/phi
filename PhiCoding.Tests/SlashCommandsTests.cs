@@ -64,12 +64,10 @@ public class SlashCommandsTests
     }
 
     [Test]
-    public async Task MatchWithArgs_ModelArg_Parses()
+    public async Task MatchWithArgs_ModelsNoLongerTakesArgs_ReturnsNull()
     {
-        var parsed = SlashCommands.MatchWithArgs("/models glm-5.1");
-        await Assert.That(parsed).IsNotNull();
-        await Assert.That(parsed!.Value.Command).IsEqualTo("/models");
-        await Assert.That(parsed.Value.Args).IsEqualTo("glm-5.1");
+        // /models is dialog-only now; "/models glm-5.1" is a plain prompt.
+        await Assert.That(SlashCommands.MatchWithArgs("/models glm-5.1")).IsNull();
     }
 
     [Test]
