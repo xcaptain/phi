@@ -41,8 +41,13 @@ public sealed record SessionConfig
     /// </summary>
     public SystemPromptOptions SystemPrompt { get; init; } = new();
 
-    /// <summary>Max turns before the agent stops.</summary>
-    public int MaxTurns { get; init; } = 50;
+    /// <summary>
+    /// Optional cap on the number of turns before the agent stops. Null
+    /// (default) means unlimited — the loop runs until the model emits a
+    /// message with no tool calls, matching pi's autonomous behavior. Set a
+    /// value to act as a safety valve.
+    /// </summary>
+    public int? MaxTurns { get; init; }
 
     /// <summary>Tools available to the agent. Defaults to <see cref="BuiltInTools.CreateDefault(string)"/>.</summary>
     public IReadOnlyList<Tool>? Tools { get; init; }

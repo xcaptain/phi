@@ -66,7 +66,6 @@ var config = new SessionConfig
     ProviderName = defaultProvider.Name,
     Model = defaultModel,
     SystemPrompt = new SystemPromptOptions(),
-    MaxTurns = 50,
 };
 
 var factory = new CodingSessionFactory(providerManager);
