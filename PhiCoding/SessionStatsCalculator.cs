@@ -49,4 +49,22 @@ public static class SessionStatsCalculator
             TotalTokens: totalTokens,
             EstimatedCost: null);
     }
+
+    /// <summary>
+    /// Returns <paramref name="stats"/> with <paramref name="extra"/> added
+    /// to every token field. Used to fold in the usage of LLM calls that
+    /// don't appear in the message list (summarization during compaction),
+    /// so the session's reported totals match what's actually been billed.
+    /// </summary>
+    public static SessionStats WithAddedUsage(SessionStats stats, Usage? extra)
+    {
+        ArgumentNullException.ThrowIfNull(stats);
+        if (extra is null) return stats;
+        return stats with
+        {
+            InputTokens = stats.InputTokens + extra.Input + extra.CacheRead + extra.CacheWrite,
+            OutputTokens = stats.OutputTokens + extra.Output,
+            TotalTokens = stats.TotalTokens + extra.TotalTokens,
+        };
+    }
 }

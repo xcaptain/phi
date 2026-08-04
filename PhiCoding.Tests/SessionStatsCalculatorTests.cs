@@ -1,122 +1,123 @@
-using System.Text.Json.Nodes;
 using PhiAgent;
 
 namespace PhiCoding.Tests;
 
-/// <summary>
-/// <see cref="SessionStatsCalculator"/> aggregates cumulative session-level
-/// numbers (turns, tool calls, billed tokens). The shape mirrors tau's
-/// <c>calculate_session_stats</c>: pure function over the message list, no
-/// side effects, deterministic.
-/// </summary>
 public class SessionStatsCalculatorTests
 {
-    private static Usage Tokens(int input, int output,
-        int cacheRead = 0, int cacheWrite = 0) => new()
-        {
-            Input = input,
-            Output = output,
-            CacheRead = cacheRead,
-            CacheWrite = cacheWrite,
-            TotalTokens = input + output + cacheRead + cacheWrite,
-        };
-
-    private static AssistantMessage AssistantWithUsage(
-        Usage usage, params ToolCall[] calls) => new()
-        {
-            Content = calls.Length > 0 ? calls.Cast<ContentBlock>().ToList() : [],
-            Usage = usage,
-            StopReason = calls.Length > 0 ? StopReasons.ToolUse : StopReasons.Stop,
-        };
-
-    // ──────────────────── Empty ────────────────────
-
     [Test]
-    public async Task Empty_ReturnsZero()
+    public async Task Calculate_Empty_ReturnsZero()
     {
         var stats = SessionStatsCalculator.Calculate([]);
-
         await Assert.That(stats).IsEqualTo(SessionStats.Zero);
     }
 
-    // ──────────────────── User-only ────────────────────
-
     [Test]
-    public async Task UserMessages_Only_IncrementTurnCount()
+    public async Task Calculate_AssistantMessage_AccumulatesUsage()
     {
         var stats = SessionStatsCalculator.Calculate(
         [
-            new UserMessage { Content = "hi" },
-            new UserMessage { Content = "again" },
+            new AssistantMessage
+            {
+                Content = [new TextBlock("hi")],
+                StopReason = StopReasons.Stop,
+                Usage = new Usage { Input = 10, Output = 5, TotalTokens = 15 },
+            },
         ]);
-
-        await Assert.That(stats.TurnCount).IsEqualTo(2);
-        await Assert.That(stats.ToolCallCount).IsEqualTo(0);
-        await Assert.That(stats.InputTokens).IsEqualTo(0);
-        await Assert.That(stats.OutputTokens).IsEqualTo(0);
+        await Assert.That(stats.InputTokens).IsEqualTo(10);
+        await Assert.That(stats.OutputTokens).IsEqualTo(5);
+        await Assert.That(stats.TotalTokens).IsEqualTo(15);
     }
 
-    // ──────────────────── Assistant usage ────────────────────
-
     [Test]
-    public async Task AssistantMessage_AccumulatesUsage()
+    public async Task Calculate_CompactionPrefixUserMessage_DoesNotCountAsTurn()
     {
+        // The compaction-summary user message rides along at index 0; it
+        // must not inflate TurnCount, otherwise the UI would report
+        // phantom user turns after every compaction.
         var stats = SessionStatsCalculator.Calculate(
         [
-            new UserMessage { Content = "hi" },
-            AssistantWithUsage(Tokens(input: 100, output: 30, cacheRead: 20, cacheWrite: 5)),
+            new UserMessage { Content = ContextWindow.CompactionSummaryPrefix + "summary" },
+            new UserMessage { Content = "real user turn" },
+            new AssistantMessage { Content = [new TextBlock("reply")], StopReason = StopReasons.Stop },
         ]);
-
-        await Assert.That(stats.InputTokens).IsEqualTo(100 + 20 + 5);
-        await Assert.That(stats.OutputTokens).IsEqualTo(30);
-        await Assert.That(stats.TotalTokens).IsEqualTo(155);
+        await Assert.That(stats.TurnCount).IsEqualTo(1);
     }
 
-    // ──────────────────── Tool calls ────────────────────
-
     [Test]
-    public async Task AssistantMessage_CountsToolCalls()
+    public async Task Calculate_MixedMessages_AggregatesAcrossTurns()
     {
+        // Multi-turn scenario: user/assistant/tool-result interleavings
+        // plus cache_read on one assistant. Covers the full aggregation
+        // path (turnCount, toolCallCount, input/output/cache/total tokens)
+        // in a single test so a regression in any of those fields shows up
+        // loudly instead of silently undercounting billed totals.
         var stats = SessionStatsCalculator.Calculate(
         [
-            new UserMessage { Content = "go" },
-            AssistantWithUsage(
-                Tokens(10, 5),
-                new ToolCall("a", "read") { Arguments = JsonNode.Parse("{}")!.AsObject() },
-                new ToolCall("b", "bash") { Arguments = JsonNode.Parse("{}")!.AsObject() }),
-        ]);
-
-        await Assert.That(stats.ToolCallCount).IsEqualTo(2);
-    }
-
-    // ──────────────────── Mixed / multiple turns ────────────────────
-
-    [Test]
-    public async Task MixedMessages_AggregatesAcrossTurns()
-    {
-        var messages = new IAgentMessage[]
-        {
             new UserMessage { Content = "first" },
-            AssistantWithUsage(Tokens(50, 20)),
+            new AssistantMessage
+            {
+                Content = [new TextBlock("a1")],
+                StopReason = StopReasons.Stop,
+                Usage = new Usage { Input = 50, Output = 20, TotalTokens = 70 },
+            },
             new ToolResultMessage
             {
-                ToolCallId = "a",
-                ToolName = "read",
+                ToolCallId = "t1", ToolName = "read",
                 Content = [new TextBlock("output")],
                 IsError = false,
             },
-            AssistantWithUsage(
-                Tokens(80, 40, cacheRead: 10),
-                new ToolCall("b", "edit") { Arguments = JsonNode.Parse("{}")!.AsObject() }),
+            new AssistantMessage
+            {
+                Content = [new TextBlock("a2"), new ToolCall("t2", "edit")],
+                StopReason = StopReasons.ToolUse,
+                Usage = new Usage
+                {
+                    Input = 80, Output = 40, CacheRead = 10, TotalTokens = 130,
+                },
+            },
             new UserMessage { Content = "second" },
-            AssistantWithUsage(Tokens(60, 25)),
-        };
-
-        var stats = SessionStatsCalculator.Calculate(messages);
+            new AssistantMessage
+            {
+                Content = [new TextBlock("a3")],
+                StopReason = StopReasons.Stop,
+                Usage = new Usage { Input = 60, Output = 25, TotalTokens = 85 },
+            },
+        ]);
 
         await Assert.That(stats.TurnCount).IsEqualTo(2);
         await Assert.That(stats.ToolCallCount).IsEqualTo(1);
-        await Assert.That(stats.InputTokens).IsEqualTo(50 + 80 + 10 + 60);
-        await Assert.That(stats.OutputTokens).IsEqualTo(20 + 40 + 25);
+        // InputTokens = (50+0+0) + (80+10+0) + (60+0+0) = 200
+        await Assert.That(stats.InputTokens).IsEqualTo(200);
+        // OutputTokens = 20 + 40 + 25 = 85
+        await Assert.That(stats.OutputTokens).IsEqualTo(85);
+        // TotalTokens = 70 + 130 + 85 = 285
+        await Assert.That(stats.TotalTokens).IsEqualTo(285);
+    }
+
+    [Test]
+    public async Task WithAddedUsage_NullExtra_ReturnsOriginal()
+    {
+        var stats = new SessionStats(2, 5, 100, 50, 150, null);
+        var result = SessionStatsCalculator.WithAddedUsage(stats, null);
+        await Assert.That(result).IsEqualTo(stats);
+    }
+
+    [Test]
+    public async Task WithAddedUsage_FoldsCacheAndInputTokens()
+    {
+        var stats = new SessionStats(2, 5, 100, 50, 150, null);
+        var extra = new Usage
+        {
+            Input = 10,
+            Output = 5,
+            TotalTokens = 15,
+            CacheRead = 20,
+            CacheWrite = 5,
+        };
+        var result = SessionStatsCalculator.WithAddedUsage(stats, extra);
+        // InputTokens = 100 + 10 (extra.Input) + 20 (extra.CacheRead) + 5 (extra.CacheWrite) = 135
+        await Assert.That(result.InputTokens).IsEqualTo(135);
+        await Assert.That(result.OutputTokens).IsEqualTo(55);
+        await Assert.That(result.TotalTokens).IsEqualTo(165);
     }
 }

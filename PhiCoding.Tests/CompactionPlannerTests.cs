@@ -68,9 +68,12 @@ public class CompactionPlannerTests
     public async Task Build_TinyKeepRecent_StillProducesValidSplit()
     {
         // History [user0, assistant0] — keep 1 token. Walk from end:
-        // assistant ~= 5 tokens > 1 → candidate=1. AdjustToBoundary(1):
-        // assistant is not user; no next user; find first non-toolResult
-        // from candidate=1 → assistant at index 1 → firstKept=1.
+        // assistant ~= 5 tokens > 1 → candidate=1. The candidate is not a
+        // user message and there is no later user message, so this becomes
+        // a split turn: cut at first non-tool-result (the assistant itself),
+        // turnStart=0 (user0 starts the only turn). MessagesToSummarize is
+        // empty (nothing precedes the split turn), TurnPrefixMessages is
+        // [user0], KeptMessages is [assistant0].
         var history = new List<IAgentMessage>
         {
             new UserMessage { Content = "u0" },
@@ -78,9 +81,58 @@ public class CompactionPlannerTests
         };
         var plan = CompactionPlanner.Build(history, keepRecentTokens: 1);
         await Assert.That(plan).IsNotNull();
-        await Assert.That(plan!.MessagesToSummarize.Count).IsEqualTo(1);
+        await Assert.That(plan!.IsSplitTurn).IsTrue();
+        await Assert.That(plan.MessagesToSummarize).IsEmpty();
+        await Assert.That(plan.TurnPrefixMessages.Count).IsEqualTo(1);
+        await Assert.That(plan.TurnPrefixMessages[0]).IsTypeOf<UserMessage>();
         await Assert.That(plan.KeptMessages.Count).IsEqualTo(1);
-        await Assert.That(plan.MessagesToSummarize[0]).IsTypeOf<UserMessage>();
         await Assert.That(plan.KeptMessages[0]).IsTypeOf<AssistantMessage>();
+    }
+
+    [Test]
+    public async Task Build_SingleHugeTurn_NoUserBoundary_ReturnsSplitTurn()
+    {
+        // One turn that exceeds keepRecentTokens: cut must land mid-turn
+        // (at an assistant message) since there is no later user boundary
+        // to snap to. Plan: MessagesToSummarize = [] (preceding turns
+        // prefix is empty), TurnPrefixMessages carries the start of the
+        // giant turn, KeptMessages carries its tail.
+        var history = new List<IAgentMessage>
+        {
+            new UserMessage { Content = "u0" },
+            new AssistantMessage { Content = [new TextBlock(new string('a', 1000))], StopReason = StopReasons.Stop },
+            new AssistantMessage { Content = [new TextBlock(new string('b', 1000))], StopReason = StopReasons.Stop },
+            new ToolResultMessage { ToolCallId = "t1", ToolName = "read", Content = [new TextBlock("res1")] },
+            new AssistantMessage { Content = [new TextBlock(new string('c', 1000))], StopReason = StopReasons.Stop },
+            new AssistantMessage { Content = [new TextBlock(new string('d', 1000))], StopReason = StopReasons.Stop },
+        };
+        var plan = CompactionPlanner.Build(history, keepRecentTokens: 50);
+        await Assert.That(plan).IsNotNull();
+        await Assert.That(plan!.IsSplitTurn).IsTrue();
+        await Assert.That(plan.MessagesToSummarize).IsEmpty();
+        await Assert.That(plan.TurnPrefixMessages[0]).IsTypeOf<UserMessage>();
+        await Assert.That(plan.TurnPrefixMessages[^1]).IsNotTypeOf<ToolResultMessage>();
+        await Assert.That(plan.KeptMessages).IsNotEmpty();
+    }
+
+    [Test]
+    public async Task Build_RecentUserBoundary_PrefersNormalCutOverSplitTurn()
+    {
+        // Two turns: first is large, second is small. keepRecentTokens is
+        // tiny so the cut falls inside the first turn, but there IS a user
+        // message later (the second turn's start). The planner snaps to
+        // that user → normal cut, NOT split turn.
+        var history = new List<IAgentMessage>
+        {
+            new UserMessage { Content = "u0" },
+            new AssistantMessage { Content = [new TextBlock(new string('a', 1000))], StopReason = StopReasons.Stop },
+            new AssistantMessage { Content = [new TextBlock(new string('b', 1000))], StopReason = StopReasons.Stop },
+            new UserMessage { Content = "u1" },
+            new AssistantMessage { Content = [new TextBlock("tail")], StopReason = StopReasons.Stop },
+        };
+        var plan = CompactionPlanner.Build(history, keepRecentTokens: 50);
+        await Assert.That(plan).IsNotNull();
+        await Assert.That(plan!.IsSplitTurn).IsFalse();
+        await Assert.That(plan.KeptMessages[0]).IsTypeOf<UserMessage>();
     }
 }

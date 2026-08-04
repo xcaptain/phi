@@ -358,4 +358,251 @@ public class CodingSessionCompactionTests : IDisposable
         await Assert.That(stats.InputTokens).IsEqualTo(10);
         await Assert.That(stats.OutputTokens).IsEqualTo(5);
     }
+
+    [Test]
+    public async Task AutoCompact_PersistsCumulativeFileOpsInCompactionEntry()
+    {
+        // History with file-touching tool calls: read/edit on concrete paths.
+        // After auto-compaction, the on-disk CompactionSessionEntry.Details
+        // should carry those paths so the next compaction can surface them
+        // in its <read-files>/<modified-files> prompt sections.
+        var stored = CodingSession.Create(_cwd, "m");
+        var history = new List<IAgentMessage>
+        {
+            new UserMessage { Content = "u0" },
+            new AssistantMessage
+            {
+                Content =
+                [
+                    new TextBlock("checking files"),
+                    new ToolCall("t1", "read") { Arguments = new() { ["path"] = "src/a.ts" } },
+                    new ToolCall("t2", "edit") { Arguments = new() { ["path"] = "src/b.ts" } },
+                ],
+                StopReason = StopReasons.ToolUse,
+            },
+            new ToolResultMessage
+            {
+                ToolCallId = "t1", ToolName = "read",
+                Content = [new TextBlock(new string('x', 400))],
+            },
+            new ToolResultMessage
+            {
+                ToolCallId = "t2", ToolName = "edit",
+                Content = [new TextBlock(new string('y', 400))],
+            },
+            new AssistantMessage { Content = [new TextBlock("done")], StopReason = StopReasons.Stop },
+            new UserMessage { Content = "more work please" },
+            new AssistantMessage { Content = [new TextBlock(new string('z', 400))], StopReason = StopReasons.Stop },
+        };
+        foreach (var m in history)
+        {
+            if (m is UserMessage u) stored.AppendMessage(u);
+            else if (m is AssistantMessage a) stored.AppendMessage(a);
+            else if (m is ToolResultMessage tr) stored.AppendMessage(tr);
+        }
+        var storedId = stored.Id;
+
+        var summaryEvents = new ProviderEvent[]
+        {
+            new ProviderTextDeltaEvent("Summary"),
+            new ProviderResponseEndEvent(new AssistantMessage
+            {
+                Content = [new TextBlock("Summary")],
+                StopReason = StopReasons.Stop,
+            }),
+        };
+        var resumed = _factory.Resume(
+            ConfigWith(StubProvider.Echo(summaryEvents),
+                ("CompactionKeepRecentTokens", 50)), storedId);
+
+        resumed.SubmitPrompt("hi");
+        await WaitForAsync(() => !resumed.State.IsRunning);
+
+        var entries = resumed.Storage.ReadAll().ToList();
+        var compaction = entries.OfType<CompactionSessionEntry>().Single();
+        await Assert.That(compaction.Details).IsNotNull();
+        await Assert.That(compaction.Details!.ReadFiles).Contains("src/a.ts");
+        await Assert.That(compaction.Details.ModifiedFiles).Contains("src/b.ts");
+    }
+
+    [Test]
+    public async Task Resume_AfterCompaction_RestoresCumulativeFileOps()
+    {
+        // First compaction writes Details. The session record stays
+        // indexed across the in-place rewrite, so a second compaction
+        // resumes the same id, restores Details1 from the on-disk entry,
+        // and unions in the new round's tool-call paths. After the second
+        // compaction the file only holds the second entry (the first is
+        // overwritten by the rewrite), and its Details must carry both
+        // files — proving the carry-forward worked end-to-end.
+        var stored = CodingSession.Create(_cwd, "m");
+        foreach (var m in BulkyHistoryWithToolCalls("src/first.ts"))
+        {
+            if (m is UserMessage u) stored.AppendMessage(u);
+            else if (m is AssistantMessage a) stored.AppendMessage(a);
+            else if (m is ToolResultMessage tr) stored.AppendMessage(tr);
+        }
+        var storedId = stored.Id;
+
+        var summaryProvider = StubProvider.Echo(
+            new ProviderTextDeltaEvent("Summary"),
+            new ProviderResponseEndEvent(new AssistantMessage
+            {
+                Content = [new TextBlock("Summary")],
+                StopReason = StopReasons.Stop,
+            }));
+        var first = _factory.Resume(
+            ConfigWith(summaryProvider, ("CompactionKeepRecentTokens", 50)), storedId);
+        first.SubmitPrompt("hi");
+        await WaitForAsync(() => !first.State.IsRunning);
+
+        var firstCompaction = first.Storage.ReadAll().OfType<CompactionSessionEntry>().Single();
+        await Assert.That(firstCompaction.Details).IsNotNull();
+        await Assert.That(firstCompaction.Details!.ReadFiles).Contains("src/first.ts");
+
+        // Append a second batch directly via storage so the resumed
+        // session sees them as the "current" history (the first compaction
+        // already cleared the original; we add fresh bulky content).
+        var secondBatch = BulkyHistoryWithToolCalls("src/second.ts");
+        foreach (var m in secondBatch)
+        {
+            if (m is UserMessage u) first.Storage.Append(new UserSessionEntry(u.Timestamp, u.Text));
+            else if (m is AssistantMessage a)
+                first.Storage.Append(new AssistantSessionEntry(a.Timestamp, a.Content, a.StopReason, a.Usage));
+            else if (m is ToolResultMessage tr)
+                first.Storage.Append(new ToolResultSessionEntry(
+                    tr.Timestamp, tr.ToolCallId, tr.ToolName, tr.Content, tr.IsError));
+        }
+
+        var second = _factory.Resume(
+            ConfigWith(summaryProvider, ("CompactionKeepRecentTokens", 50)), storedId);
+        second.SubmitPrompt("hi2");
+        await WaitForAsync(() => !second.State.IsRunning);
+
+        // The second compaction rewrites the file; only the latest entry
+        // remains. Its Details must union the first round's restored
+        // files with the second round's tool-call paths.
+        var compactions = second.Storage.ReadAll().OfType<CompactionSessionEntry>().ToList();
+        await Assert.That(compactions.Count).IsGreaterThanOrEqualTo(1);
+        var latest = compactions[^1];
+        await Assert.That(latest.Details).IsNotNull();
+        await Assert.That(latest.Details!.ReadFiles).Contains("src/first.ts");
+        await Assert.That(latest.Details.ReadFiles).Contains("src/second.ts");
+    }
+
+    [Test]
+    public async Task AutoCompact_FoldsSummaryUsageIntoSessionStats()
+    {
+        // The summary LLM call reports usage; that usage is NOT visible in
+        // the post-compaction message list (the summary user-message and
+        // kept-messages don't carry it), so without compensation the
+        // SessionStats would underreport the session's billed totals. The
+        // session adds the summary's usage to the live stats.
+        var stored = CodingSession.Create(_cwd, "m");
+        foreach (var m in BulkyHistory(pairs: 6))
+        {
+            if (m is UserMessage u) stored.AppendMessage(u);
+            else if (m is AssistantMessage a) stored.AppendMessage(a);
+        }
+        var storedId = stored.Id;
+
+        var summaryUsage = new Usage { Input = 100, Output = 50, TotalTokens = 150, CacheRead = 20 };
+        var summaryEvents = new ProviderEvent[]
+        {
+            new ProviderTextDeltaEvent("Summary"),
+            new ProviderResponseEndEvent(new AssistantMessage
+            {
+                Content = [new TextBlock("Summary")],
+                StopReason = StopReasons.Stop,
+                Usage = summaryUsage,
+            }),
+        };
+        var resumed = _factory.Resume(
+            ConfigWith(StubProvider.Echo(summaryEvents),
+                ("CompactionKeepRecentTokens", 50)), storedId);
+
+        resumed.SubmitPrompt("hi");
+        await WaitForAsync(() => !resumed.State.IsRunning);
+
+        // The post-compaction Stats must reflect the summary call's input
+        // tokens even though no AssistantMessage in the live message list
+        // carries that usage.
+        await Assert.That(resumed.State.Stats.InputTokens).IsGreaterThanOrEqualTo(summaryUsage.Input);
+    }
+
+    [Test]
+    public async Task Resume_RestoresAccumulatedSummaryUsage()
+    {
+        // A CompactionSessionEntry persists its summary Usage. After a
+        // real compaction that records a known usage, a fresh resume of
+        // the same session id must surface that usage in the live
+        // SessionStats — otherwise the user would see the token total drop
+        // after a session restart.
+        var stored = CodingSession.Create(_cwd, "m");
+        foreach (var m in BulkyHistory(pairs: 6))
+        {
+            if (m is UserMessage u) stored.AppendMessage(u);
+            else if (m is AssistantMessage a) stored.AppendMessage(a);
+        }
+        var storedId = stored.Id;
+
+        var originalUsage = new Usage { Input = 200, Output = 80, TotalTokens = 280, CacheRead = 40 };
+        var summaryProvider = StubProvider.Echo(
+            new ProviderTextDeltaEvent("Summary"),
+            new ProviderResponseEndEvent(new AssistantMessage
+            {
+                Content = [new TextBlock("Summary")],
+                StopReason = StopReasons.Stop,
+                Usage = originalUsage,
+            }));
+        var first = _factory.Resume(
+            ConfigWith(summaryProvider, ("CompactionKeepRecentTokens", 50)), storedId);
+        first.SubmitPrompt("hi");
+        await WaitForAsync(() => !first.State.IsRunning);
+
+        // After the first compaction the live stats include the summary
+        // usage — baseline for the resume-restore comparison.
+        await Assert.That(first.State.Stats.InputTokens).IsGreaterThanOrEqualTo(originalUsage.Input);
+        await Assert.That(first.State.Stats.OutputTokens).IsGreaterThanOrEqualTo(originalUsage.Output);
+
+        // Resume the same session from disk in a brand-new instance.
+        var resumed = _factory.Resume(
+            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))), storedId);
+
+        // The restored stats must include the summary usage we wrote
+        // during the first compaction, otherwise the user sees the total
+        // drop on every session restart.
+        await Assert.That(resumed.State.Stats.InputTokens).IsGreaterThanOrEqualTo(originalUsage.Input);
+        await Assert.That(resumed.State.Stats.OutputTokens).IsGreaterThanOrEqualTo(originalUsage.Output);
+    }
+
+    private static List<IAgentMessage> BulkyHistoryWithToolCalls(string readPath)
+    {
+        // Two pairs of user+assistant, the second carrying a real read tool
+        // call against the supplied path. Big enough to force a cut inside
+        // the second pair when keepRecentTokens=50.
+        return
+        [
+            new UserMessage { Content = "u0 " + new string('u', 200) },
+            new AssistantMessage { Content = [new TextBlock(new string('a', 400))], StopReason = StopReasons.Stop },
+            new UserMessage { Content = "u1 " + new string('u', 200) },
+            new AssistantMessage
+            {
+                Content =
+                [
+                    new TextBlock("reading"),
+                    new ToolCall("t1", "read") { Arguments = new() { ["path"] = readPath } },
+                ],
+                StopReason = StopReasons.ToolUse,
+            },
+            new ToolResultMessage
+            {
+                ToolCallId = "t1", ToolName = "read",
+                Content = [new TextBlock(new string('x', 400))],
+            },
+            new AssistantMessage { Content = [new TextBlock(new string('a', 400))], StopReason = StopReasons.Stop },
+            new AssistantMessage { Content = [new TextBlock(new string('a', 400))], StopReason = StopReasons.Stop },
+            new AssistantMessage { Content = [new TextBlock(new string('a', 400))], StopReason = StopReasons.Stop },
+        ];
+    }
 }

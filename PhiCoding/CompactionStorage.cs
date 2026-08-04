@@ -23,6 +23,8 @@ public static class CompactionStorage
         CompactionPlan plan,
         string summary,
         int tokensBefore,
+        CompactionDetails? details,
+        Usage? summaryUsage,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(session);
@@ -32,7 +34,9 @@ public static class CompactionStorage
         var compaction = new CompactionSessionEntry(
             Timestamp: DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             Summary: summary,
-            TokensBefore: tokensBefore);
+            TokensBefore: tokensBefore,
+            Details: details,
+            Usage: summaryUsage);
 
         var entryByMessage = new Dictionary<IAgentMessage, SessionEntry>();
         foreach (var m in plan.KeptMessages)

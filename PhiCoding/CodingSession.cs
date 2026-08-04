@@ -190,6 +190,15 @@ public sealed class CodingSession : ISession
     private int? _autoCompactThreshold;
     private bool _autoCompactEnabled = true;
     private int _compactionKeepRecentTokens = ContextWindow.DefaultCompactionKeepRecentTokens;
+    // Cumulative read/modified files carried forward from the most recent
+    // compaction. Merged (not overwritten) on every new compaction so the
+    // summary prompt's <read-files>/<modified-files> sections grow across
+    // the session's lifetime rather than only reflecting the latest cut.
+    private CompactionDetails _lastCompactionDetails = CompactionDetails.Empty;
+    // Cumulative token usage of every summary LLM call. Added to the
+    // SessionStats reported to the UI so the session's billed totals
+    // include summarization work, not just assistant turns.
+    private Usage _accumulatedSummaryUsage = new();
 
     /// <summary>Fired on every <see cref="State"/> change.</summary>
     public event Action<SessionState>? StateChanged;
@@ -238,6 +247,15 @@ public sealed class CodingSession : ISession
         _lastMessageCount = runtime.Harness.Messages.Count;
         _runtimeStarted = true;
 
+        // The factory's Resume path doesn't go through ResumeSessionCore,
+        // so it relies on ApplyRuntime to rehydrate the compaction
+        // accumulators from disk. Fresh Create paths have no history to
+        // restore; _persisted is false for them.
+        if (_persisted)
+        {
+            RestoreCompactionHistoryFromStorage();
+        }
+
         var messages = runtime.Harness.Messages.ToList();
         _state = new SessionState
         {
@@ -247,7 +265,9 @@ public sealed class CodingSession : ISession
             ProviderName = _providerName,
             SessionTitle = Record.Title,
             IsPersisted = _persisted,
-            Stats = SessionStatsCalculator.Calculate(messages),
+            Stats = SessionStatsCalculator.WithAddedUsage(
+                SessionStatsCalculator.Calculate(messages),
+                _accumulatedSummaryUsage),
             ContextUsedTokens = EstimateContextUsage(messages),
             AutoCompactThreshold = _autoCompactThreshold,
         };
@@ -266,13 +286,44 @@ public sealed class CodingSession : ISession
         UpdateState(s => s with
         {
             Messages = [.. messages],
-            Stats = SessionStatsCalculator.Calculate(messages),
+            Stats = SessionStatsCalculator.WithAddedUsage(
+                SessionStatsCalculator.Calculate(messages),
+                _accumulatedSummaryUsage),
             ContextUsedTokens = EstimateContextUsage(messages),
         });
     }
 
     private int EstimateContextUsage(IReadOnlyList<IAgentMessage> messages) =>
         ContextWindow.EstimateContextUsage(_systemPrompt, messages, _tools);
+
+    /// <summary>
+    /// Rehydrates the cumulative compaction metadata from the on-disk
+    /// transcript: the most recent <see cref="CompactionSessionEntry"/>'s
+    /// <see cref="CompactionDetails"/> (carrying the running read/modified
+    /// file list) and the sum of every entry's <see cref="Usage"/> (so the
+    /// session's reported totals include historical summarization cost).
+    /// <para>
+    /// CompactionSessionEntry is materialized as a plain UserMessage by
+    /// <see cref="SessionEntryConverter"/>, so the message list alone can't
+    /// surface these fields; we walk the raw <see cref="SessionStorage"/>
+    /// entries here.
+    /// </para>
+    /// </summary>
+    private void RestoreCompactionHistoryFromStorage()
+    {
+        var rawEntries = _storage.ReadAll().ToList();
+        var restoredDetails = CompactionDetails.Empty;
+        var restoredSummaryUsage = new Usage();
+        foreach (var entry in rawEntries)
+        {
+            if (entry is not CompactionSessionEntry c) continue;
+            if (c.Details is not null) restoredDetails = c.Details;
+            if (c.Usage is not null)
+                restoredSummaryUsage = AddUsage(restoredSummaryUsage, c.Usage);
+        }
+        _lastCompactionDetails = restoredDetails;
+        _accumulatedSummaryUsage = restoredSummaryUsage;
+    }
 
     // ──────── Runtime actions ────────
 
@@ -487,7 +538,9 @@ public sealed class CodingSession : ISession
                 {
                     Messages = [.. harness.Messages],
                     Turn = s.Turn + 1,
-                    Stats = SessionStatsCalculator.Calculate(harness.Messages),
+                    Stats = SessionStatsCalculator.WithAddedUsage(
+                        SessionStatsCalculator.Calculate(harness.Messages),
+                        _accumulatedSummaryUsage),
                     ContextUsedTokens = EstimateContextUsage(harness.Messages),
                 });
             }
@@ -563,6 +616,7 @@ public sealed class CodingSession : ISession
         _harness!.ReplaceMessages(loaded);
         _lastMessageCount = loaded.Count;
         _autoNamed = record.Title is { Length: > 0 };
+        RestoreCompactionHistoryFromStorage();
 
         UpdateState(s => new SessionState
         {
@@ -572,7 +626,9 @@ public sealed class CodingSession : ISession
             ProviderName = _providerName,
             SessionTitle = record.Title,
             IsPersisted = true,
-            Stats = SessionStatsCalculator.Calculate(loaded),
+            Stats = SessionStatsCalculator.WithAddedUsage(
+                SessionStatsCalculator.Calculate(loaded),
+                _accumulatedSummaryUsage),
             ContextUsedTokens = EstimateContextUsage(loaded),
             AutoCompactThreshold = _autoCompactThreshold,
         });
@@ -613,6 +669,10 @@ public sealed class CodingSession : ISession
             ContextUsedTokens = EstimateContextUsage([]),
             AutoCompactThreshold = _autoCompactThreshold,
         });
+        // Fresh session discards any compaction history carried over from
+        // the previous one — file ops and summary usage reset to zero.
+        _lastCompactionDetails = CompactionDetails.Empty;
+        _accumulatedSummaryUsage = new Usage();
     }
 
     private async Task TryAutoCompactAsync(bool force = false)
@@ -631,11 +691,28 @@ public sealed class CodingSession : ISession
         if (plan is null) return;
 
         var tokensBefore = currentUsage;
-        string summary;
+
+        // File ops accumulate across compactions: extract from the dropped
+        // span (history + turn prefix if split), then merge into whatever
+        // the previous compaction already knew about. The merged result is
+        // both fed into the summary prompt as <read-files>/<modified-files>
+        // context AND persisted on the new CompactionSessionEntry so the
+        // next compaction inherits it.
+        var newOps = FileOpsExtractor.Extract(plan.MessagesToSummarize);
+        if (plan.IsSplitTurn)
+        {
+            newOps = newOps.Merge(FileOpsExtractor.Extract(plan.TurnPrefixMessages));
+        }
+        var mergedDetails = _lastCompactionDetails.Merge(newOps);
+
+        CompactionSummarizer.SummaryResult result;
         try
         {
-            summary = await CompactionSummarizer.GenerateAsync(
-                _provider, _runtimeModel, plan.MessagesToSummarize,
+            result = await CompactionSummarizer.GenerateAsync(
+                _provider, _runtimeModel,
+                plan.MessagesToSummarize,
+                turnPrefixMessages: plan.IsSplitTurn ? plan.TurnPrefixMessages : null,
+                previousDetails: mergedDetails,
                 cancellationToken: _runCts?.Token ?? default);
         }
         catch (Exception ex)
@@ -645,11 +722,20 @@ public sealed class CodingSession : ISession
         }
 
         await CompactionStorage.RewriteAsync(
-            this, plan, summary, tokensBefore,
+            this, plan, result.Text, tokensBefore,
+            mergedDetails, result.Usage,
             _runCts?.Token ?? default);
 
+        // Update accumulators BEFORE the post-check so a failed compaction
+        // (didn't actually shrink) still bumps usage — the LLM call was
+        // made and the tokens were spent.
+        _lastCompactionDetails = mergedDetails;
+        _accumulatedSummaryUsage = AddUsage(_accumulatedSummaryUsage, result.Usage);
+
         // Post-check: compaction must actually reduce context size; if it
-        // didn't, leave the larger history alone rather than thrash.
+        // didn't, leave the larger history alone rather than thrash. The
+        // accumulators above stay applied — the next prompt will see the
+        // original prefix (still on disk) and the cumulative usage.
         var afterUsage = EstimateContextUsage(_harness.Messages);
         if (!force && _autoCompactThreshold is { } th && afterUsage >= th)
         {
@@ -663,7 +749,27 @@ public sealed class CodingSession : ISession
         UpdateState(s => s with
         {
             ContextUsedTokens = afterUsage,
+            Stats = SessionStatsCalculator.WithAddedUsage(
+                SessionStatsCalculator.Calculate(_harness.Messages),
+                _accumulatedSummaryUsage),
         });
+    }
+
+    private static Usage AddUsage(Usage a, Usage b)
+    {
+        // Defensive: a null Usage carries no usage; b may be null if the
+        // provider never emitted ProviderResponseEndEvent with usage.
+        if (b is null) return a;
+        return new Usage
+        {
+            Input = a.Input + b.Input,
+            Output = a.Output + b.Output,
+            CacheRead = a.CacheRead + b.CacheRead,
+            CacheWrite = a.CacheWrite + b.CacheWrite,
+            CacheWrite1h = a.CacheWrite1h + b.CacheWrite1h,
+            Reasoning = a.Reasoning + b.Reasoning,
+            TotalTokens = a.TotalTokens + b.TotalTokens,
+        };
     }
 
     private async Task TryAutoNameSessionAsync(string firstMessage)

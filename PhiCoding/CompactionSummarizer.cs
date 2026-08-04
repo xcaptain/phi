@@ -4,14 +4,21 @@ namespace PhiCoding;
 
 /// <summary>
 /// Builds the summarization prompt and asks the provider to condense a
-/// range of messages. Mirrors tau's
-/// <c>build_compaction_summary_prompt</c> /
+/// range of messages. Mirrors pi's <c>build_compaction_summary_prompt</c> /
 /// <c>_generate_compaction_summary</c>: structured sections on first
 /// compaction, update-style prompt when a previous summary is present at
-/// the start of the message list.
+/// the start of the message list. Also mirrors pi's message serialization
+/// (<c>[User]: …</c>, <c>[Assistant]: …</c>, <c>[Tool result] (name): …</c>)
+/// and tool-result truncation so the summarization prompt stays within a
+/// reasonable budget regardless of how large a single read/bash output was.
 /// </summary>
 public sealed class CompactionSummarizer
 {
+    /// <summary>Tool-result bodies longer than this are truncated in the
+    /// summary prompt; the source-of-truth message stays full size on disk
+    /// and in the harness.</summary>
+    public const int ToolResultTruncateChars = 2_000;
+
     public const string SummarizationSystemPrompt =
         "You are a context summarization assistant. Your task is to read a conversation " +
         "between a user and an AI coding assistant, then produce a structured summary " +
@@ -78,53 +85,112 @@ public sealed class CompactionSummarizer
         "Keep each section concise. Preserve exact file paths, function names, and error " +
         "messages.";
 
-    public static string BuildPrompt(IReadOnlyList<IAgentMessage> messages)
+    /// <summary>
+    /// Builds the prompt for summarizing <paramref name="messages"/> (the
+    /// history preceding the cut). When <paramref name="turnPrefixMessages"/>
+    /// is non-empty the cut landed mid-turn and those messages are appended
+    /// after a separator so the LLM also sees the early part of the current
+    /// turn. <paramref name="previousDetails"/> carries the cumulative
+    /// read/modified files from the previous compaction, if any.
+    /// </summary>
+    public static string BuildPrompt(
+        IReadOnlyList<IAgentMessage> messages,
+        IReadOnlyList<IAgentMessage>? turnPrefixMessages = null,
+        CompactionDetails? previousDetails = null)
     {
         ArgumentNullException.ThrowIfNull(messages);
 
         var previousSummary = TryExtractPreviousSummary(messages);
-        var newMessages = previousSummary is not null
-            ? [.. messages.Skip(1)]
-            : (IList<IAgentMessage>)messages;
+        // The compaction summary rides along as messages[0] (UserMessage with
+        // CompactionSummaryPrefix); skip it from the serialized history so
+        // the LLM sees the raw messages, not the previous summary embedded
+        // twice (it lives in <previous-summary> below).
+        var historyMessages = previousSummary is not null
+            ? messages.Skip(1).ToList()
+            : messages.ToList();
 
-        var conversation = SerializeMessages(newMessages);
-        var prompt = $"<conversation>\n{conversation}\n</conversation>\n\n";
+        var prompt = "<conversation>\n" +
+                     SerializeMessages(historyMessages) +
+                     "\n</conversation>\n";
+
+        if (turnPrefixMessages is { Count: > 0 } prefix)
+        {
+            prompt += "\n[Current turn — early portion]\n" +
+                      SerializeMessages(prefix.ToList()) +
+                      "\n[/Current turn — early portion]\n";
+        }
+
+        if (previousSummary is not null)
+        {
+            prompt += $"\n<previous-summary>\n{previousSummary}\n</previous-summary>\n";
+        }
+
+        if (previousDetails is not null)
+        {
+            if (previousDetails.ReadFiles.Count > 0)
+            {
+                prompt += "\n<read-files>\n" +
+                          string.Join("\n", previousDetails.ReadFiles) +
+                          "\n</read-files>\n";
+            }
+            if (previousDetails.ModifiedFiles.Count > 0)
+            {
+                prompt += "\n<modified-files>\n" +
+                          string.Join("\n", previousDetails.ModifiedFiles) +
+                          "\n</modified-files>\n";
+            }
+        }
 
         var basePrompt = previousSummary is not null
             ? UpdateSummarizationPrompt
             : SummarizationPrompt;
 
-        if (previousSummary is not null)
-            prompt += $"<previous-summary>\n{previousSummary}\n</previous-summary>\n\n";
-
-        return prompt + basePrompt;
+        return prompt + "\n" + basePrompt;
     }
 
-    public static async Task<string> GenerateAsync(
+    /// <summary>
+    /// Result of a summarization call: the generated summary text plus the
+    /// token usage of the LLM call itself, so the session's billed totals
+    /// can include summarization work.
+    /// </summary>
+    public sealed record SummaryResult(string Text, Usage Usage);
+
+    public static async Task<SummaryResult> GenerateAsync(
         IPhiProvider provider,
         string model,
         IReadOnlyList<IAgentMessage> messages,
+        IReadOnlyList<IAgentMessage>? turnPrefixMessages = null,
+        CompactionDetails? previousDetails = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(messages);
 
-        var prompt = BuildPrompt(messages);
+        var prompt = BuildPrompt(messages, turnPrefixMessages, previousDetails);
         var request = new List<IAgentMessage> { new UserMessage { Content = prompt } };
 
         var collected = new System.Text.StringBuilder();
+        var usage = new Usage();
         await foreach (var ev in provider.StreamResponseAsync(
             model, SummarizationSystemPrompt, request, [], cancellationToken)
             .WithCancellation(cancellationToken))
         {
-            if (ev is ProviderTextDeltaEvent t) collected.Append(t.Delta);
+            switch (ev)
+            {
+                case ProviderTextDeltaEvent t:
+                    collected.Append(t.Delta);
+                    break;
+                case ProviderResponseEndEvent end:
+                    if (end.Message.Usage is { } u) usage = u;
+                    break;
+            }
         }
 
         var summary = collected.ToString().Trim();
         if (summary.Length == 0)
             throw new InvalidOperationException(
                 "Compaction summarization returned an empty summary");
-        return summary;
+        return new SummaryResult(summary, usage);
     }
 
     private static string? TryExtractPreviousSummary(IReadOnlyList<IAgentMessage> messages)
@@ -138,37 +204,73 @@ public sealed class CompactionSummarizer
         return text[ContextWindow.CompactionSummaryPrefix.Length..];
     }
 
-    private static string SerializeMessages(IList<IAgentMessage> messages)
+    /// <summary>
+    /// Serializes messages in pi's
+    /// <c>[User]: …</c> / <c>[Assistant]: …</c> / <c>[Assistant tool calls]: …</c> /
+    /// <c>[Tool result] (name): …</c> format. Tool-result bodies longer than
+    /// <see cref="ToolResultTruncateChars"/> are truncated so a single
+    /// oversized read/bash output doesn't blow the summary prompt budget.
+    /// </summary>
+    private static string SerializeMessages(List<IAgentMessage> messages)
     {
-        if (messages.Count == 0) return "(no new messages)";
+        if (messages.Count == 0) return "(no messages)";
 
         var lines = new List<string>();
-        for (var i = 0; i < messages.Count; i++)
+        foreach (var m in messages)
         {
-            var m = messages[i];
-            var attributes = $"index={i + 1} role={m.GetType().Name.Replace("Message", "")}";
-            if (m is ToolResultMessage tr)
-                attributes += $" name={tr.ToolName} error={tr.IsError.ToString().ToLowerInvariant()}";
-            lines.Add($"<message {attributes}>");
-            var text = ExtractText(m);
-            if (text.Length > 0) lines.Add(text);
-            if (m is AssistantMessage a && a.ToolCalls.Count > 0)
+            switch (m)
             {
-                lines.Add("<tool-calls>");
-                foreach (var tc in a.ToolCalls)
-                    lines.Add($"- {tc.Name}: {tc.Arguments.ToJsonString()}");
-                lines.Add("</tool-calls>");
+                case UserMessage u:
+                    lines.Add("[User]: " + u.Text);
+                    break;
+
+                case AssistantMessage a:
+                    var thinking = a.ThinkingText;
+                    if (!string.IsNullOrEmpty(thinking))
+                        lines.Add("[Assistant thinking]: " + thinking);
+                    var text = a.Text;
+                    if (!string.IsNullOrEmpty(text))
+                        lines.Add("[Assistant]: " + text);
+                    if (a.ToolCalls.Count > 0)
+                    {
+                        var calls = string.Join("; ",
+                            a.ToolCalls.Select(FormatToolCall));
+                        lines.Add("[Assistant tool calls]: " + calls);
+                    }
+                    break;
+
+                case ToolResultMessage tr:
+                    lines.Add($"[Tool result] ({tr.ToolName}): " +
+                              Truncate(tr.Text, ToolResultTruncateChars));
+                    break;
+
+                case BashExecutionMessage bash:
+                    lines.Add("[BashExecution]: " +
+                              Truncate(bash.Output, ToolResultTruncateChars));
+                    break;
+
+                case CustomMessage c:
+                    lines.Add("[Custom]: " + c.Text);
+                    break;
+
+                case BranchSummaryMessage bs:
+                    lines.Add("[BranchSummary]: " + bs.Summary);
+                    break;
             }
-            lines.Add("</message>");
         }
         return string.Join("\n", lines);
     }
 
-    private static string ExtractText(IAgentMessage m) => m switch
+    private static string FormatToolCall(ToolCall tc)
     {
-        UserMessage u => u.Text,
-        AssistantMessage a => a.Text,
-        ToolResultMessage t => t.Text,
-        _ => "",
-    };
+        var args = tc.Arguments.ToJsonString();
+        return $"{tc.Name}({args})";
+    }
+
+    private static string Truncate(string text, int maxChars)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= maxChars) return text;
+        var omitted = text.Length - maxChars;
+        return text[..maxChars] + $"\n[...truncated {omitted} chars]";
+    }
 }

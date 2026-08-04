@@ -41,12 +41,66 @@ public sealed record ToolResultSessionEntry(
     : SessionEntry(Timestamp);
 
 /// <summary>
+/// Cumulative file operations carried forward from a previous compaction,
+/// so the next summarization prompt can list every file the LLM has read or
+/// modified across the session's history. Merged (not overwritten) on each
+/// compaction via <see cref="Merge"/>.
+/// </summary>
+public sealed record CompactionDetails(
+    IReadOnlyList<string> ReadFiles,
+    IReadOnlyList<string> ModifiedFiles)
+{
+    /// <summary>Zero details — the value before the first compaction.</summary>
+    public static readonly CompactionDetails Empty = new([], []);
+
+    /// <summary>
+    /// Returns a new <see cref="CompactionDetails"/> containing all paths
+    /// from <c>this</c> followed by any new paths from <paramref name="other"/>,
+    /// deduplicated by ordinal comparison while preserving first-seen order.
+    /// </summary>
+    public CompactionDetails Merge(CompactionDetails? other)
+    {
+        if (other is null) return this;
+        return new CompactionDetails(
+            UnionPreservingOrder(ReadFiles, other.ReadFiles),
+            UnionPreservingOrder(ModifiedFiles, other.ModifiedFiles));
+    }
+
+    private static IReadOnlyList<string> UnionPreservingOrder(
+        IReadOnlyList<string> a, IReadOnlyList<string> b)
+    {
+        if (a.Count == 0) return b;
+        if (b.Count == 0) return a;
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<string>(a.Count + b.Count);
+        foreach (var p in a)
+        {
+            if (seen.Add(p)) result.Add(p);
+        }
+        foreach (var p in b)
+        {
+            if (seen.Add(p)) result.Add(p);
+        }
+        return result;
+    }
+}
+
+/// <summary>
 /// Marks a point in the transcript where older messages were replaced by
 /// <see cref="Summary"/>. Used by in-place compaction rewrites. Older
 /// entries below this one are dropped from the JSONL file.
+/// <para>
+/// <see cref="Details"/> carries the cumulative read/modified files so the
+/// next compaction inherits them; <see cref="Usage"/> records the token
+/// usage of the summary LLM call so the session's billed totals include
+/// summarization work. Both are optional and absent on entries written
+/// before compaction details/usage tracking was added.
+/// </para>
 /// </summary>
 public sealed record CompactionSessionEntry(
     long Timestamp,
     string Summary,
-    int TokensBefore)
+    int TokensBefore,
+    CompactionDetails? Details = null,
+    Usage? Usage = null)
     : SessionEntry(Timestamp);
