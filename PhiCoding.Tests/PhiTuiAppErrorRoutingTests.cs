@@ -1,3 +1,4 @@
+using PhiCoding.Providers;
 using PhiCoding.Tests.Helpers;
 using XenoAtom.Terminal.UI.Controls;
 
@@ -22,7 +23,7 @@ public class PhiTuiAppErrorRoutingTests
         // more times on subsequent StateChanged events before the next run
         // clears LastError. The transcript must record exactly one line.
         var session = new MockSession();
-        var app = new PhiCoding.Tui.PhiTuiApp(session);
+        var app = new PhiCoding.Tui.PhiTuiApp(new FakeSessionNavigator(session), new ProviderManager());
         app.BuildRoot();
 
         session.UpdateState(s => s with { LastError = "401 Unauthorized" });
@@ -40,7 +41,7 @@ public class PhiTuiAppErrorRoutingTests
         // message must produce a fresh transcript record (dedup state resets
         // so repeated failures across runs stay visible).
         var session = new MockSession();
-        var app = new PhiCoding.Tui.PhiTuiApp(session);
+        var app = new PhiCoding.Tui.PhiTuiApp(new FakeSessionNavigator(session), new ProviderManager());
         app.BuildRoot();
 
         session.UpdateState(s => s with { LastError = "Model not found: phi-99" });
@@ -54,7 +55,7 @@ public class PhiTuiAppErrorRoutingTests
     public async Task LastErrorCleared_RestoresStatusBarToModelDisplay()
     {
         var session = new MockSession();
-        var app = new PhiCoding.Tui.PhiTuiApp(session);
+        var app = new PhiCoding.Tui.PhiTuiApp(new FakeSessionNavigator(session), new ProviderManager());
         app.BuildRoot();
 
         session.UpdateState(s => s with { Model = "phi-3", LastError = "boom" });
@@ -71,7 +72,7 @@ public class PhiTuiAppErrorRoutingTests
     public async Task TransientError_NeverEntersTranscript()
     {
         var session = new MockSession();
-        var app = new PhiCoding.Tui.PhiTuiApp(session);
+        var app = new PhiCoding.Tui.PhiTuiApp(new FakeSessionNavigator(session), new ProviderManager());
         app.BuildRoot();
 
         session.UpdateState(s => s with { LastError = "Connection timed out after 30s" });

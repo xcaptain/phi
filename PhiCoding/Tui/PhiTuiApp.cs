@@ -1,6 +1,7 @@
 using System.Globalization;
 using PhiAgent;
 using PhiCoding.Providers;
+using PhiCoding.Sessions;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
@@ -10,34 +11,22 @@ using XenoAtom.Terminal.UI.Styling;
 namespace PhiCoding.Tui;
 
 /// <summary>
-/// Thin TUI shell around <see cref="ISession"/>. Renders session
-/// state via bound controls; user actions are forwarded to the session.
-/// <see cref="IDisposable.Dispose"/> cancels the in-flight run and
-/// releases session resources; call when the TUI exits (Ctrl+Q, /exit).
+/// TUI shell over <see cref="ISessionNavigator"/>. The page for the current
+/// <see cref="SessionRoute"/> is built by <see cref="BuildPage"/> and mounted
+/// in a <c>ContentSwitcher</c> page host; navigating (new / resume) rebuilds
+/// the page for the new session — a fresh transcript, status bar, strip, and
+/// editor are mounted, so every binding and closure captures exactly that
+/// session. The layout skeleton (header on top, transcript in the middle,
+/// editor + strip + status at the bottom) is fixed. Session teardown is owned
+/// by the navigator, not the TUI.
 /// </summary>
-public sealed class PhiTuiApp(ISession session, ProviderManager? providers = null) : IDisposable
+public sealed class PhiTuiApp
 {
-    private readonly ISession _session = session;
-    private readonly ProviderManager _providers = providers ?? new ProviderManager();
-
-    /// <summary>
-    /// Chat transcript created by the latest <see cref="BuildRoot"/> call.
-    /// Null until <see cref="BuildRoot"/> is invoked. Exposed so callers
-    /// (and tests) can observe the rendered message list directly.
-    /// </summary>
-    public ChatTranscript? Transcript { get; private set; }
-
-    /// <summary>
-    /// Status bar created by the latest <see cref="BuildRoot"/> call.
-    /// Null until <see cref="BuildRoot"/> is invoked.
-    /// </summary>
-    public PhiStatusBar? StatusBar { get; private set; }
-
-    /// <summary>
-    /// Suggestion strip created by the latest <see cref="BuildRoot"/> call.
-    /// Null until <see cref="BuildRoot"/> is invoked.
-    /// </summary>
-    public SuggestionStrip? SuggestionStrip { get; private set; }
+    private readonly ISessionNavigator _navigator;
+    private readonly ProviderManager _providers;
+    private ContentSwitcher? _pageHost;
+    private PromptEditor? _editor;
+    private SkillSuggestionProvider? _skillProvider;
 
     // Last message already recorded in the transcript as a persistent error.
     // LastError stays set between StateChanged events until the next run
@@ -46,31 +35,103 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
     // still letting the status bar show the error.
     private string? _lastRoutedError;
 
-    /// <summary>
-    /// Disposes the wrapped <see cref="ISession"/>, cancelling and
-    /// awaiting any active run. Idempotent and safe to call after the
-    /// TUI has already torn down.
-    /// </summary>
-    public void Dispose()
+    public PhiTuiApp(ISessionNavigator navigator, ProviderManager providers)
     {
-        _session.Dispose();
+        ArgumentNullException.ThrowIfNull(navigator);
+        ArgumentNullException.ThrowIfNull(providers);
+        _navigator = navigator;
+        _providers = providers;
+
+        // On navigation the current session has already been swapped by the
+        // navigator; rebuild the page eagerly and swap it into the page host.
+        // Focus is handed to the fresh editor so the user can type
+        // immediately (ContentSwitcher only transfers focus on index change,
+        // not on a child swap).
+        _navigator.RouteChanged += _ =>
+        {
+            _lastRoutedError = null;
+            var page = BuildPage(_navigator.Current);
+            if (_pageHost is not null)
+            {
+                _pageHost.Children.Clear();
+                _pageHost.Children.Add(page);
+                if (_editor is not null)
+                    _pageHost.App?.Focus(_editor);
+            }
+        };
     }
+
+    /// <summary>
+    /// Chat transcript created by the latest <see cref="BuildPage"/> call.
+    /// Null until <see cref="BuildRoot"/> is invoked. Exposed so callers
+    /// (and tests) can observe the rendered message list directly.
+    /// </summary>
+    public ChatTranscript? Transcript { get; private set; }
+
+    /// <summary>
+    /// Status bar created by the latest <see cref="BuildPage"/> call.
+    /// Null until <see cref="BuildRoot"/> is invoked.
+    /// </summary>
+    public PhiStatusBar? StatusBar { get; private set; }
+
+    /// <summary>
+    /// Suggestion strip created by the latest <see cref="BuildPage"/> call.
+    /// Null until <see cref="BuildRoot"/> is invoked.
+    /// </summary>
+    public SuggestionStrip? SuggestionStrip { get; private set; }
+
+    /// <summary>The live session for the current route.</summary>
+    private ISession Session => _navigator.Current;
 
     public (Visual Root, PromptEditor Editor) BuildRoot()
     {
+        // Eagerly build the initial page so Transcript/StatusBar/Editor are
+        // populated before the first render (and for tests that never
+        // render), then mount it in the page host. On navigation the
+        // RouteChanged handler rebuilds the page and swaps it in.
+        var page = BuildPage(_navigator.Current);
+        _pageHost = new ContentSwitcher(page)
+        {
+            HorizontalAlignment = Align.Stretch,
+            VerticalAlignment = Align.Stretch,
+        };
+
+        return (_pageHost, _editor!);
+    }
+
+    public void Run()
+    {
+        using var terminal = Terminal.Open();
+        var (root, _) = BuildRoot();
+        // ToastHost overlays transient notifications (used by
+        // SelectionCopyHost to confirm auto-copies); SelectionCopyHost wires
+        // mouse drag-select / double-click → clipboard auto-copy.
+        var toastHost = new ToastHost(new SelectionCopyHost(root));
+        // Workaround for a XenoAtom.Terminal.UI 3.8.1 ToastHost bug: without
+        // it, a toast shown after the previous one fully expired is dismissed
+        // instantly. Remove when the upstream fix ships and NuGet is bumped.
+        ToastHostSentinel.Install(toastHost);
+        Terminal.Run(toastHost, () => TerminalLoopResult.Continue);
+    }
+
+    /// <summary>
+    /// Builds the complete page for <paramref name="session"/>: header,
+    /// transcript, editor, suggestion strip, and status bar, all bound to
+    /// that session. Called at startup and on every navigation; the returned
+    /// visual becomes the page host's child.
+    /// </summary>
+    private DockLayout BuildPage(ISession session)
+    {
         var transcript = new ChatTranscript();
-        var status = new PhiStatusBar(_session.State.Model);
         Transcript = transcript;
+        var status = new PhiStatusBar(session.State.Model);
         StatusBar = status;
         var inputText = new State<string?>(string.Empty);
 
-        BindTranscriptToSession(transcript);
-        BindStatusBarToEngine(status, transcript);
-
-        // Live autocomplete strip: shows filtered slash commands + skill
-        // names as you type; collapses when the input isn't a command token.
+        var skillProvider = new SkillSuggestionProvider(session.Skills);
+        _skillProvider = skillProvider;
         var suggestionStrip = new SuggestionStrip(inputText,
-            [new SlashCommandProvider(), new SkillSuggestionProvider(_session.Skills)]);
+            [new SlashCommandProvider(), skillProvider]);
         SuggestionStrip = suggestionStrip;
 
         var editor = new PromptEditor()
@@ -83,25 +144,10 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
             .MinHeight(3)
             .MaxHeight(10)
             .AutoFocus(true);
+        _editor = editor;
 
-        var modelMarkup = new Markup($"[dim]{FormatModel(_session.State.ProviderName, _session.State.Model)}[/]") { Wrap = false };
-        _session.StateChanged += _ =>
-            modelMarkup.Text = $"[dim]{FormatModel(_session.State.ProviderName, _session.State.Model)}[/]";
-
-        var header = new Header
-        {
-            Left = new Markup("[bold]phi[/]") { Wrap = false },
-            Right = modelMarkup,
-        };
-
-        var root = new DockLayout()
-            .Top(header)
-            .Content(transcript.Visual)
-            .Bottom(new VStack(editor.Scrollable(), suggestionStrip.Visual, status.Visual).Spacing(0)
-                .Margin(new Thickness(0, 1, 0, 0)))
-            .HorizontalAlignment(Align.Stretch)
-            .VerticalAlignment(Align.Stretch);
-        root.SetStyle(Theme.Key, Theme.Default);
+        transcript.Bind(session);
+        BindStatusBarToEngine(status, transcript, session);
 
         editor.Accepted((_, e) =>
         {
@@ -114,7 +160,7 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
                 switch (command)
                 {
                     case "/new":
-                        _ = NewSessionAsync(transcript);
+                        _ = NavigateToNewAsync();
                         break;
                     case "/sessions":
                         ShowSessionsDialog(transcript, editor);
@@ -134,7 +180,7 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
 
             if (SlashCommands.MatchSkill(text) is { } skillMatch)
             {
-                _ = LoadSkillAsync(skillMatch.SkillName, skillMatch.Prompt, transcript);
+                _ = LoadSkillAsync(session, skillMatch.SkillName, skillMatch.Prompt, transcript);
                 return;
             }
 
@@ -149,47 +195,51 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
                 return;
             }
 
-            if (_session.State.IsRunning)
+            if (session.State.IsRunning)
             {
-                _session.EnqueueSteering(new UserMessage { Content = text });
+                session.EnqueueSteering(new UserMessage { Content = text });
                 transcript.AddUserMessage($"[queued · steering] {text}");
                 return;
             }
 
             transcript.AddUserMessage(text);
-            _session.SubmitPrompt(text);
+            session.SubmitPrompt(text);
         });
 
-        editor.Canceled((_, _) => _session.Cancel());
+        editor.Canceled((_, _) => session.Cancel());
 
-        return (root, editor);
-    }
+        var modelMarkup = new Markup(
+            $"[dim]{FormatModel(session.State.ProviderName, session.State.Model)}[/]")
+        {
+            Wrap = false,
+        };
+        session.StateChanged += s =>
+            modelMarkup.Text = $"[dim]{FormatModel(s.ProviderName, s.Model)}[/]";
 
-    public void Run()
-    {
-        using var terminal = Terminal.Open();
-        var (root, _) = BuildRoot();
-        // ToastHost overlays transient notifications (used by
-        // SelectionCopyHost to confirm auto-copies); SelectionCopyHost wires
-        // mouse drag-select / double-click → clipboard auto-copy.
-        var toastHost = new ToastHost(new SelectionCopyHost(root));
-        // Workaround for a XenoAtom.Terminal.UI 3.8.1 ToastHost bug: without
-        // it, a toast shown after the previous one fully expired is dismissed
-        // instantly. Remove when the upstream fix ships and NuGet is bumped.
-        ToastHostSentinel.Install(toastHost);
-        Terminal.Run(toastHost, () => TerminalLoopResult.Continue);
+        var header = new Header
+        {
+            Left = new Markup("[bold]phi[/]") { Wrap = false },
+            Right = modelMarkup,
+        };
+
+        var root = new DockLayout()
+            .Top(header)
+            .Content(transcript.Visual)
+            .Bottom(new VStack(editor.Scrollable(), suggestionStrip.Visual, status.Visual).Spacing(0)
+                .Margin(new Thickness(0, 1, 0, 0)))
+            .HorizontalAlignment(Align.Stretch)
+            .VerticalAlignment(Align.Stretch);
+        root.SetStyle(Theme.Key, Theme.Default);
+
+        return root;
     }
 
     // ──────── Engine bindings ────────
 
-    private void BindTranscriptToSession(ChatTranscript transcript)
+    private void BindStatusBarToEngine(
+        PhiStatusBar status, ChatTranscript transcript, ISession session)
     {
-        transcript.Bind(_session);
-    }
-
-    private void BindStatusBarToEngine(PhiStatusBar status, ChatTranscript transcript)
-    {
-        _session.StateChanged += s =>
+        session.StateChanged += s =>
         {
             status.Running.Value = s.IsRunning;
             status.QueuedCount.Value = s.SteeringCount + s.FollowUpCount;
@@ -213,18 +263,18 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
             }
         };
 
-        _session.HarnessEvent += e =>
+        session.HarnessEvent += e =>
         {
             if (e is HarnessErrorEvent he)
                 RouteError(status, transcript, he.Message);
         };
 
-        status.Running.Value = _session.State.IsRunning;
-        status.QueuedCount.Value = _session.State.SteeringCount + _session.State.FollowUpCount;
-        status.UpdateStats(_session.State.Stats);
-        status.UpdateContext(_session.State.ContextUsedTokens, _session.State.AutoCompactThreshold);
-        status.UpdateModel(_session.State.ProviderName, _session.State.Model);
-        if (_session.State.LastError is { Length: > 0 } initial)
+        status.Running.Value = session.State.IsRunning;
+        status.QueuedCount.Value = session.State.SteeringCount + session.State.FollowUpCount;
+        status.UpdateStats(session.State.Stats);
+        status.UpdateContext(session.State.ContextUsedTokens, session.State.AutoCompactThreshold);
+        status.UpdateModel(session.State.ProviderName, session.State.Model);
+        if (session.State.LastError is { Length: > 0 } initial)
             RouteError(status, transcript, initial);
     }
 
@@ -255,11 +305,12 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
     /// model's response streams in. Unknown skills surface an info line
     /// instead of crashing.
     /// </summary>
-    private async Task LoadSkillAsync(string name, string? prompt, ChatTranscript transcript)
+    private static async Task LoadSkillAsync(
+        ISession session, string name, string? prompt, ChatTranscript transcript)
     {
         try
         {
-            var content = await _session.LoadSkillAsync(name, prompt);
+            var content = await session.LoadSkillAsync(name, prompt);
             transcript.AddUserMessage(content);
             transcript.ResetRenderedCount();
         }
@@ -272,23 +323,27 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
     // ──────── /new ────────
 
     /// <summary>
-    /// Starts a fresh session: the session swaps itself in place to a new
-    /// empty record and the transcript is rebuilt empty. The status bar
-    /// keeps the current provider/model (the user is already connected).
+    /// Navigates to a fresh session. The navigator rebuilds the page for the
+    /// new (blank) session, keeping the current provider/model.
     /// </summary>
-    private async Task NewSessionAsync(ChatTranscript transcript)
+    private async Task NavigateToNewAsync()
     {
-        transcript.ClearAndLoad([]);
-        await _session.NewSession();
-        _lastRoutedError = null;
-        transcript.AddInfo("New session started");
+        try
+        {
+            await _navigator.NavigateAsync(new NewSessionRoute());
+            Transcript?.AddInfo("New session started");
+        }
+        catch (Exception ex)
+        {
+            Transcript?.AddInfo($"Failed to start new session: {ex.Message}");
+        }
     }
 
     // ──────── /sessions dialog ────────
 
     private void ShowSessionsDialog(ChatTranscript transcript, PromptEditor editor)
     {
-        var sessions = _session.ListRecentSessions(7);
+        var sessions = _navigator.ListRecentSessions(7);
         if (sessions.Count == 0)
         {
             transcript.AddInfo("No sessions in the last 7 days");
@@ -306,7 +361,7 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
 
             if (list.Parent is Dialog d) d.Close();
             transcript.ResetRenderedCount();
-            _ = _session.ResumeSession(target.Id);
+            _ = NavigateToSessionAsync(target.Id);
         });
 
         var dialog = new Dialog(new Markup("[bold]Sessions (last 7 days)[/]"), list)
@@ -324,6 +379,22 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
             }
         };
         dialog.Show();
+    }
+
+    /// <summary>
+    /// Navigates to an indexed session (<c>/sessions/:id</c>). An unknown id
+    /// surfaces an info line instead of disturbing the current session.
+    /// </summary>
+    private async Task NavigateToSessionAsync(string sessionId)
+    {
+        try
+        {
+            await _navigator.NavigateAsync(new ExistingSessionRoute(sessionId));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Transcript?.AddInfo(ex.Message);
+        }
     }
 
     /// <summary>
@@ -376,7 +447,7 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         foreach (var entry in _providers.Providers)
         {
             var label = FormatProviderLabel(
-                entry, _session.State.ProviderName, _providers.HasApiKey(entry), _session.State.Model);
+                entry, Session.State.ProviderName, _providers.HasApiKey(entry), Session.State.Model);
             list.Items.Add(new OptionListItem(label));
         }
 
@@ -447,7 +518,7 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         ProviderCatalogEntry entry, string apiKey, string model, ChatTranscript transcript)
     {
         var provider = _providers.CreateProvider(entry, apiKey);
-        _session.SwitchProvider(provider, entry.Name, model);
+        Session.SwitchProvider(provider, entry.Name, model);
         _providers.SaveDefault(entry, model);
         transcript.AddInfo($"Connected to {entry.Name} · {model}");
     }
@@ -498,7 +569,7 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
     private void ShowModelsDialog(ChatTranscript transcript, PromptEditor editor)
     {
         var providers = BuildModelPickerProviders(
-            _providers.Providers, _session.State.ProviderName, _providers.HasApiKey);
+            _providers.Providers, Session.State.ProviderName, _providers.HasApiKey);
         if (providers.Count == 0)
         {
             transcript.AddInfo("No provider connected. Run /connect first.");
@@ -506,7 +577,7 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
         }
 
         var (items, map) = BuildModelPicker(
-            providers, _session.State.ProviderName, _session.State.Model);
+            providers, Session.State.ProviderName, Session.State.Model);
         var list = new OptionList<OptionListItem>().ActivateOnClick(true);
         foreach (var item in items)
             list.Items.Add(new OptionListItem(item.Label) { IsEnabled = item.IsEnabled });
@@ -543,9 +614,9 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
     /// </summary>
     private void SwitchToModel(ProviderCatalogEntry entry, string model, ChatTranscript transcript)
     {
-        if (entry.Name.Equals(_session.State.ProviderName, StringComparison.OrdinalIgnoreCase))
+        if (entry.Name.Equals(Session.State.ProviderName, StringComparison.OrdinalIgnoreCase))
         {
-            _session.SwitchModel(model);
+            Session.SwitchModel(model);
             _providers.SaveDefault(entry, model);
             transcript.AddInfo($"Model: {model}");
             return;
@@ -632,14 +703,6 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
 
     // ──────── Slash completion ────────
 
-    private readonly SlashCommandProvider _slashProvider = new();
-    private SkillSuggestionProvider? _skillProvider;
-
-    private void EnsureSkillProvider()
-    {
-        _skillProvider ??= new SkillSuggestionProvider(_session.Skills);
-    }
-
     private PromptEditorCompletion CompleteSlashCommand(in PromptEditorCompletionRequest request)
     {
         var snapshot = request.Snapshot;
@@ -648,8 +711,7 @@ public sealed class PhiTuiApp(ISession session, ProviderManager? providers = nul
 
         // Same tokenizer/filter as the suggestion strip, so Tab completion and
         // the live strip always agree.
-        EnsureSkillProvider();
-        var match = _slashProvider.GetSuggestion(text, caret)
+        var match = new SlashCommandProvider().GetSuggestion(text, caret)
             ?? _skillProvider!.GetSuggestion(text, caret);
         if (match is null)
             return new PromptEditorCompletion(false, null, 0, 0);

@@ -91,8 +91,11 @@ public class CodingSessionFactoryTests : IDisposable
     }
 
     [Test]
-    public async Task Resume_ExplicitConfigModel_OverridesRecord()
+    public async Task Resume_ExplicitConfigModel_Ignored_RecordWins()
     {
+        // Resume is environment-only: the recorded model always wins over
+        // whatever the config carries (there are no --model/--provider CLI
+        // flags yet; explicit overrides can be added as real parameters).
         var factory = _factory;
         var stored = CodingSession.Create(_cwd, "record-model");
         stored.AppendMessage(new UserMessage { Content = "x" });
@@ -104,7 +107,7 @@ public class CodingSessionFactoryTests : IDisposable
         };
         var resumed = factory.Resume(config, storedId);
 
-        await Assert.That(resumed.State.Model).IsEqualTo("override-model");
+        await Assert.That(resumed.State.Model).IsEqualTo("record-model");
     }
 
     [Test]
@@ -290,76 +293,6 @@ public class CodingSessionFactoryTests : IDisposable
         // would fire, but the initial state is what matters most — the
         // TUI's first paint is driven by it.
         await Assert.That(seen.Count).IsEqualTo(0); // no event yet (no turn run)
-    }
-
-    [Test]
-    public async Task HotSwitch_ResumeSession_RebuildsProviderAndState()
-    {
-        // Regression for the reported bug: after /sessions hot switch, the
-        // status bar must show the target session's provider/model, and the
-        // live HTTP provider must be rebuilt from the target record — not
-        // kept as the current session's.
-        var providerA = new RecordingProvider();
-        var providerB = new RecordingProvider();
-        _resolver.Providers["provider-a"] = providerA;
-        _resolver.Providers["provider-b"] = providerB;
-
-        var sessionA = _factory.Create(new SessionConfig
-        {
-            Cwd = _cwd,
-            Provider = null,
-            ProviderName = "provider-a",
-            Model = "model-a",
-            MaxTurns = 5,
-            Tools = [],
-        });
-        sessionA.AppendMessage(new UserMessage { Content = "in a" });
-
-        var sessionB = CodingSession.Create(_cwd, "model-b", providerName: "provider-b");
-        sessionB.AppendMessage(new UserMessage { Content = "in b" });
-
-        // Hot switch from A to B (same ISession object adopts B).
-        await ((ISession)sessionA).ResumeSession(sessionB.Id);
-
-        await Assert.That(sessionA.State.SessionId).IsEqualTo(sessionB.Id);
-        await Assert.That(sessionA.State.ProviderName).IsEqualTo("provider-b");
-        await Assert.That(sessionA.State.Model).IsEqualTo("model-b");
-        await Assert.That(_resolver.Lookups).Contains("provider-b");
-    }
-
-    [Test]
-    public async Task HotSwitch_ResumeSession_StateChangedCarriesNewProvider()
-    {
-        // The TUI binds the status bar to StateChanged; a hot switch must
-        // emit a state whose ProviderName/Model differ from the previous
-        // session. Without this, the status bar would freeze on the old
-        // provider/model (the reported symptom).
-        _resolver.Providers["provider-a"] = new RecordingProvider();
-        _resolver.Providers["provider-b"] = StubProvider.Echo(StubProvider.TextTurn("ok"));
-
-        var sessionA = _factory.Create(new SessionConfig
-        {
-            Cwd = _cwd,
-            Provider = null,
-            ProviderName = "provider-a",
-            Model = "model-a",
-            MaxTurns = 5,
-            Tools = [],
-        });
-        sessionA.AppendMessage(new UserMessage { Content = "a" });
-
-        var sessionB = CodingSession.Create(_cwd, "model-b", providerName: "provider-b");
-        sessionB.AppendMessage(new UserMessage { Content = "b" });
-
-        var states = new List<SessionState>();
-        sessionA.StateChanged += s => states.Add(s);
-
-        await ((ISession)sessionA).ResumeSession(sessionB.Id);
-
-        // The last emitted state carries the new provider/model.
-        await Assert.That(states).IsNotEmpty();
-        await Assert.That(states[^1].ProviderName).IsEqualTo("provider-b");
-        await Assert.That(states[^1].Model).IsEqualTo("model-b");
     }
 
     private static async Task WaitForAsync(Func<bool> condition, int timeoutMs = 5000)

@@ -41,7 +41,7 @@ public class PhiTuiAppProviderTests : IDisposable
         _ => null);
 
     private static PhiCoding.Tui.PhiTuiApp CreateApp(MockSession session, ProviderManager manager) =>
-        new(session, manager);
+        new(new FakeSessionNavigator(session), manager);
 
     private static int TranscriptItems(ChatTranscript transcript) =>
         ((DocumentFlow)transcript.Visual).Items.Count;

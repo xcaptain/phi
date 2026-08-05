@@ -9,8 +9,9 @@ namespace PhiCoding.Tests;
 /// <summary>
 /// Runtime behavior of <see cref="CodingSession"/>: lazy persistence
 /// (a fresh session writes nothing until its first message), provider
-/// injection via <see cref="SessionConfig"/>, per-message durability
-/// during a run, and adopt-replacement resume semantics.
+/// injection via <see cref="SessionConfig"/>, and per-message durability
+/// during a run. Session switching is owned by
+/// <see cref="PhiCoding.Sessions.SessionNavigator"/> (see SessionNavigatorTests).
 /// </summary>
 [NotInParallel("session-tests")]
 public class CodingSessionRuntimeTests : IDisposable
@@ -163,130 +164,10 @@ public class CodingSessionRuntimeTests : IDisposable
             loaded.OfType<AssistantMessage>().Any(m => m.Text == "done")).IsTrue();
     }
 
-    // ──────────────────── Resume (adopt-replacement) ────────────────────
-
-    [Test]
-    public async Task ResumeSession_SwapsMessagesAndIdentity()
-    {
-        var session = _factory.Create(
-            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
-
-        var target = CodingSession.Create(_cwd, "m", title: "target");
-        target.AppendMessage(new UserMessage { Content = "old conversation" });
-
-        await ((ISession)session).ResumeSession(target.Id);
-
-        await Assert.That(session.State.SessionId).IsEqualTo(target.Id);
-        await Assert.That(session.State.SessionTitle).IsEqualTo("target");
-        await Assert.That(session.State.Messages.Count).IsEqualTo(1);
-        await Assert.That(
-            ((UserMessage)session.State.Messages[0]).Text).IsEqualTo("old conversation");
-    }
-
-    [Test]
-    public async Task ResumeSession_NewAppendsLandInTargetFile()
-    {
-        // Regression: previously resume swapped the record but kept the old
-        // storage, leaking new messages into the previous session's file.
-        var session = _factory.Create(
-            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
-        session.AppendMessage(new UserMessage { Content = "mine" });
-        var originalId = session.Id;
-
-        var target = CodingSession.Create(_cwd, "m");
-        target.AppendMessage(new UserMessage { Content = "theirs" });
-
-        await ((ISession)session).ResumeSession(target.Id);
-        session.AppendMessage(new UserMessage { Content = "after resume" });
-
-        var targetMessages = CodingSession.Resume(target.Id, _cwd).LoadMessages();
-        await Assert.That(targetMessages.OfType<UserMessage>().Select(m => m.Text))
-            .IsEquivalentTo(["theirs", "after resume"]);
-
-        var originalMessages = CodingSession.Resume(originalId, _cwd).LoadMessages();
-        await Assert.That(originalMessages.OfType<UserMessage>().Select(m => m.Text))
-            .IsEquivalentTo(["mine"]);
-    }
-
-    [Test]
-    public async Task ResumeSession_WhileRunning_CancelsRunThenSwitches()
-    {
-        var gate = new TaskCompletionSource(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        var sessionA = _factory.Create(
-            ConfigWith(StubProvider.FirstCallBlocks(gate, "unblocked")));
-        var sessionA_originalId = sessionA.Id;
-        var sessionB = CodingSession.Create(_cwd, "m");
-        sessionB.AppendMessage(new UserMessage { Content = "existing b" });
-
-        sessionA.SubmitPrompt("prompt a");
-        await WaitForAsync(() => sessionA.State.IsRunning);
-
-        await ((ISession)sessionA).ResumeSession(sessionB.Id);
-
-        await Assert.That(sessionA.State.IsRunning).IsFalse();
-        await Assert.That(sessionA.State.SessionId).IsEqualTo(sessionB.Id);
-
-        // Prompt A flushed to old session file before cancel
-        var manager = new SessionManager(_cwd);
-        var oldFile = manager.SessionFileFor(sessionA_originalId);
-        await Assert.That(File.ReadAllText(oldFile).Contains("prompt a")).IsTrue();
-
-        // Session B file unchanged by the resume
-        var bMessages = CodingSession.Resume(sessionB.Id, _cwd).LoadMessages();
-        await Assert.That(bMessages.OfType<UserMessage>().Select(m => m.Text))
-            .IsEquivalentTo(["existing b"]);
-    }
-
-    [Test]
-    public async Task ResumeSession_UnknownId_SetsErrorState()
-    {
-        var session = _factory.Create(
-            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
-
-        await ((ISession)session).ResumeSession("does-not-exist");
-
-        await Assert.That(session.State.LastError).IsNotNull();
-    }
-
-    [Test]
-    public async Task NewSession_StartsFreshEmptyUnpersistedSession()
-    {
-        var session = _factory.Create(
-            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
-        session.SubmitPrompt("first conversation");
-        await WaitForAsync(() => !session.State.IsRunning);
-        var oldId = session.Id;
-        await Assert.That(session.State.Messages).IsNotEmpty();
-
-        await ((ISession)session).NewSession();
-
-        await Assert.That(session.Id).IsNotEqualTo(oldId);
-        await Assert.That(session.State.SessionId).IsEqualTo(session.Id);
-        await Assert.That(session.State.Messages).IsEmpty();
-        await Assert.That(session.State.IsPersisted).IsFalse();
-        // Provider/model carry over: the user stays connected, just a
-        // blank conversation.
-        await Assert.That(session.State.Model).IsEqualTo("stub-model");
-        await Assert.That(File.Exists(SessionPaths.SessionFileFor(_cwd, session.Id))).IsFalse();
-    }
-
-    [Test]
-    public async Task NewSession_CanSubmitPromptAfterwards()
-    {
-        var session = _factory.Create(
-            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
-        session.SubmitPrompt("old");
-        await WaitForAsync(() => !session.State.IsRunning);
-
-        await ((ISession)session).NewSession();
-
-        session.SubmitPrompt("new");
-        await WaitForAsync(() => !session.State.IsRunning);
-
-        await Assert.That(session.State.Messages.OfType<UserMessage>().Any(u => u.Text == "new")).IsTrue();
-        await Assert.That(session.State.Messages.OfType<UserMessage>().Any(u => u.Text == "old")).IsFalse();
-    }
+    // ──────────────────── Navigation ────────────────────
+    // Session switching (new / resume) is owned by SessionNavigator — see
+    // SessionNavigatorTests. These runtime tests cover the factory-level
+    // resume path only.
 
     [Test]
     public async Task LoadSkill_SubmitsSkillAsPrompt_AndRunsTurn()
@@ -527,29 +408,6 @@ public class CodingSessionRuntimeTests : IDisposable
         await Assert.That(resumed.State.Stats.InputTokens).IsEqualTo(100 + 10 + 30);
         await Assert.That(resumed.State.Stats.OutputTokens).IsEqualTo(40 + 15);
         await Assert.That(resumed.State.Stats.TotalTokens).IsEqualTo(150 + 45);
-    }
-
-    [Test]
-    public async Task ResumeViaResumeSession_RecoversCumulativeStats()
-    {
-        // In-place resume (popup flow) must also surface the loaded stats.
-        var stored = CodingSession.Create(_cwd, "m");
-        stored.AppendMessage(new UserMessage { Content = "hi" });
-        stored.AppendMessage(new AssistantMessage
-        {
-            Content = [new TextBlock("hello")],
-            Usage = new Usage { Input = 10, Output = 5, TotalTokens = 15 },
-            StopReason = StopReasons.Stop,
-        });
-
-        var live = _factory.Create(
-            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))));
-
-        await ((ISession)live).ResumeSession(stored.Id);
-
-        await Assert.That(live.State.Stats.TurnCount).IsEqualTo(1);
-        await Assert.That(live.State.Stats.InputTokens).IsEqualTo(10);
-        await Assert.That(live.State.Stats.OutputTokens).IsEqualTo(5);
     }
 
     [Test]

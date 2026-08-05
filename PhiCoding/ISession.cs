@@ -4,15 +4,20 @@ using PhiCoding.Prompts;
 namespace PhiCoding;
 
 /// <summary>
-/// Session contract. Frontends bind to state changes via
-/// <see cref="StateChanged"/> and <see cref="HarnessEvent"/>, and dispatch
-/// user actions through the action methods.
+/// Session contract for a single conversation. Frontends bind to state
+/// changes via <see cref="StateChanged"/> and <see cref="HarnessEvent"/>, and
+/// dispatch user actions through the action methods.
+/// <para>
+/// Session <em>switching</em> is not part of this contract — navigating
+/// between sessions (new / resume) is owned by
+/// <see cref="Sessions.ISessionNavigator"/>, which disposes the outgoing
+/// session.
+/// </para>
 /// <para>
 /// Implementing <see cref="IDisposable"/> signals the session owns scoped
-/// resources (notably the in-flight run's <see cref="CancellationTokenSource"/>).
-/// Dispose cancels any active run, awaits it briefly, and releases the
-/// cancellation source. Frontends should dispose when the session's
-/// lifecycle ends (e.g. TUI exit, switching to another session).
+/// resources (notably the in-flight run's <see cref="CancellationTokenSource"/>
+/// and the provider's HTTP transport). Dispose cancels any active run,
+/// awaits it briefly, and releases the cancellation source.
 /// </para>
 /// </summary>
 public interface ISession : IDisposable
@@ -32,8 +37,6 @@ public interface ISession : IDisposable
     void EnqueueSteering(UserMessage message);
     void EnqueueFollowUp(UserMessage message);
     void RenameSession(string? title);
-    Task ResumeSession(string sessionId);
-    Task NewSession();
     /// <summary>
     /// Loads a skill's <c>SKILL.md</c> into the conversation and starts a run
     /// so the model acts on it immediately (bare <c>/skill:NAME</c> runs the
@@ -41,7 +44,6 @@ public interface ISession : IDisposable
     /// Returns the submitted message content so frontends can render it.
     /// </summary>
     Task<string> LoadSkillAsync(string name, string? prompt = null);
-    IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7);
 
     /// <summary>
     /// Switches the active model within the current provider. Applies to the

@@ -1,4 +1,3 @@
-using System.Diagnostics.CodeAnalysis;
 using PhiAgent;
 using PhiCoding.Prompts;
 using PhiCoding.Providers;
@@ -13,17 +12,23 @@ namespace PhiCoding.Sessions;
 /// how the session record, transcript, and live provider are sourced:
 /// <list type="bullet">
 ///   <item><see cref="Create"/> allocates a fresh, unpersisted session
-///   using the <see cref="IPhiProvider"/> passed in the config.</item>
+///   using <see cref="SessionConfig.ProviderName"/>/<see cref="SessionConfig.Model"/>
+///   (or the injected <see cref="IProviderResolver"/> default when no live
+///   provider is supplied).</item>
 ///   <item><see cref="Resume"/> opens an indexed session, replays its
 ///   stored transcript into the harness, and rebuilds the live provider
 ///   from the session record's provider name (via the injected
 ///   <see cref="IProviderResolver"/>) so a session carrying a different
 ///   provider than the startup default comes back to life with the right
-///   API key, base URL, and HTTP transport.</item>
+///   API key, base URL, and HTTP transport. The record always wins:
+///   <see cref="SessionConfig.Model"/> and
+///   <see cref="SessionConfig.ProviderName"/> are ignored on resume — the
+///   config only supplies the environment (<see cref="SessionConfig.Cwd"/>,
+///   tools, prompt, compaction knobs). An explicit live
+///   <see cref="SessionConfig.Provider"/> is honored over the resolver
+///   (test/DI escape hatch only).</item>
 /// </list>
 /// </summary>
-[SuppressMessage("Performance", "CA1822",
-    Justification = "Factory facade; instance members stay swappable/injectable for future MCP runtime")]
 public sealed class CodingSessionFactory
 {
     private readonly IProviderResolver _resolver;
@@ -39,15 +44,15 @@ public sealed class CodingSessionFactory
     /// the id is allocated eagerly but nothing touches disk until the first
     /// message. Uses the live <see cref="IPhiProvider"/> from
     /// <see cref="SessionConfig.Provider"/> when supplied; otherwise
-    /// resolves the default provider via the injected
-    /// <see cref="IProviderResolver"/>.
+    /// resolves the provider named by <see cref="SessionConfig.ProviderName"/>
+    /// via the injected <see cref="IProviderResolver"/> (an empty name falls
+    /// through to the default provider).
     /// </summary>
     public CodingSession Create(SessionConfig config)
     {
         ArgumentNullException.ThrowIfNull(config);
         var session = CodingSession.Create(
             config.Cwd, config.Model, providerName: config.ProviderName);
-        session.BindResolver(_resolver);
         var provider = config.Provider ?? _resolver.Resolve(config.ProviderName);
         session.ApplyRuntime(
             BuildRuntime(config, provider, config.Model, config.ProviderName));
@@ -57,36 +62,20 @@ public sealed class CodingSessionFactory
     /// <summary>
     /// Opens an indexed session with a full runtime. The stored transcript
     /// is loaded into the harness so the conversation continues where it
-    /// left off. The session record's provider/model win by default; the
-    /// config's <see cref="SessionConfig.Model"/> /
-    /// <see cref="SessionConfig.ProviderName"/> /
-    /// <see cref="SessionConfig.Provider"/> act as explicit overrides when
-    /// non-empty/non-null. Throws <see cref="InvalidOperationException"/>
-    /// when the id is unknown.
+    /// left off. The session record's provider and model win; the config
+    /// only supplies the environment. An explicit live
+    /// <see cref="SessionConfig.Provider"/> (if any) takes precedence over
+    /// the provider rebuilt from the record's name. Throws
+    /// <see cref="InvalidOperationException"/> when the id is unknown.
     /// </summary>
     public CodingSession Resume(SessionConfig config, string id)
     {
         ArgumentNullException.ThrowIfNull(config);
         var session = CodingSession.Resume(id, config.Cwd);
-        session.BindResolver(_resolver);
 
-        var providerName = string.IsNullOrEmpty(config.ProviderName)
-            ? session.Record.ProviderName
-            : config.ProviderName;
-        var model = string.IsNullOrEmpty(config.Model)
-            ? session.Record.Model
-            : config.Model;
-        // Provider priority: explicit config.Provider > record's name via
-        // resolver > default. The composition root passes null on the CLI
-        // resume path so the recorded provider (not the startup default)
-        // comes back to life.
-        IPhiProvider provider = config.Provider
-            ?? _resolver.Resolve(
-                string.IsNullOrEmpty(config.ProviderName)
-                    ? session.Record.ProviderName
-                    : config.ProviderName);
-
-        var runtime = BuildRuntime(config, provider, model, providerName);
+        var provider = config.Provider ?? _resolver.Resolve(session.Record.ProviderName);
+        var runtime = BuildRuntime(
+            config, provider, session.Record.Model, session.Record.ProviderName);
         runtime.Harness.ReplaceMessages(session.LoadMessages());
         session.ApplyRuntime(runtime);
         return session;

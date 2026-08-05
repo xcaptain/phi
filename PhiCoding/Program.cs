@@ -1,14 +1,11 @@
-using PhiAgent;
 using PhiCoding;
-using PhiCoding.Prompts;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
 using PhiCoding.Tui;
-using PhiProvider;
 
 // ──────── CLI args ────────
-// phi                  → fresh session (persisted lazily on first message)
-// phi --session <id>   → resume an indexed session
+// phi                  → /sessions/new (fresh session, persisted lazily)
+// phi --session <id>   → /sessions/:id (resume an indexed session)
 string? resumeSessionId = null;
 for (var i = 0; i < args.Length; i++)
 {
@@ -39,62 +36,34 @@ if (File.Exists(".env"))
     }
 }
 
-// Composition root: resolve the default provider from settings, build the
-// runtime provider from its API key (env var → credential store), and hand it
-// to the session. The TUI also receives the ProviderManager so /connect and
-// /models can switch provider/model at runtime.
+// Composition root: wire the provider manager (catalog + credentials +
+// settings) into a session factory and a navigator, pick the startup route
+// from the CLI, and hand the navigator to the TUI. Provider construction is
+// entirely the factory's job — it resolves the provider from the config name
+// via the manager and falls back to a no-op provider when no API key exists
+// (so the TUI can open and prompt for /connect).
 var providerManager = new ProviderManager();
+var factory = new CodingSessionFactory(providerManager);
 var defaultProvider = providerManager.ResolveDefaultProvider();
-var defaultModel = providerManager.ResolveDefaultModel(defaultProvider);
 
-IPhiProvider provider;
-if (providerManager.ResolveApiKey(defaultProvider) is { } apiKey)
-{
-    provider = providerManager.CreateProvider(defaultProvider, apiKey);
-}
-else
-{
-    // No key for the default provider yet: start with a placeholder so the
-    // TUI opens and the user can run /connect instead of failing hard.
-    provider = new NullProvider();
-}
-
-var config = new SessionConfig
+// Environment for any session: cwd, prompt, tools, compaction knobs. On a
+// fresh session the default provider/model apply; on resume the session
+// record's provider/model win (the config only supplies the environment).
+var env = new SessionConfig
 {
     Cwd = Environment.CurrentDirectory,
-    Provider = provider,
     ProviderName = defaultProvider.Name,
-    Model = defaultModel,
-    SystemPrompt = new SystemPromptOptions(),
+    Model = providerManager.ResolveDefaultModel(defaultProvider),
 };
 
-var factory = new CodingSessionFactory(providerManager);
-CodingSession session;
+SessionRoute route = resumeSessionId is null
+    ? new NewSessionRoute()
+    : new ExistingSessionRoute(resumeSessionId);
+
+SessionNavigator navigator;
 try
 {
-    if (resumeSessionId is null)
-    {
-        // Fresh: the startup provider (built above from the default name)
-        // is the one the session owns and disposes on exit.
-        session = factory.Create(config);
-    }
-    else
-    {
-        // Resuming: the session record's provider/model win by default so a
-        // later switch is not silently undone by the current default. The
-        // config only overrides when the caller explicitly sets a value
-        // (no --model/--provider CLI flags exist yet, so record wins today).
-        // The factory rebuilds the live provider from record.ProviderName
-        // via the resolver, so API key, base URL, and HTTP transport all
-        // come back to the recorded provider — not the startup default.
-        var resumeConfig = config with
-        {
-            Model = "",
-            ProviderName = "",
-            Provider = null,
-        };
-        session = factory.Resume(resumeConfig, resumeSessionId);
-    }
+    navigator = new SessionNavigator(factory, env, route);
 }
 catch (InvalidOperationException ex)
 {
@@ -102,6 +71,9 @@ catch (InvalidOperationException ex)
     return 1;
 }
 
-using var app = new PhiTuiApp(session, providerManager);
-app.Run();
+using (navigator)
+{
+    var app = new PhiTuiApp(navigator, providerManager);
+    app.Run();
+}
 return 0;

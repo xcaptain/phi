@@ -1,3 +1,4 @@
+using PhiCoding.Providers;
 using PhiCoding.Tests.Helpers;
 
 namespace PhiCoding.Tests;
@@ -8,7 +9,8 @@ public class PhiTuiAppSuggestionTests
     [Test]
     public async Task BuildRoot_WiresSuggestionStrip_WithSlashProvider()
     {
-        var app = new PhiCoding.Tui.PhiTuiApp(new MockSession());
+        var app = new PhiCoding.Tui.PhiTuiApp(
+            new FakeSessionNavigator(new MockSession()), new ProviderManager());
         app.BuildRoot();
 
         await Assert.That(app.SuggestionStrip).IsNotNull();
@@ -17,7 +19,8 @@ public class PhiTuiAppSuggestionTests
     [Test]
     public async Task WiredStrip_UsesSlashCommandProvider()
     {
-        var app = new PhiCoding.Tui.PhiTuiApp(new MockSession());
+        var app = new PhiCoding.Tui.PhiTuiApp(
+            new FakeSessionNavigator(new MockSession()), new ProviderManager());
         app.BuildRoot();
 
         var strip = app.SuggestionStrip!;

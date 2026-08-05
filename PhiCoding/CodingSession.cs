@@ -1,6 +1,5 @@
 using PhiAgent;
 using PhiCoding.Prompts;
-using PhiCoding.Providers;
 using PhiCoding.Resources;
 using PhiCoding.Sessions;
 
@@ -15,7 +14,10 @@ namespace PhiCoding;
 /// <see cref="StateChanged"/> so frontends can react. Implements
 /// <see cref="ISession"/> for UI binding.
 /// <para>
-/// Index bookkeeping is delegated to <see cref="SessionManager"/>.
+/// One instance is exactly one conversation: a fresh session or a resumed
+/// session. Switching sessions is navigation — owned by
+/// <see cref="Sessions.SessionNavigator"/>, which disposes the outgoing
+/// session. Index bookkeeping is delegated to <see cref="SessionManager"/>.
 /// Persistence is lazy: a fresh session holds an allocated id but writes
 /// nothing until the first message (or explicit rename/touch) — see
 /// <see cref="IsPersisted"/>.
@@ -148,32 +150,18 @@ public sealed class CodingSession : ISession
         _persisted = true;
     }
 
-    /// <summary>Indexed sessions of this project, newest first.</summary>
-    public IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7) =>
-        _manager.ListSessions(days);
-
     // ──────── ISession explicit interface bridge ────────
 
     void ISession.RenameSession(string? title) => Rename(title);
 
-    Task ISession.ResumeSession(string sessionId)
-        => ResumeSessionById(sessionId);
-
-    Task ISession.NewSession()
-        => NewSessionAsync();
-
     Task<string> ISession.LoadSkillAsync(string name, string? prompt)
         => LoadSkillAsync(name, prompt);
-
-    IReadOnlyList<SessionRecord> ISession.ListRecentSessions(int days)
-        => ListRecentSessions(days);
 
     // ──────── Runtime (reactive engine state) ────────
 
     private Harness? _harness;
     private IPhiProvider? _provider;
     private string _providerName = "";
-    private IProviderResolver? _resolver;
     private readonly Queue<UserMessage> _steeringQueue = new();
     private readonly Queue<UserMessage> _followUpQueue = new();
     private string _runtimeModel = "";
@@ -218,17 +206,6 @@ public sealed class CodingSession : ISession
     /// <see cref="SessionState"/> is built with the resolved prompt and
     /// tools already in place, so the initial context estimate is correct.
     /// </summary>
-    /// <summary>
-    /// Grants the session access to an <see cref="IProviderResolver"/> so
-    /// the hot-switch path (<c>ISession.ResumeSession</c>) can rebuild the
-    /// live provider from the target record's provider name. Called by
-    /// <see cref="CodingSessionFactory"/> after construction.
-    /// </summary>
-    internal void BindResolver(IProviderResolver resolver)
-    {
-        _resolver = resolver;
-    }
-
     internal void ApplyRuntime(SessionRuntime runtime)
     {
         ArgumentNullException.ThrowIfNull(runtime);
@@ -247,10 +224,8 @@ public sealed class CodingSession : ISession
         _lastMessageCount = runtime.Harness.Messages.Count;
         _runtimeStarted = true;
 
-        // The factory's Resume path doesn't go through ResumeSessionCore,
-        // so it relies on ApplyRuntime to rehydrate the compaction
-        // accumulators from disk. Fresh Create paths have no history to
-        // restore; _persisted is false for them.
+        // Resume paths rehydrate the compaction accumulators from disk;
+        // fresh Create paths have no history to restore (_persisted false).
         if (_persisted)
         {
             RestoreCompactionHistoryFromStorage();
@@ -391,39 +366,21 @@ public sealed class CodingSession : ISession
         _runCts?.Cancel();
     }
 
-    public async Task ResumeSessionById(string sessionId)
+    /// <summary>
+    /// Waits for any in-flight run to fully settle (cancel + finish). Used
+    /// by <see cref="Sessions.SessionNavigator"/> before disposing this
+    /// session on navigation, so the run's finally block (flush, state
+    /// reset) completes before the provider is released. Awaiting a
+    /// completed or absent task is a no-op.
+    /// </summary>
+    internal async Task WaitUntilIdleAsync()
     {
-        ThrowIfNoRuntime();
-
-        // 如果当前有 run 正在进行，先 cancel 并等它完全退出，
-        // 避免 event loop 与 ResumeSessionCore 的 storage/harness 替换产生冲突。
-        // Awaiting a completed task is a no-op, so no IsRunning check is
-        // needed — and the task reference is cleared only after the run
-        // has fully settled (see the finally block in RunAgentCoreAsync).
         var run = _currentRunTask;
         if (run is not null)
         {
             _runCts?.Cancel();
             await run;
         }
-
-        ResumeSessionCore(sessionId);
-    }
-
-    public async Task NewSessionAsync()
-    {
-        ThrowIfNoRuntime();
-
-        // Cancel any in-flight run before swapping the storage/record, for
-        // the same reason ResumeSessionById does.
-        var run = _currentRunTask;
-        if (run is not null)
-        {
-            _runCts?.Cancel();
-            await run;
-        }
-
-        NewSessionCore();
     }
 
     /// <summary>
@@ -556,123 +513,6 @@ public sealed class CodingSession : ISession
         {
             await TryAutoCompactAsync(force: true);
         }
-    }
-
-    /// <summary>
-    /// Adopts another session in place: loads its transcript and swaps
-    /// record + storage, keeping this object's identity (frontends hold a
-    /// single <see cref="ISession"/> reference across resumes). When a
-    /// resolver is bound (via <see cref="BindResolver"/>), the live
-    /// provider is rebuilt from the target record's provider name and the
-    /// runtime model is restored to the record's model — so switching
-    /// sessions switches the actual HTTP transport + auth, not just the
-    /// label.
-    /// </summary>
-    private void ResumeSessionCore(string sessionId)
-    {
-        FlushNewMessages();
-
-        var record = _manager.FindSession(sessionId);
-        if (record is null)
-        {
-            UpdateState(s => s with
-            {
-                LastError = $"Failed to load session '{sessionId}'",
-            });
-            return;
-        }
-
-        List<IAgentMessage> loaded;
-        lock (_lock)
-        {
-            _storage = OpenStorage(_manager, record.Id);
-            Record = record;
-            _persisted = true;
-            loaded = [.. _storage.ReadAll().Select(SessionEntryConverter.ToAgentMessage)];
-        }
-
-        // Rebuild the live provider + runtime model from the target record.
-        // The old provider is disposed unless it's the very same instance
-        // (mirrors SwitchProvider semantics).
-        if (_resolver is not null)
-        {
-            var previous = _provider;
-            var providerName = string.IsNullOrEmpty(record.ProviderName)
-                ? _providerName
-                : record.ProviderName;
-            var newProvider = _resolver.Resolve(providerName);
-            _provider = newProvider;
-            _providerName = providerName;
-            _runtimeModel = string.IsNullOrEmpty(record.Model)
-                ? _runtimeModel
-                : record.Model;
-            _harness!.Provider = newProvider;
-            _harness!.Model = _runtimeModel;
-
-            if (previous is not null && !ReferenceEquals(previous, newProvider))
-                previous.Dispose();
-        }
-
-        _harness!.ReplaceMessages(loaded);
-        _lastMessageCount = loaded.Count;
-        _autoNamed = record.Title is { Length: > 0 };
-        RestoreCompactionHistoryFromStorage();
-
-        UpdateState(s => new SessionState
-        {
-            Messages = loaded,
-            SessionId = record.Id,
-            Model = _runtimeModel,
-            ProviderName = _providerName,
-            SessionTitle = record.Title,
-            IsPersisted = true,
-            Stats = SessionStatsCalculator.WithAddedUsage(
-                SessionStatsCalculator.Calculate(loaded),
-                _accumulatedSummaryUsage),
-            ContextUsedTokens = EstimateContextUsage(loaded),
-            AutoCompactThreshold = _autoCompactThreshold,
-        });
-    }
-
-    /// <summary>
-    /// Replaces this session with a fresh, empty one in place: allocates a
-    /// new unpersisted record, swaps storage, and clears the harness.
-    /// Keeps the current provider + model (the user is already connected;
-    /// /new just starts a blank conversation). Persistence stays lazy — the
-    /// new session hits disk on its first message.
-    /// </summary>
-    private void NewSessionCore()
-    {
-        FlushNewMessages();
-
-        var fresh = _manager.PrepareSession(_runtimeModel, providerName: _providerName);
-        lock (_lock)
-        {
-            _storage = OpenStorage(_manager, fresh.Id);
-            Record = fresh;
-            _persisted = false;
-        }
-
-        _harness!.ReplaceMessages([]);
-        _lastMessageCount = 0;
-        _autoNamed = false;
-
-        UpdateState(s => new SessionState
-        {
-            Messages = [],
-            SessionId = fresh.Id,
-            Model = _runtimeModel,
-            ProviderName = _providerName,
-            SessionTitle = null,
-            IsPersisted = false,
-            Stats = SessionStatsCalculator.Calculate([]),
-            ContextUsedTokens = EstimateContextUsage([]),
-            AutoCompactThreshold = _autoCompactThreshold,
-        });
-        // Fresh session discards any compaction history carried over from
-        // the previous one — file ops and summary usage reset to zero.
-        _lastCompactionDetails = CompactionDetails.Empty;
-        _accumulatedSummaryUsage = new Usage();
     }
 
     private async Task TryAutoCompactAsync(bool force = false)
@@ -877,31 +717,34 @@ public sealed class CodingSession : ISession
     private int _disposed;
 
     /// <summary>
-    /// Cancels any in-flight run, briefly awaits its completion, and
-    /// releases the run's <see cref="CancellationTokenSource"/>. Idempotent
-    /// and thread-safe; intended for the end of the session's lifetime
-    /// (TUI exit, session switch, fixture teardown).
+    /// Cancels any in-flight run, briefly awaits its completion, releases
+    /// the run's <see cref="CancellationTokenSource"/>, and disposes the
+    /// provider (releasing its HTTP transport). The provider is released
+    /// even when no run ever started. Idempotent and thread-safe; intended
+    /// for the end of the session's lifetime (TUI exit, session switch via
+    /// <see cref="Sessions.SessionNavigator"/>, fixture teardown).
     /// </summary>
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
 
         var cts = _runCts;
-        if (cts is null) return;
-
-        try { cts.Cancel(); }
-        catch (ObjectDisposedException) { /* run already cleaned up */ }
-
-        var task = _currentRunTask;
-        if (task is not null && !task.IsCompleted)
+        if (cts is not null)
         {
-            try { task.Wait(TimeSpan.FromSeconds(2)); }
-            catch (AggregateException) { /* expected cancellation */ }
-            catch (Exception) { /* timeout or other — don't block shutdown */ }
-        }
+            try { cts.Cancel(); }
+            catch (ObjectDisposedException) { /* run already cleaned up */ }
 
-        try { cts.Dispose(); }
-        catch (ObjectDisposedException) { /* already disposed by RunAgentCoreAsync */ }
+            var task = _currentRunTask;
+            if (task is not null && !task.IsCompleted)
+            {
+                try { task.Wait(TimeSpan.FromSeconds(2)); }
+                catch (AggregateException) { /* expected cancellation */ }
+                catch (Exception) { /* timeout or other — don't block shutdown */ }
+            }
+
+            try { cts.Dispose(); }
+            catch (ObjectDisposedException) { /* already disposed by RunAgentCoreAsync */ }
+        }
 
         // Release the provider's HTTP transport. NullProvider and fakes are
         // no-ops; real providers dispose their HttpClient here.

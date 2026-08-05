@@ -74,7 +74,7 @@ public sealed class SelectionCopyHost : ContentVisual
         // handledEventsToo is required: Paragraph/TextBlock/Markup all mark
         // PointerReleased as handled when a drag-select finishes, so a plain
         // handler on the root wouldn't see those events.
-        AddHandler(Visual.PointerReleasedEvent, OnPointerReleasedHandledToo, handledEventsToo: true);
+        AddHandler(PointerReleasedEvent, OnPointerReleasedHandledToo, handledEventsToo: true);
     }
 
     private void OnPointerReleasedHandledToo(object? sender, PointerEventArgs e)
