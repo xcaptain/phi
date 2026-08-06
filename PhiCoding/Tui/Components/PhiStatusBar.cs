@@ -3,7 +3,7 @@ using PhiAgent;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Tui;
+namespace PhiCoding.Tui.Components;
 
 /// <summary>
 /// Bottom status bar: spinner + run state on the left, model/cwd/cumulative

@@ -1,14 +1,13 @@
 using PhiCoding.Providers;
 using PhiCoding.Routing;
 using PhiCoding.Sessions;
-using PhiCoding.Tui;
-using PhiCoding.Tui.Inputs;
-using PhiCoding.Tui.ToolCards;
+using PhiCoding.Tui.Components;
+using PhiCoding.Tui.Components.ToolCards;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Styling;
 
-namespace PhiCoding.Pages;
+namespace PhiCoding.Tui.Pages;
 
 /// <summary>
 /// The new-session landing page (<c>/sessions/new</c>): a centered prompt

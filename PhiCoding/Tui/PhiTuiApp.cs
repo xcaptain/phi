@@ -1,4 +1,5 @@
-using PhiCoding.Pages;
+using PhiCoding.Tui.Pages;
+using PhiCoding.Tui.Components;
 using PhiCoding.Providers;
 using PhiCoding.Routing;
 using PhiCoding.Sessions;

@@ -3,11 +3,11 @@ using System.Text;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
 using PhiCoding.Tools.Details;
-using PhiCoding.Tui.ToolCards;
+using PhiCoding.Tui.Components.ToolCards;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Tui;
+namespace PhiCoding.Tui.Components;
 
 /// <summary>
 /// Renders an edit's old/new strings as a side-by-side diff using a single-row

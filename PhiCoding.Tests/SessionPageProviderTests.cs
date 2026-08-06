@@ -1,6 +1,6 @@
-using PhiCoding.Pages;
+using PhiCoding.Tui.Pages;
 using PhiCoding.Providers;
-using PhiCoding.Tui.Inputs;
+using PhiCoding.Tui.Components;
 using PhiCoding.Tests.Helpers;
 using PhiCoding.Tui;
 using XenoAtom.Terminal.UI.Controls;

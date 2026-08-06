@@ -1,4 +1,4 @@
-namespace PhiCoding.Tui;
+namespace PhiCoding.Tui.Components;
 
 /// <summary>
 /// <see cref="ISuggestionProvider"/> for the built-in slash commands: when

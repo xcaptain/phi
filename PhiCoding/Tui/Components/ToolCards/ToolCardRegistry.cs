@@ -1,4 +1,4 @@
-namespace PhiCoding.Tui.ToolCards;
+namespace PhiCoding.Tui.Components.ToolCards;
 
 /// <summary>
 /// Resolves the <see cref="IToolCard"/> implementation for a given tool name.

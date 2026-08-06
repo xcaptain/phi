@@ -1,7 +1,8 @@
 using System.Reflection;
 using PhiAgent;
 using PhiCoding.Tui;
-using PhiCoding.Tui.ToolCards;
+using PhiCoding.Tui.Components;
+using PhiCoding.Tui.Components.ToolCards;
 
 namespace PhiCoding.Tests;
 

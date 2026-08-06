@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
 using PhiAgent;
-using PhiCoding.Tui.ToolCards;
+using PhiCoding.Tui.Components.ToolCards;
 using XenoAtom.Terminal.UI.Rendering;
 
 namespace PhiCoding.Tests.ToolCards;

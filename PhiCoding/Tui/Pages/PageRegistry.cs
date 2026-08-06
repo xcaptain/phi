@@ -1,9 +1,9 @@
 using System.Diagnostics.CodeAnalysis;
-using PhiCoding.Pages;
+using PhiCoding.Routing;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
 
-namespace PhiCoding.Routing;
+namespace PhiCoding.Tui.Pages;
 
 /// <summary>
 /// The routing algorithm: maps an <see cref="AppRoute"/> to the page that

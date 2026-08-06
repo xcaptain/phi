@@ -1,5 +1,6 @@
 using PhiAgent;
 using PhiCoding.Tui;
+using PhiCoding.Tui.Components;
 using PhiCoding.Tests.Helpers;
 using TextBlock = PhiAgent.TextBlock;
 using DocumentFlow = XenoAtom.Terminal.UI.Controls.DocumentFlow;

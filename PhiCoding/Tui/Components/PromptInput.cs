@@ -5,7 +5,7 @@ using PhiCoding.Sessions;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Tui.Inputs;
+namespace PhiCoding.Tui.Components;
 
 /// <summary>Fired after a prompt (typed text or a skill) is submitted.</summary>
 public delegate void PromptSubmittedHandler(string text, bool isSkill);

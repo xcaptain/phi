@@ -1,12 +1,12 @@
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Tui;
+namespace PhiCoding.Tui.Components;
 
 /// <summary>
 /// Builds the fixed header chrome: the phi logo on the left, the session's
 /// provider/model on the right (updated reactively via <see cref="ISession.StateChanged"/>).
-/// Shared by <see cref="PhiCoding.Pages.SessionPage"/> and the new-session
+/// Shared by <see cref="PhiCoding.Tui.Pages.SessionPage"/> and the new-session
 /// landing page since both render the same chrome.
 /// </summary>
 public static class ChatHeader

@@ -1,4 +1,4 @@
-using PhiCoding.Pages;
+using PhiCoding.Tui.Pages;
 using PhiCoding.Providers;
 using PhiCoding.Routing;
 using PhiCoding.Tests.Helpers;

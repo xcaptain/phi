@@ -1,10 +1,11 @@
+using PhiCoding.Routing;
 using XenoAtom.Terminal.UI;
 
-namespace PhiCoding.Pages;
+namespace PhiCoding.Tui.Pages;
 
 /// <summary>
-/// A route-bound screen. The <see cref="Routing.PageRegistry"/> resolves an
-/// <see cref="Routing.AppRoute"/> to a page; the page builds its own view and
+/// A route-bound screen. The <see cref="PageRegistry"/> resolves an
+/// <see cref="AppRoute"/> to a page; the page builds its own view and
 /// view state and renders them via <see cref="Build"/>.
 /// <para>
 /// Focus after mounting is not a page contract: pages mark their default

@@ -1,13 +1,13 @@
 using System.Text;
 using PhiAgent;
 using PhiCoding.Resources;
-using PhiCoding.Tui.ToolCards;
+using PhiCoding.Tui.Components.ToolCards;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Extensions.Markdown;
 using XenoAtom.Terminal.UI.Geometry;
 
-namespace PhiCoding.Tui;
+namespace PhiCoding.Tui.Components;
 
 /// <summary>
 /// The scrolling conversation view: a <see cref="DocumentFlow"/> of chat cards.

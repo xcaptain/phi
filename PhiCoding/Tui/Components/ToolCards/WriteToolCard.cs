@@ -3,7 +3,7 @@ using PhiAgent;
 using PhiCoding.Tools.Details;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Tui.ToolCards;
+namespace PhiCoding.Tui.Components.ToolCards;
 
 /// <summary>
 /// Card for <c>write</c>: title carries the path + bytes/mode summary, body is

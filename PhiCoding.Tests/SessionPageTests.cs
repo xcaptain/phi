@@ -1,8 +1,9 @@
-using PhiCoding.Pages;
+using PhiCoding.Tui.Pages;
 using PhiCoding.Providers;
 using PhiCoding.Routing;
 using PhiCoding.Tests.Helpers;
 using PhiCoding.Tui;
+using PhiCoding.Tui.Components;
 using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tests;

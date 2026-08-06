@@ -5,7 +5,7 @@ using PhiCoding.Tools.Details;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Tui.ToolCards;
+namespace PhiCoding.Tui.Components.ToolCards;
 
 /// <summary>
 /// Single-line card for <c>read</c>: no body, no placeholder, just a title that

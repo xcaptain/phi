@@ -1,4 +1,4 @@
-using PhiCoding.Tui.ToolCards;
+using PhiCoding.Tui.Components.ToolCards;
 
 namespace PhiCoding.Tests.Tui;
 

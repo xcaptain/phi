@@ -1,4 +1,4 @@
-using PhiCoding.Tui.Inputs;
+using PhiCoding.Tui.Components;
 using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tests;

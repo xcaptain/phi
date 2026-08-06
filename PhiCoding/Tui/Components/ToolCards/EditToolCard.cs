@@ -2,7 +2,7 @@ using System.Text.Json.Nodes;
 using PhiAgent;
 using PhiCoding.Tools.Details;
 
-namespace PhiCoding.Tui.ToolCards;
+namespace PhiCoding.Tui.Components.ToolCards;
 
 /// <summary>
 /// Card for <c>edit</c>: title carries the path + block count summary, body is a

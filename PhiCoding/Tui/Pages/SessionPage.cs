@@ -1,14 +1,13 @@
 using PhiAgent;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
-using PhiCoding.Tui;
-using PhiCoding.Tui.Inputs;
+using PhiCoding.Tui.Components;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Geometry;
 using XenoAtom.Terminal.UI.Styling;
 
-namespace PhiCoding.Pages;
+namespace PhiCoding.Tui.Pages;
 
 /// <summary>
 /// The session detail page (<c>/sessions/:id</c>): the working conversation.

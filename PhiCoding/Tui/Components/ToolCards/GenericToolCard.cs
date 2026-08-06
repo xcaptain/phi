@@ -1,6 +1,6 @@
 using PhiAgent;
 
-namespace PhiCoding.Tui.ToolCards;
+namespace PhiCoding.Tui.Components.ToolCards;
 
 /// <summary>
 /// Fallback card for tool names the registry does not know (e.g. MCP tools in

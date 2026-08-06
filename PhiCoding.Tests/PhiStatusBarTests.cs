@@ -1,5 +1,6 @@
 using PhiAgent;
 using PhiCoding.Tui;
+using PhiCoding.Tui.Components;
 using XenoAtom.Terminal.UI.Rendering;
 
 namespace PhiCoding.Tests;

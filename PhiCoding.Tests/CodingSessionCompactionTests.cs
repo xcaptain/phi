@@ -323,7 +323,7 @@ public class CodingSessionCompactionTests : IDisposable
     {
         // The compaction-prefixed UserMessage should render as a divider,
         // not as a user turn.
-        var t = new PhiCoding.Tui.ChatTranscript();
+        var t = new PhiCoding.Tui.Components.ChatTranscript();
         var msgs = new IAgentMessage[]
         {
             new UserMessage { Content = ContextWindow.CompactionSummaryPrefix + "compacted earlier" },

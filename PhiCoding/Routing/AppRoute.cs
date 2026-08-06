@@ -2,7 +2,7 @@ namespace PhiCoding.Routing;
 
 /// <summary>
 /// Root application route, in the style of web paths. Each route <em>family</em>
-/// maps to exactly one page via <see cref="PageRegistry"/>. Discriminated-union
+/// maps to exactly one page via <see cref="PhiCoding.Tui.Pages.PageRegistry"/>. Discriminated-union
 /// records keep routing exhaustively matchable (no string parsing).
 /// </summary>
 public abstract record AppRoute;

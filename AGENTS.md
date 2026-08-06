@@ -50,6 +50,15 @@ CodingSession 只代表"一条活着的会话"，不再自己换身份。
 每层只依赖下一层，不跨层。PhiTuiApp 不知道 Harness 的存在，Session 不知道 Provider 的存在。
 这样前后端分离，各司其职，未来要新增前端也好做；新增页面 = 加一个路由族 + 一个 IPage 实现 + PageRegistry 一行。
 
+### 目录约定（仿 Next.js 的 pages / components / lib）
+
+UI 代码统一放在 `PhiCoding/Tui/` 下，非 UI 代码放在 `PhiCoding/` 根、`Sessions/`、`Providers/`、`Routing/`：
+- `Tui/Pages/`（Next.js pages/）：路由绑定的屏幕——IPage、SessionPage、NewSessionPage，以及 route→page 的 PageRegistry（页面清单放页面旁边，避免非 UI 的 Routing 引用 UI）
+- `Tui/Components/`（Next.js components/）：可复用积木——PromptInput（输入壳：editor + slash 分发 + 对话框 + skill 补全）、ChatHeader、ChatTranscript、PhiStatusBar、SuggestionStrip、suggestion providers、ToolCards/
+- `Tui/` 根：应用壳 PhiTuiApp + 基础设施（SelectionCopyHost、ToastHostSentinel、SystemClipboard、ErrorClassifier、SlashCommands、SlashCommandCatalog）
+- `Routing/`：只剩纯路由值类型 AppRoute（无 UI 依赖）
+- 页面由组件构建：SessionPage/NewSessionPage 组合 PromptInput，靠三条回调（提交/信息/排队）把差异交给页面
+
 ## 开发工作流
 
 - 在加新功能之前要添加测试用例

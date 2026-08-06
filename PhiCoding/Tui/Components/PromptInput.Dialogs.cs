@@ -3,7 +3,7 @@ using PhiCoding.Providers;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Tui.Inputs;
+namespace PhiCoding.Tui.Components;
 
 public sealed partial class PromptInput
 {
