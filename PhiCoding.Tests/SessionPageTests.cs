@@ -2,9 +2,7 @@ using PhiCoding.Tui.Pages;
 using PhiCoding.Providers;
 using PhiCoding.Routing;
 using PhiCoding.Tests.Helpers;
-using PhiCoding.Tui;
 using PhiCoding.Tui.Components;
-using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tests;
 
@@ -24,7 +22,7 @@ public class SessionPageTests
     }
 
     private static int ItemCount(ChatTranscript transcript) =>
-        ((DocumentFlow)transcript.Visual).Items.Count;
+        transcript.Flow.Items.Count;
 
     [Test]
     public async Task Build_WithPendingSubmission_AndRunningSession_RendersUserBubble()

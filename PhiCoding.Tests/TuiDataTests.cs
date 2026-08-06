@@ -1,9 +1,7 @@
 using PhiAgent;
-using PhiCoding.Tui;
 using PhiCoding.Tui.Components;
 using PhiCoding.Tests.Helpers;
 using TextBlock = PhiAgent.TextBlock;
-using DocumentFlow = XenoAtom.Terminal.UI.Controls.DocumentFlow;
 
 namespace PhiCoding.Tests;
 
@@ -17,7 +15,7 @@ public class TuiDataTests
         await Task.CompletedTask;
         t.AddPersistentError("something broke");
 
-        var flow = t.Visual as DocumentFlow;
+        var flow = t.Flow;
         await Assert.That(flow).IsNotNull();
         await Assert.That(flow!.Items.Count).IsEqualTo(1);
     }
@@ -35,7 +33,7 @@ public class TuiDataTests
         };
         t.ClearAndLoad(msgs);
 
-        var flow = t.Visual as DocumentFlow;
+        var flow = t.Flow;
         await Assert.That(flow).IsNotNull();
         await Assert.That(flow!.Items.Count).IsEqualTo(2);
     }
@@ -136,7 +134,7 @@ public class TuiDataTests
             });
 
         // Assert: only the two items rendered via AddUserMessage + streaming.
-        var flow = transcript.Visual as DocumentFlow;
+        var flow = transcript.Flow;
         await Assert.That(flow).IsNotNull();
         await Assert.That(flow!.Items.Count).IsEqualTo(2);
         await Assert.That(session.State.Messages.Count).IsEqualTo(2);
@@ -163,14 +161,14 @@ public class TuiDataTests
         session.EmitHarnessEvent(new TurnEndEvent(
             new AssistantMessage { Content = [new TextBlock("world")], StopReason = StopReasons.Stop }));
 
-        var countBeforeState = ((DocumentFlow)t1.Visual!).Items.Count;
+        var countBeforeState = t1.Flow.Items.Count;
 
         // StateChanged fires after turn.
         session.SetMessages(
             new UserMessage { Content = "hello" },
             new AssistantMessage { Content = [new TextBlock("world")], StopReason = StopReasons.Stop });
 
-        var countAfterState = ((DocumentFlow)t1.Visual!).Items.Count;
+        var countAfterState = t1.Flow.Items.Count;
 
         await Assert.That(countBeforeState).IsEqualTo(2);
         await Assert.That(countAfterState).IsEqualTo(2); // must NOT grow

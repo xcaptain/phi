@@ -1,8 +1,6 @@
 using PhiAgent;
-using PhiCoding.Tui;
 using PhiCoding.Tui.Components;
 using TextBlock = PhiAgent.TextBlock;
-using DocumentFlow = XenoAtom.Terminal.UI.Controls.DocumentFlow;
 
 namespace PhiCoding.Tests;
 
@@ -26,7 +24,7 @@ public class ChatTranscriptResumeTests
 
         transcript.ClearAndLoad(messages);
 
-        var flow = transcript.Visual as DocumentFlow;
+        var flow = transcript.Flow;
         await Assert.That(flow).IsNotNull();
         await Assert.That(flow!.Items.Count).IsEqualTo(2);
     }
@@ -38,7 +36,7 @@ public class ChatTranscriptResumeTests
 
         transcript.AddPersistentError("something broke");
 
-        var flow = transcript.Visual as DocumentFlow;
+        var flow = transcript.Flow;
         await Assert.That(flow).IsNotNull();
         await Assert.That(flow!.Items.Count).IsEqualTo(1);
     }

@@ -1,5 +1,4 @@
 using PhiCoding.Tui.Pages;
-using PhiCoding.Tui.Components;
 using PhiCoding.Providers;
 using PhiCoding.Routing;
 using PhiCoding.Sessions;
@@ -10,19 +9,20 @@ using XenoAtom.Terminal.UI.Controls;
 namespace PhiCoding.Tui;
 
 /// <summary>
-/// TUI shell over <see cref="ISessionNavigator"/>. Routes are resolved to
-/// pages by a <see cref="PageRegistry"/> and mounted in a
-/// <c>ComputedVisual</c> page host driven by a local <see cref="State{AppRoute}"/>;
-/// this mirrors the ControlsDemo's multi-page pattern (reactive state →
-/// builder rebuild → library swaps the child). The layout skeleton stays
-/// fixed; each page owns its own view, state, and interactions. Session
-/// teardown is owned by the navigator, not the TUI.
+/// TUI shell over <see cref="ISessionNavigator"/>. The root is a
+/// <c>ComputedVisual</c> whose builder resolves the current
+/// <see cref="AppRoute"/> to a page and returns its visual tree; navigation
+/// simply flips a local <see cref="State{AppRoute}"/> and the library marks
+/// the host dirty and swaps the child — the ControlsDemo multi-page pattern
+/// (reactive state → builder rebuild → child swap). Each page owns its own
+/// view, state, and interactions; session teardown is owned by the navigator,
+/// not the TUI.
 /// <para>
-/// The <see cref="State{AppRoute}"/> lives only inside the TUI (created
-/// here, written by the <see cref="ISessionNavigator.RouteChanged"/> handler
-/// on the UI thread, read by the <c>ComputedVisual</c> builder during render)
-/// so it never crosses a non-UI thread boundary — that is what bit us when
-/// the navigator first exposed <see cref="State{T}"/> directly.
+/// The <see cref="State{AppRoute}"/> lives only inside the TUI (created here,
+/// written by the <see cref="ISessionNavigator.RouteChanged"/> handler on the
+/// UI thread, read by the <c>ComputedVisual</c> builder during render) so it
+/// never crosses a non-UI thread boundary — that is what bit us when the
+/// navigator first exposed <see cref="State{T}"/> directly.
 /// </para>
 /// </summary>
 public sealed class PhiTuiApp
@@ -30,8 +30,6 @@ public sealed class PhiTuiApp
     private readonly ISessionNavigator _navigator;
     private readonly ProviderManager _providers;
     private readonly PageRegistry _pages;
-    private IPage? _currentPage;
-    private Visual? _currentPageRoot;
     private readonly State<AppRoute> _routeState;
 
     public PhiTuiApp(ISessionNavigator navigator, ProviderManager providers)
@@ -43,39 +41,19 @@ public sealed class PhiTuiApp
         _pages = new PageRegistry();
         _routeState = new State<AppRoute>(navigator.Route);
 
-        // On navigation the navigator has already swapped the session. Cache
-        // the new page eagerly so test-facing properties (Transcript, etc.)
-        // are fresh without a render, and mark the host dirty so the next
-        // render swaps its child.
-        _navigator.RouteChanged += route =>
-        {
-            var (page, root) = ResolveAndBuild(route);
-            _currentPage = page;
-            _currentPageRoot = root;
-            _routeState.Value = route;
-        };
+        // The navigator has already swapped the session; flip the route state
+        // and the page host rebuilds the new page on the next render.
+        _navigator.RouteChanged += route => _routeState.Value = route;
     }
 
-    /// <summary>Chat transcript of the current page (null on the landing page).</summary>
-    public ChatTranscript? Transcript => (_currentPage as SessionPage)?.Transcript;
-
-    /// <summary>Status bar of the current page (null on the landing page).</summary>
-    public PhiStatusBar? StatusBar => (_currentPage as SessionPage)?.StatusBar;
-
-    /// <summary>Suggestion strip of the current page.</summary>
-    public SuggestionStrip? SuggestionStrip => (_currentPage as SessionPage)?.Input.SuggestionStrip;
-
+    /// <summary>The page host: a <c>ComputedVisual</c> that renders the page
+    /// for the current route and swaps it on navigation.</summary>
     public Visual BuildRoot()
-    {
-        var (page, root) = ResolveAndBuild(_navigator.Route);
-        _currentPage = page;
-        _currentPageRoot = root;
-        return new ComputedVisual(BuildRoutedContent)
+        => new ComputedVisual(BuildRoutedContent)
         {
             HorizontalAlignment = Align.Stretch,
             VerticalAlignment = Align.Stretch,
         };
-    }
 
     public void Run()
     {
@@ -93,28 +71,15 @@ public sealed class PhiTuiApp
     }
 
     /// <summary>
-    /// Resolves the page for a route, builds it, and caches it in
-    /// <see cref="_currentPage"/>. Always reads the navigator's current
-    /// session so a new-session page is bound to the fresh session and an
-    /// existing-session page is bound to the resumed one.
-    /// </summary>
-    private (IPage Page, Visual Root) ResolveAndBuild(AppRoute route)
-    {
-        var page = _pages.Resolve(route, _navigator, _providers);
-        var root = page.Build();
-        return (page, root);
-    }
-
-    /// <summary>
-    /// <c>ComputedVisual</c> builder. Reads <see cref="_routeState"/> so the
-    /// library marks the host dirty on navigation and re-invokes this builder
-    /// to swap the child. Returns the cached page so the freshly bound
-    /// transcript / status / editor flow through the same instance the
-    /// RouteChanged handler cached.
+    /// <c>ComputedVisual</c> builder: reads <see cref="_routeState"/> (a
+    /// tracked read — the library marks the host dirty and re-invokes this
+    /// builder when navigation changes it), then resolves that route to a
+    /// page and returns its visual tree.
     /// </summary>
     private Visual BuildRoutedContent()
     {
-        _ = _routeState.Value;
-        return _currentPageRoot ?? ResolveAndBuild(_navigator.Route).Item2;
+        var route = _routeState.Value;
+        var page = _pages.Resolve(route, _navigator, _providers);
+        return page.Build();
     }
 }

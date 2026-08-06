@@ -1,6 +1,5 @@
 using System.Reflection;
 using PhiAgent;
-using PhiCoding.Tui;
 using PhiCoding.Tui.Components;
 using PhiCoding.Tui.Components.ToolCards;
 
@@ -106,7 +105,7 @@ public class ChatTranscriptTests
         transcript.Apply(new AssistantToolCallEvent(call));
 
         // Flow must contain exactly one item.
-        var flow = (XenoAtom.Terminal.UI.Controls.DocumentFlow)transcript.Visual;
+        var flow = transcript.Flow;
         await Assert.That(flow.Items.Count).IsEqualTo(1);
 
         var toolCards = (System.Collections.IDictionary)

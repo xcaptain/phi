@@ -2,8 +2,6 @@ using PhiCoding.Tui.Pages;
 using PhiCoding.Providers;
 using PhiCoding.Tui.Components;
 using PhiCoding.Tests.Helpers;
-using PhiCoding.Tui;
-using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tests;
 
@@ -49,9 +47,6 @@ public class SessionPageProviderTests : IDisposable
         return page;
     }
 
-    private static int TranscriptItems(ChatTranscript transcript) =>
-        ((DocumentFlow)transcript.Visual).Items.Count;
-
     [Test]
     public async Task ConnectWithKey_SwitchesProviderAndPersistsDefault()
     {
@@ -69,7 +64,9 @@ public class SessionPageProviderTests : IDisposable
         var settings = PhiSettings.Load(_settingsPath);
         await Assert.That(settings.DefaultProvider).IsEqualTo("deepseek");
         await Assert.That(settings.DefaultModel).IsEqualTo("deepseek-v4-flash");
-        await Assert.That(TranscriptItems(page.Transcript)).IsEqualTo(1);
+        // Feedback lands in the transcript's transient region, not the flow.
+        await Assert.That(page.Transcript.TransientText)
+            .IsEqualTo("Connected to deepseek · deepseek-v4-flash");
 
         if (session.LastSwitchedProvider is { } provider) _owned.Add(provider);
     }
@@ -117,7 +114,7 @@ public class SessionPageProviderTests : IDisposable
         page.Input.ConnectProviderByName("nope");
 
         await Assert.That(session.LastSwitchedProviderName).IsNull();
-        await Assert.That(TranscriptItems(page.Transcript)).IsEqualTo(1);
+        await Assert.That(page.Transcript.TransientText).Contains("Unknown provider 'nope'");
     }
 
     [Test]
@@ -136,7 +133,8 @@ public class SessionPageProviderTests : IDisposable
         var settings = PhiSettings.Load(_settingsPath);
         await Assert.That(settings.DefaultProvider).IsEqualTo("kimi");
         await Assert.That(settings.DefaultModel).IsEqualTo("kimi-k2-thinking");
-        await Assert.That(TranscriptItems(page.Transcript)).IsEqualTo(1);
+        await Assert.That(page.Transcript.TransientText)
+            .IsEqualTo("Connected to kimi · kimi-k2-thinking");
 
         if (session.LastSwitchedProvider is { } provider) _owned.Add(provider);
     }

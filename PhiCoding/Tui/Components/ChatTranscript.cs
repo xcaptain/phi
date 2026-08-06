@@ -10,18 +10,20 @@ using XenoAtom.Terminal.UI.Geometry;
 namespace PhiCoding.Tui.Components;
 
 /// <summary>
-/// The scrolling conversation view: a <see cref="DocumentFlow"/> of chat cards.
-/// Assistant text streams into a per-turn <see cref="MarkdownControl"/>;
-/// tool calls render via <see cref="IToolCard"/> implementations resolved by
+/// The conversation view: a scrolling <see cref="DocumentFlow"/> of chat cards
+/// plus a single-line transient region for input-status messages (steering
+/// queued while running, dialog feedback like "Connected to …"). Assistant
+/// text streams into a per-turn <see cref="MarkdownControl"/>; tool calls
+/// render via <see cref="IToolCard"/> implementations resolved by
 /// <see cref="ToolCardRegistry"/>; reasoning streams into its own dim-styled
-/// block ahead of the assistant text so the user can follow the model's thinking.
+/// block ahead of the assistant text.
 /// </summary>
 public sealed class ChatTranscript
 {
     private enum StreamMode { None, Thinking, Text }
 
     private readonly DocumentFlow _flow;
-    private readonly Dictionary<string, IToolCard> _toolCards = [];
+    private readonly Markup _transient = new("") { Wrap = true, Margin = new Thickness(2, 0, 2, 0), };
     private StreamMode _streamMode = StreamMode.None;
     private StringBuilder? _streamText;
     private MarkdownControl? _streamControl;
@@ -30,6 +32,7 @@ public sealed class ChatTranscript
     private DateTime _thinkingStartTime;
     private int _renderedMessageCount;
     private bool _isStreaming;
+    private readonly Dictionary<string, IToolCard> _toolCards = [];
 
     public ChatTranscript()
     {
@@ -42,9 +45,39 @@ public sealed class ChatTranscript
             FollowTail = true,
             MaxCapacity = 500,
         };
+        // Collapse until the first transient message arrives.
+        _transient.IsVisible = false;
+
+        // The conversation fills the space; the transient line is pinned just
+        // above the editor (bottom of this visual).
+        Visual = new DockLayout()
+            .Top(_flow)
+            .Bottom(_transient)
+            .HorizontalAlignment(Align.Stretch)
+            .VerticalAlignment(Align.Stretch);
     }
 
-    public Visual Visual => _flow;
+    /// <summary>The full visual: conversation flow + transient region.</summary>
+    public Visual Visual { get; }
+
+    /// <summary>The scrolling conversation flow (chat history).</summary>
+    public DocumentFlow Flow => _flow;
+
+    /// <summary>The latest transient input-status message, or null.</summary>
+    public string? TransientText { get; private set; }
+
+    /// <summary>
+    /// Shows a transient input-status message in the region just above the
+    /// editor. Replaces any previous transient; stays until the next
+    /// <see cref="ShowTransient"/> call.
+    /// </summary>
+    public void ShowTransient(string message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        TransientText = message;
+        _transient.Text = $"[dim]{ToolCardBase.Escape(message)}[/]";
+        _transient.IsVisible = true;
+    }
 
     /// <summary>
     /// Binds this transcript to a <see cref="ISession"/>. Streaming events
@@ -248,17 +281,6 @@ public sealed class ChatTranscript
     {
         FinishStreaming();
         Add(new Markup($"[red]✗ {ToolCardBase.Escape(message)}[/]") { Wrap = true });
-    }
-
-    /// <summary>
-    /// Adds an informational message to the transcript (neutral color, no
-    /// status glyph). Used for non-error feedback such as "no sessions in
-    /// the last 7 days" when the user invokes a UI action.
-    /// </summary>
-    public void AddInfo(string message)
-    {
-        FinishStreaming();
-        Add(new Markup($"[dim]{ToolCardBase.Escape(message)}[/]") { Wrap = true });
     }
 
     /// <summary>

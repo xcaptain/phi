@@ -18,9 +18,11 @@ public delegate void PromptSubmittedHandler(string text, bool isSkill);
 /// have to copy. A plain component, not a <see cref="Visual"/>: it composes
 /// an existing <see cref="PromptEditor"/>, it doesn't subclass or replace it.
 /// <para>
-/// The composing page injects three callbacks (<see cref="OnSubmitted"/>,
-/// <see cref="ShowInfo"/>, <see cref="ShowSteeringQueued"/>) so the input
-/// stays ignorant of the page's layout / transcript / promotion strategy.
+/// Transient input-status messages (dialog feedback, queued steering) are
+/// written to the shared <see cref="ChatTranscript"/>'s transient region — the
+/// input never decides how the host displays them. The composing page injects
+/// a single callback (<see cref="OnSubmitted"/>) for the page-specific
+/// reaction to a submitted prompt (transcript bubble vs. promotion).
 /// </para>
 /// </summary>
 public sealed partial class PromptInput
@@ -28,6 +30,7 @@ public sealed partial class PromptInput
     private readonly ISession _session;
     private readonly ISessionNavigator _navigator;
     private readonly ProviderManager _providers;
+    private readonly ChatTranscript _transcript;
 
     /// <summary>The session this input is bound to.</summary>
     public ISession Session => _session;
@@ -45,34 +48,25 @@ public sealed partial class PromptInput
     /// <summary>(text, isSkill) — fired after a prompt or skill is submitted.</summary>
     public PromptSubmittedHandler OnSubmitted { get; }
 
-    /// <summary>Surfaces an informational line (dialog feedback, errors).</summary>
-    public Action<string> ShowInfo { get; }
-
-    /// <summary>Surfaces a steering-queued message (called instead of SubmitPrompt when the session is running).</summary>
-    public Action<string> ShowSteeringQueued { get; }
-
     private SkillSuggestionProvider? _skillProvider;
 
     public PromptInput(
         ISession session,
         ISessionNavigator navigator,
         ProviderManager providers,
-        PromptSubmittedHandler onSubmitted,
-        Action<string> showInfo,
-        Action<string> showSteeringQueued)
+        ChatTranscript transcript,
+        PromptSubmittedHandler onSubmitted)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(navigator);
         ArgumentNullException.ThrowIfNull(providers);
+        ArgumentNullException.ThrowIfNull(transcript);
         ArgumentNullException.ThrowIfNull(onSubmitted);
-        ArgumentNullException.ThrowIfNull(showInfo);
-        ArgumentNullException.ThrowIfNull(showSteeringQueued);
         _session = session;
         _navigator = navigator;
         _providers = providers;
+        _transcript = transcript;
         OnSubmitted = onSubmitted;
-        ShowInfo = showInfo;
-        ShowSteeringQueued = showSteeringQueued;
     }
 
     /// <summary>
@@ -159,7 +153,7 @@ public sealed partial class PromptInput
         if (_session.State.IsRunning)
         {
             _session.EnqueueSteering(new UserMessage { Content = text });
-            ShowSteeringQueued(text);
+            _transcript.ShowTransient($"[queued · steering] {text}");
             return;
         }
 
@@ -186,7 +180,7 @@ public sealed partial class PromptInput
         }
         catch (InvalidOperationException ex)
         {
-            ShowInfo(ex.Message);
+            _transcript.ShowTransient(ex.Message);
         }
     }
 
@@ -208,7 +202,7 @@ public sealed partial class PromptInput
         }
         catch (Exception ex)
         {
-            ShowInfo($"Failed to start new session: {ex.Message}");
+            _transcript.ShowTransient($"Failed to start new session: {ex.Message}");
         }
     }
 
@@ -221,7 +215,7 @@ public sealed partial class PromptInput
         }
         catch (InvalidOperationException ex)
         {
-            ShowInfo(ex.Message);
+            _transcript.ShowTransient(ex.Message);
         }
     }
 

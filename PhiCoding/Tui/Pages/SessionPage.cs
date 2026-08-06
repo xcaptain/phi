@@ -28,20 +28,15 @@ public sealed class SessionPage : IPage
     public SessionPage(
         ISession session, ISessionNavigator navigator, ProviderManager providers)
     {
-        // The input owns editor + dispatch + dialogs. The page feeds it the
-        // three callbacks so the input stays ignorant of the transcript and
-        // the promotion strategy.
-        _input = new PromptInput(
-            session,
-            navigator,
-            providers,
-            onSubmitted: OnSubmitted,
-            showInfo: m => Transcript.AddInfo(m),
-            showSteeringQueued: t => Transcript.AddUserMessage($"[queued · steering] {t}"));
+        // The transcript owns the conversation + transient input status; the
+        // input writes transient feedback straight into it, and the page feeds
+        // it the submission callback (user bubble in the transcript).
+        Transcript = new ChatTranscript();
+        _input = new PromptInput(session, navigator, providers, Transcript, OnSubmitted);
     }
 
-    /// <summary>The transcript rendered by this page (set by <see cref="Build"/>).</summary>
-    public ChatTranscript Transcript { get; private set; } = null!;
+    /// <summary>The conversation + transient-status view rendered by this page.</summary>
+    public ChatTranscript Transcript { get; }
 
     /// <summary>The status bar rendered by this page (set by <see cref="Build"/>).</summary>
     public PhiStatusBar StatusBar { get; private set; } = null!;
@@ -65,7 +60,6 @@ public sealed class SessionPage : IPage
     {
         _input.Build();
 
-        Transcript = new ChatTranscript();
         StatusBar = new PhiStatusBar(_input.Session.State.Model);
 
         Transcript.Bind(_input.Session);

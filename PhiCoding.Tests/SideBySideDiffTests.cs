@@ -1,5 +1,4 @@
 using PhiCoding.Tools.Details;
-using PhiCoding.Tui;
 using PhiCoding.Tui.Components;
 using XenoAtom.Terminal.UI.Controls;
 

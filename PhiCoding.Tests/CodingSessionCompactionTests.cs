@@ -332,7 +332,7 @@ public class CodingSessionCompactionTests : IDisposable
         };
         t.ClearAndLoad(msgs);
 
-        var flow = (XenoAtom.Terminal.UI.Controls.DocumentFlow)t.Visual;
+        var flow = t.Flow;
         // 1 divider + 1 user + 1 assistant = 3 items
         await Assert.That(flow.Items.Count).IsEqualTo(3);
     }

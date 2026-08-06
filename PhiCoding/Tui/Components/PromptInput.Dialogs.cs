@@ -14,7 +14,7 @@ public sealed partial class PromptInput
         var sessions = _navigator.ListRecentSessions(7);
         if (sessions.Count == 0)
         {
-            ShowInfo("No sessions in the last 7 days");
+            _transcript.ShowTransient("No sessions in the last 7 days");
             return;
         }
 
@@ -132,7 +132,7 @@ public sealed partial class PromptInput
             p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         if (entry is null)
         {
-            ShowInfo($"Unknown provider '{name}'. Run /connect to pick one.");
+            _transcript.ShowTransient($"Unknown provider '{name}'. Run /connect to pick one.");
             return;
         }
         ConnectProvider(entry);
@@ -169,7 +169,7 @@ public sealed partial class PromptInput
         var provider = _providers.CreateProvider(entry, apiKey);
         _session.SwitchProvider(provider, entry.Name, model);
         _providers.SaveDefault(entry, model);
-        ShowInfo($"Connected to {entry.Name} · {model}");
+        _transcript.ShowTransient($"Connected to {entry.Name} · {model}");
     }
 
     private void PromptApiKey(
@@ -217,7 +217,7 @@ public sealed partial class PromptInput
             _providers.Providers, _session.State.ProviderName, _providers.HasApiKey);
         if (providers.Count == 0)
         {
-            ShowInfo("No provider connected. Run /connect first.");
+            _transcript.ShowTransient("No provider connected. Run /connect first.");
             return;
         }
 
@@ -263,7 +263,7 @@ public sealed partial class PromptInput
         {
             _session.SwitchModel(model);
             _providers.SaveDefault(entry, model);
-            ShowInfo($"Model: {model}");
+            _transcript.ShowTransient($"Model: {model}");
             return;
         }
 
@@ -273,7 +273,7 @@ public sealed partial class PromptInput
             return;
         }
 
-        ShowInfo($"No API key for {entry.Name}. Run /connect first.");
+        _transcript.ShowTransient($"No API key for {entry.Name}. Run /connect first.");
     }
 
     /// <summary>
