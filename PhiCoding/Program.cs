@@ -1,6 +1,5 @@
 using PhiCoding;
 using PhiCoding.Providers;
-using PhiCoding.Routing;
 using PhiCoding.Sessions;
 using PhiCoding.Tui;
 
@@ -57,14 +56,10 @@ var env = new SessionConfig
     Model = providerManager.ResolveDefaultModel(defaultProvider),
 };
 
-AppRoute route = resumeSessionId is null
-    ? new ChatRoute(new NewSessionRequest())
-    : new ChatRoute(new ExistingSessionRequest(resumeSessionId));
-
 SessionNavigator navigator;
 try
 {
-    navigator = new SessionNavigator(factory, env, route);
+    navigator = new SessionNavigator(factory, env, resumeSessionId);
 }
 catch (InvalidOperationException ex)
 {

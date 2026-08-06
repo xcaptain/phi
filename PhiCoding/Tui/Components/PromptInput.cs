@@ -1,28 +1,22 @@
 using PhiAgent;
 using PhiCoding.Providers;
-using PhiCoding.Routing;
 using PhiCoding.Sessions;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tui.Components;
 
-/// <summary>Fired after a prompt (typed text or a skill) is submitted.</summary>
-public delegate void PromptSubmittedHandler(string text, bool isSkill);
-
 /// <summary>
-/// The shared input shell the chat pages compose. Owns the prompt editor,
+/// The input shell the chat screen composes. Owns the prompt editor,
 /// suggestion strip, slash-command dispatch, skill completion, the
 /// <c>/sessions</c> / <c>/connect</c> / <c>/models</c> dialogs, and the
-/// provider / model switchers — everything two chat screens would otherwise
-/// have to copy. A plain component, not a <see cref="Visual"/>: it composes
-/// an existing <see cref="PromptEditor"/>, it doesn't subclass or replace it.
+/// provider / model switchers. A plain component, not a <see cref="Visual"/>:
+/// it composes an existing <see cref="PromptEditor"/>, it doesn't subclass
+/// or replace it.
 /// <para>
-/// Transient input-status messages (dialog feedback, queued steering) are
-/// written to the shared <see cref="ChatTranscript"/>'s transient region — the
-/// input never decides how the host displays them. The composing page injects
-/// a single callback (<see cref="OnSubmitted"/>) for the page-specific
-/// reaction to a submitted prompt (transcript bubble vs. promotion).
+/// Transient input-status messages (dialog feedback, queued steering) and
+/// submitted user prompts are written to the shared <see cref="ChatTranscript"/>.
+/// The input owns all of its visible feedback.
 /// </para>
 /// </summary>
 public sealed partial class PromptInput
@@ -35,8 +29,8 @@ public sealed partial class PromptInput
     /// <summary>The session this input is bound to.</summary>
     public ISession Session => _session;
 
-    /// <summary>The navigator this input is bound to (exposed for pages that
-    /// need to navigate, e.g. the new-session page promoting to a detail route).</summary>
+    /// <summary>The navigator this input is bound to (exposed for tests
+    /// that need to drive navigation).</summary>
     public ISessionNavigator Navigator => _navigator;
 
     /// <summary>The prompt editor constructed by <see cref="Build"/>.</summary>
@@ -45,28 +39,22 @@ public sealed partial class PromptInput
     /// <summary>The live-autocomplete strip constructed by <see cref="Build"/>.</summary>
     public SuggestionStrip SuggestionStrip { get; private set; } = null!;
 
-    /// <summary>(text, isSkill) — fired after a prompt or skill is submitted.</summary>
-    public PromptSubmittedHandler OnSubmitted { get; }
-
     private SkillSuggestionProvider? _skillProvider;
 
     public PromptInput(
         ISession session,
         ISessionNavigator navigator,
         ProviderManager providers,
-        ChatTranscript transcript,
-        PromptSubmittedHandler onSubmitted)
+        ChatTranscript transcript)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(navigator);
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(transcript);
-        ArgumentNullException.ThrowIfNull(onSubmitted);
         _session = session;
         _navigator = navigator;
         _providers = providers;
         _transcript = transcript;
-        OnSubmitted = onSubmitted;
     }
 
     /// <summary>
@@ -162,21 +150,23 @@ public sealed partial class PromptInput
 
     private void SubmitPrompt(string text)
     {
+        _transcript.AddUserMessage(text);
         _session.SubmitPrompt(text);
-        OnSubmitted(text, isSkill: false);
     }
 
     /// <summary>
-    /// Loads a skill and submits it as the user prompt, then lets the page
-    /// surface it (transcript bubble / promotion). Unknown skills surface an
-    /// info line instead of crashing.
+    /// Loads a skill and submits it as the user prompt; the loaded content
+    /// is rendered as a user bubble so the submission is visible before the
+    /// model's response streams in. Unknown skills surface an info line
+    /// instead of crashing.
     /// </summary>
     private async Task LoadSkillAsync(string name, string? prompt)
     {
         try
         {
             var content = await _session.LoadSkillAsync(name, prompt);
-            OnSubmitted(content, isSkill: true);
+            _transcript.AddUserMessage(content);
+            _transcript.ResetRenderedCount();
         }
         catch (InvalidOperationException ex)
         {
@@ -184,21 +174,14 @@ public sealed partial class PromptInput
         }
     }
 
-    /// <summary>
-    /// Returns and clears the navigator's pending submission, if any. Pages
-    /// building a promoted detail view call this so the user bubble can be
-    /// rendered when the run is already in flight.
-    /// </summary>
-    public string? TakePendingSubmission() => _navigator.TakePendingSubmission();
-
     // ──────── Navigation ────────
 
-    /// <summary>Navigates to a fresh session (the landing page).</summary>
+    /// <summary>Navigates to a fresh session.</summary>
     private async Task NavigateToNewAsync()
     {
         try
         {
-            await _navigator.NavigateAsync(new ChatRoute(new NewSessionRequest()));
+            await _navigator.NavigateToNewAsync();
         }
         catch (Exception ex)
         {
@@ -206,12 +189,12 @@ public sealed partial class PromptInput
         }
     }
 
-    /// <summary>Navigates to an indexed session (<c>/sessions/:id</c>).</summary>
-    private async Task NavigateToSessionAsync(string sessionId)
+    /// <summary>Resumes an indexed session.</summary>
+    private async Task ResumeAsync(string sessionId)
     {
         try
         {
-            await _navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest(sessionId)));
+            await _navigator.ResumeAsync(sessionId);
         }
         catch (InvalidOperationException ex)
         {

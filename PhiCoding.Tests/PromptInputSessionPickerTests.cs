@@ -4,13 +4,14 @@ using XenoAtom.Terminal.UI.Controls;
 namespace PhiCoding.Tests;
 
 /// <summary>
-/// /sessions picker index mapping. <c>OptionList</c>'s <c>ItemActivated</c>
-/// index is the raw item position (date-group headers included), so the
-/// record lookup must be position-parallel. Regression: a record-counting
-/// loop silently missed sessions once the list spanned multiple day groups.
+/// <see cref="PromptInput.BuildSessionPicker"/> index mapping. <c>OptionList</c>'s
+/// <c>ItemActivated</c> index is the raw item position (date-group headers
+/// included), so the record lookup must be position-parallel. Regression: a
+/// record-counting loop silently missed sessions once the list spanned
+/// multiple day groups.
 /// </summary>
 [NotInParallel(TuiTestGroups.BindingManager)]
-public class SessionPageSessionPickerTests
+public class PromptInputSessionPickerTests
 {
     private static SessionRecord Record(string id, long updatedAt, string model = "m") => new(
         id, "/cwd", model, $"session-{id}", updatedAt, updatedAt);

@@ -28,7 +28,7 @@ public sealed partial class PromptInput
             if (target is null) return;
 
             if (list.Parent is Dialog d) d.Close();
-            _ = NavigateToSessionAsync(target.Id);
+            _ = ResumeAsync(target.Id);
         });
 
         var dialog = new Dialog(new Markup("[bold]Sessions (last 7 days)[/]"), list)

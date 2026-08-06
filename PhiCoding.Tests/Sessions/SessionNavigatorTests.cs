@@ -1,6 +1,5 @@
 using PhiAgent;
 using PhiCoding.Providers;
-using PhiCoding.Routing;
 using PhiCoding.Sessions;
 using PhiCoding.Tests.Helpers;
 using PhiProvider;
@@ -8,11 +7,10 @@ using PhiProvider;
 namespace PhiCoding.Tests.Sessions;
 
 /// <summary>
-/// <see cref="SessionNavigator"/>: route→session mapping, navigation
-/// lifecycle (dispose of the outgoing session, cancel of an in-flight run),
-/// fresh-session provider/model carry-over, and the "switching sessions
-/// switches the live provider" regression formerly covered by in-place
-/// <c>ResumeSession</c>.
+/// <see cref="SessionNavigator"/>: navigation lifecycle (dispose of the
+/// outgoing session, cancel of an in-flight run), fresh-session
+/// provider/model carry-over, and the "switching sessions switches the
+/// live provider" regression formerly covered by in-place <c>ResumeSession</c>.
 /// </summary>
 [NotInParallel("session-tests")]
 public class SessionNavigatorTests : IDisposable
@@ -50,31 +48,29 @@ public class SessionNavigatorTests : IDisposable
             Tools = [],
         };
 
-    private SessionNavigator CreateNavigator(SessionConfig? env = null, AppRoute? route = null) =>
-        new(_factory, env ?? Env(), route ?? new ChatRoute(new NewSessionRequest()));
+    private SessionNavigator CreateNavigator(SessionConfig? env = null, string? resumeId = null) =>
+        new(_factory, env ?? Env(), resumeId);
 
     // ──────── Constructor ────────
 
     [Test]
-    public async Task Constructor_WithNewRoute_BuildsFreshUnpersistedSession()
+    public async Task Constructor_WithNullResumeId_BuildsFreshUnpersistedSession()
     {
         var navigator = CreateNavigator();
 
-        await Assert.That(navigator.Route).IsEqualTo(new ChatRoute(new NewSessionRequest()));
         var session = (CodingSession)navigator.Current;
         await Assert.That(session.IsPersisted).IsFalse();
         await Assert.That(File.Exists(SessionPaths.IndexFileFor(_cwd))).IsFalse();
     }
 
     [Test]
-    public async Task Constructor_WithExistingRoute_ResumesRecordedSession()
+    public async Task Constructor_WithResumeId_ResumesRecordedSession()
     {
         var stored = CodingSession.Create(_cwd, "record-model");
         stored.AppendMessage(new UserMessage { Content = "on disk" });
 
-        var navigator = CreateNavigator(route: new ChatRoute(new ExistingSessionRequest(stored.Id)));
+        var navigator = CreateNavigator(resumeId: stored.Id);
 
-        await Assert.That(navigator.Route).IsEqualTo(new ChatRoute(new ExistingSessionRequest(stored.Id)));
         var session = (CodingSession)navigator.Current;
         await Assert.That(session.State.SessionId).IsEqualTo(stored.Id);
         await Assert.That(session.State.Messages).Count().IsEqualTo(1);
@@ -82,23 +78,23 @@ public class SessionNavigatorTests : IDisposable
     }
 
     [Test]
-    public async Task Constructor_WithUnknownExistingRoute_Throws()
+    public async Task Constructor_WithUnknownResumeId_Throws()
     {
-        await Assert.That(() => CreateNavigator(route: new ChatRoute(new ExistingSessionRequest("nope"))))
+        await Assert.That(() => CreateNavigator(resumeId: "nope"))
             .Throws<InvalidOperationException>();
     }
 
     // ──────── Navigation ────────
 
     [Test]
-    public async Task NavigateToExisting_SwapsSessionAndDisposesPrevious()
+    public async Task Resume_SwapsSessionAndDisposesPrevious()
     {
         var tracked = new TrackedProvider();
         var navigator = CreateNavigator(Env(tracked));
         var target = CodingSession.Create(_cwd, "m", title: "target");
         target.AppendMessage(new UserMessage { Content = "old conversation" });
 
-        await navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest(target.Id)));
+        await navigator.ResumeAsync(target.Id);
 
         var current = (CodingSession)navigator.Current;
         await Assert.That(current.State.SessionId).IsEqualTo(target.Id);
@@ -109,7 +105,7 @@ public class SessionNavigatorTests : IDisposable
     }
 
     [Test]
-    public async Task NavigateToExisting_NewAppendsLandInTargetFile()
+    public async Task Resume_NewAppendsLandInTargetFile()
     {
         // The outgoing session keeps its own storage: messages appended
         // after navigation go to the target's file, never the old one.
@@ -121,7 +117,7 @@ public class SessionNavigatorTests : IDisposable
         var target = CodingSession.Create(_cwd, "m");
         target.AppendMessage(new UserMessage { Content = "theirs" });
 
-        await navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest(target.Id)));
+        await navigator.ResumeAsync(target.Id);
         var current = (CodingSession)navigator.Current;
         current.AppendMessage(new UserMessage { Content = "after resume" });
 
@@ -151,7 +147,7 @@ public class SessionNavigatorTests : IDisposable
         sessionA.SubmitPrompt("prompt a");
         await WaitForAsync(() => sessionA.State.IsRunning);
 
-        await navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest(sessionB.Id)));
+        await navigator.ResumeAsync(sessionB.Id);
 
         var current = (CodingSession)navigator.Current;
         await Assert.That(current.State.IsRunning).IsFalse();
@@ -168,16 +164,15 @@ public class SessionNavigatorTests : IDisposable
     }
 
     [Test]
-    public async Task NavigateToUnknownId_Throws_LeavesCurrentUntouched()
+    public async Task ResumeAsync_UnknownId_Throws_LeavesCurrentUntouched()
     {
         var navigator = CreateNavigator();
         var currentId = navigator.Current.State.SessionId;
 
-        await Assert.That(() => navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest("does-not-exist"))))
+        await Assert.That(() => navigator.ResumeAsync("does-not-exist"))
             .Throws<InvalidOperationException>();
 
         await Assert.That(navigator.Current.State.SessionId).IsEqualTo(currentId);
-        await Assert.That(navigator.Route).IsEqualTo(new ChatRoute(new NewSessionRequest()));
     }
 
     [Test]
@@ -190,7 +185,7 @@ public class SessionNavigatorTests : IDisposable
         var oldId = session.Id;
         await Assert.That(session.State.Messages).IsNotEmpty();
 
-        await navigator.NavigateAsync(new ChatRoute(new NewSessionRequest()));
+        await navigator.NavigateToNewAsync();
 
         var fresh = (CodingSession)navigator.Current;
         await Assert.That(fresh.Id).IsNotEqualTo(oldId);
@@ -211,7 +206,7 @@ public class SessionNavigatorTests : IDisposable
             Env(provider: null, model: "m-a", providerName: "carrier"));
         await Assert.That(navigator.Current.State.ProviderName).IsEqualTo("carrier");
 
-        await navigator.NavigateAsync(new ChatRoute(new NewSessionRequest()));
+        await navigator.NavigateToNewAsync();
 
         var fresh = (CodingSession)navigator.Current;
         await Assert.That(fresh.State.ProviderName).IsEqualTo("carrier");
@@ -226,7 +221,7 @@ public class SessionNavigatorTests : IDisposable
         session.SubmitPrompt("old");
         await WaitForAsync(() => !session.State.IsRunning);
 
-        await navigator.NavigateAsync(new ChatRoute(new NewSessionRequest()));
+        await navigator.NavigateToNewAsync();
 
         var fresh = (CodingSession)navigator.Current;
         fresh.SubmitPrompt("new");
@@ -237,7 +232,7 @@ public class SessionNavigatorTests : IDisposable
     }
 
     [Test]
-    public async Task NavigateToExisting_RecoversCumulativeStatsFromHistory()
+    public async Task Resume_RecoversCumulativeStatsFromHistory()
     {
         // Navigation to an existing session must surface the loaded stats
         // (usage persisted in the transcript) on the new session's state.
@@ -251,7 +246,7 @@ public class SessionNavigatorTests : IDisposable
         });
 
         var navigator = CreateNavigator();
-        await navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest(stored.Id)));
+        await navigator.ResumeAsync(stored.Id);
 
         var current = (CodingSession)navigator.Current;
         await Assert.That(current.State.Stats.TurnCount).IsEqualTo(1);
@@ -259,60 +254,10 @@ public class SessionNavigatorTests : IDisposable
         await Assert.That(current.State.Stats.OutputTokens).IsEqualTo(5);
     }
 
-    // ──────── Promotion: new-session page → detail route ────────
-
-    [Test]
-    public async Task NavigateToOwnId_AdoptsFreshSession_WithoutResume()
-    {
-        // A fresh (not yet persisted) session has no index record — a Resume
-        // would throw. Navigating to its own id must adopt the in-memory
-        // instance instead of rebuilding from disk.
-        var navigator = CreateNavigator();
-        var current = (CodingSession)navigator.Current;
-        var id = current.Id;
-
-        await navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest(id)));
-
-        await Assert.That(ReferenceEquals(navigator.Current, current)).IsTrue();
-        await Assert.That(navigator.Route).IsEqualTo(new ChatRoute(new ExistingSessionRequest(id)));
-    }
-
-    [Test]
-    public async Task NavigateToOwnId_WhileRunning_KeepsRunInFlight()
-    {
-        // The first prompt on the new-session page starts a run; promoting to
-        // the detail route must NOT cancel/await it — the stream continues.
-        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var navigator = CreateNavigator(Env(StubProvider.SecondCallBlocks(gate, "unblocked")));
-        var session = (CodingSession)navigator.Current;
-
-        session.SubmitPrompt("prompt a");
-        await WaitForAsync(() => session.State.IsRunning);
-
-        await navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest(session.Id)));
-
-        await Assert.That(session.State.IsRunning).IsTrue();
-        await Assert.That(ReferenceEquals(navigator.Current, session)).IsTrue();
-
-        gate.SetResult();
-        await WaitForAsync(() => !session.State.IsRunning);
-    }
-
-    [Test]
-    public async Task PendingSubmission_SetAndTake_RoundTripsOnce()
-    {
-        var navigator = CreateNavigator();
-
-        navigator.SetPendingSubmission("hello");
-
-        await Assert.That(navigator.TakePendingSubmission()).IsEqualTo("hello");
-        await Assert.That(navigator.TakePendingSubmission()).IsNull();
-    }
-
     // ──────── Hot switch regression: provider/model follow the record ────────
 
     [Test]
-    public async Task NavigateToExisting_RebuildsProviderAndStateFromRecord()
+    public async Task Resume_RebuildsProviderAndStateFromRecord()
     {
         // Regression for the reported bug: after a session switch the status
         // bar must show the target session's provider/model, and the live
@@ -329,7 +274,7 @@ public class SessionNavigatorTests : IDisposable
         var sessionB = CodingSession.Create(_cwd, "model-b", providerName: "provider-b");
         sessionB.AppendMessage(new UserMessage { Content = "in b" });
 
-        await navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest(sessionB.Id)));
+        await navigator.ResumeAsync(sessionB.Id);
 
         var current = (CodingSession)navigator.Current;
         await Assert.That(current.State.SessionId).IsEqualTo(sessionB.Id);
@@ -341,7 +286,7 @@ public class SessionNavigatorTests : IDisposable
     }
 
     [Test]
-    public async Task NavigateToExisting_StateCarriesNewProvider()
+    public async Task Resume_StateCarriesNewProvider()
     {
         // The TUI binds the status bar to StateChanged; the new session's
         // state must carry the recorded provider/model so the bar never
@@ -355,7 +300,7 @@ public class SessionNavigatorTests : IDisposable
         var sessionB = CodingSession.Create(_cwd, "model-b", providerName: "provider-b");
         sessionB.AppendMessage(new UserMessage { Content = "b" });
 
-        await navigator.NavigateAsync(new ChatRoute(new ExistingSessionRequest(sessionB.Id)));
+        await navigator.ResumeAsync(sessionB.Id);
 
         var current = (CodingSession)navigator.Current;
         await Assert.That(current.State.ProviderName).IsEqualTo("provider-b");

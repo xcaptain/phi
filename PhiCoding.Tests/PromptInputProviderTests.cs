@@ -1,4 +1,3 @@
-using PhiCoding.Tui.Pages;
 using PhiCoding.Providers;
 using PhiCoding.Tui.Components;
 using PhiCoding.Tests.Helpers;
@@ -6,20 +5,21 @@ using PhiCoding.Tests.Helpers;
 namespace PhiCoding.Tests;
 
 /// <summary>
-/// Provider/model switching driven through <see cref="SessionPage"/>
+/// Provider/model switching driven through <see cref="PromptInput"/>
 /// (<c>/connect</c>, <c>/models</c>): key resolution, provider construction,
 /// session switching, and default-selection persistence. Exercises the pure
 /// connection logic against a <see cref="MockSession"/>; the live dialogs
-/// themselves are terminal-bound and not tested here.
+/// themselves are terminal-bound and not tested here. Feedback lands in the
+/// transcript's transient region.
 /// </summary>
 [NotInParallel(TuiTestGroups.BindingManager)]
-public class SessionPageProviderTests : IDisposable
+public class PromptInputProviderTests : IDisposable
 {
     private readonly string _credentialsPath;
     private readonly string _settingsPath;
     private readonly List<IDisposable> _owned = [];
 
-    public SessionPageProviderTests()
+    public PromptInputProviderTests()
     {
         _credentialsPath = Path.Combine(
             Path.GetTempPath(), "phi-tui-cred-" + Guid.NewGuid().ToString("N") + ".json");
@@ -40,11 +40,12 @@ public class SessionPageProviderTests : IDisposable
         _settingsPath,
         _ => null);
 
-    private static SessionPage CreatePage(MockSession session, ProviderManager manager)
+    private static (PromptInput Input, ChatTranscript Transcript) CreateInput(
+        MockSession session, ProviderManager manager)
     {
-        var page = new SessionPage(session, new FakeSessionNavigator(session), manager);
-        page.Build();
-        return page;
+        var transcript = new ChatTranscript();
+        var input = new PromptInput(session, new FakeSessionNavigator(session), manager, transcript);
+        return (input, transcript);
     }
 
     [Test]
@@ -52,9 +53,9 @@ public class SessionPageProviderTests : IDisposable
     {
         var session = new MockSession();
         var manager = CreateManager();
-        var page = CreatePage(session, manager);
+        var (input, transcript) = CreateInput(session, manager);
 
-        page.Input.ConnectWithKey(ProviderCatalog.DeepSeek, "sk-123");
+        input.ConnectWithKey(ProviderCatalog.DeepSeek, "sk-123");
 
         await Assert.That(session.LastSwitchedProviderName).IsEqualTo("deepseek");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("deepseek-v4-flash");
@@ -64,8 +65,7 @@ public class SessionPageProviderTests : IDisposable
         var settings = PhiSettings.Load(_settingsPath);
         await Assert.That(settings.DefaultProvider).IsEqualTo("deepseek");
         await Assert.That(settings.DefaultModel).IsEqualTo("deepseek-v4-flash");
-        // Feedback lands in the transcript's transient region, not the flow.
-        await Assert.That(page.Transcript.TransientText)
+        await Assert.That(transcript.TransientText)
             .IsEqualTo("Connected to deepseek · deepseek-v4-flash");
 
         if (session.LastSwitchedProvider is { } provider) _owned.Add(provider);
@@ -76,9 +76,9 @@ public class SessionPageProviderTests : IDisposable
     {
         var session = new MockSession();
         var manager = CreateManager();
-        var page = CreatePage(session, manager);
+        var (input, _) = CreateInput(session, manager);
 
-        page.Input.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
+        input.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
 
         // The entered key lands in the credential store so a later launch can
         // resolve it without the env var.
@@ -95,9 +95,9 @@ public class SessionPageProviderTests : IDisposable
         var session = new MockSession();
         var manager = CreateManager();
         manager.SetApiKey(ProviderCatalog.Glm, "sk-old");
-        var page = CreatePage(session, manager);
+        var (input, _) = CreateInput(session, manager);
 
-        page.Input.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
+        input.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
 
         await Assert.That(manager.ResolveApiKey(ProviderCatalog.Glm)).IsEqualTo("sk-new");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("glm-4.7-flash");
@@ -106,15 +106,15 @@ public class SessionPageProviderTests : IDisposable
     }
 
     [Test]
-    public async Task ConnectProviderByName_UnknownProvider_AddsInfo_NoSwitch()
+    public async Task ConnectProviderByName_UnknownProvider_AddsTransient_NoSwitch()
     {
         var session = new MockSession();
-        var page = CreatePage(session, CreateManager());
+        var (input, transcript) = CreateInput(session, CreateManager());
 
-        page.Input.ConnectProviderByName("nope");
+        input.ConnectProviderByName("nope");
 
         await Assert.That(session.LastSwitchedProviderName).IsNull();
-        await Assert.That(page.Transcript.TransientText).Contains("Unknown provider 'nope'");
+        await Assert.That(transcript.TransientText).Contains("Unknown provider 'nope'");
     }
 
     [Test]
@@ -122,9 +122,9 @@ public class SessionPageProviderTests : IDisposable
     {
         var session = new MockSession();
         var manager = CreateManager();
-        var page = CreatePage(session, manager);
+        var (input, transcript) = CreateInput(session, manager);
 
-        page.Input.ConnectWithModel(ProviderCatalog.Kimi, "sk-kimi", "kimi-k2-thinking");
+        input.ConnectWithModel(ProviderCatalog.Kimi, "sk-kimi", "kimi-k2-thinking");
 
         await Assert.That(session.LastSwitchedProviderName).IsEqualTo("kimi");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("kimi-k2-thinking");
@@ -133,7 +133,7 @@ public class SessionPageProviderTests : IDisposable
         var settings = PhiSettings.Load(_settingsPath);
         await Assert.That(settings.DefaultProvider).IsEqualTo("kimi");
         await Assert.That(settings.DefaultModel).IsEqualTo("kimi-k2-thinking");
-        await Assert.That(page.Transcript.TransientText)
+        await Assert.That(transcript.TransientText)
             .IsEqualTo("Connected to kimi · kimi-k2-thinking");
 
         if (session.LastSwitchedProvider is { } provider) _owned.Add(provider);

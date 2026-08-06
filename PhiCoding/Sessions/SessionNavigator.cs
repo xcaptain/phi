@@ -1,105 +1,79 @@
-using PhiCoding.Routing;
-
 namespace PhiCoding.Sessions;
 
 /// <summary>
 /// Default <see cref="ISessionNavigator"/>: builds sessions through a
 /// <see cref="CodingSessionFactory"/>, owns the current session's lifecycle,
-/// and publishes route changes via <see cref="RouteChanged"/>.
+/// and publishes session changes via <see cref="SessionChanged"/>.
 /// <para>
-/// A fresh session (<see cref="NewSessionRequest"/>) carries over the current
-/// session's provider + model when one exists, so <c>/new</c> keeps the user
-/// connected; at startup it uses the environment config's defaults.
+/// A fresh session carries over the current session's provider + model when
+/// one exists, so <c>/new</c> keeps the user connected; on first create it
+/// uses the environment config's defaults.
 /// </para>
 /// </summary>
 public sealed class SessionNavigator : ISessionNavigator
 {
     private readonly CodingSessionFactory _factory;
     private readonly SessionConfig _env;
-    private CodingSession? _current;
-    private string? _pendingSubmission;
+    private CodingSession _current;
 
     public SessionNavigator(
-        CodingSessionFactory factory, SessionConfig env, AppRoute initialRoute)
+        CodingSessionFactory factory, SessionConfig env, string? resumeSessionId)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(env);
-        ArgumentNullException.ThrowIfNull(initialRoute);
         _factory = factory;
         _env = env;
-        // The initial navigation has no prior session to settle, so it is
-        // performed synchronously here. May throw for an unknown id.
-        _current = BuildSession(initialRoute);
-        Route = initialRoute;
+        // Synchronous build at startup so an unknown id surfaces before the
+        // TUI mounts (no session is in flight at this point to settle).
+        _current = resumeSessionId is null
+            ? _factory.Create(_env)
+            : _factory.Resume(_env, resumeSessionId);
     }
 
-    public ISession Current => _current!;
+    public ISession Current => _current;
 
-    public AppRoute Route { get; private set; }
+    public event Action? SessionChanged;
 
-    public event Action<AppRoute>? RouteChanged;
-
-    public async Task NavigateAsync(AppRoute route)
+    public async Task NavigateToNewAsync()
     {
-        ArgumentNullException.ThrowIfNull(route);
-        // Build first: an unknown id throws before we disturb the current
-        // session, so a failed navigation leaves everything untouched.
-        var next = BuildSession(route);
-
-        // A promotion (new-session page → its detail route) adopts the very
-        // same session: skip the cancel/await/dispose so an in-flight first
-        // run keeps streaming.
-        var previous = _current;
-        var isPromotion = ReferenceEquals(previous, next);
-        if (previous is not null && !isPromotion)
-        {
-            if (previous.State.IsRunning)
-                previous.Cancel();
-            await previous.WaitUntilIdleAsync();
-        }
-
-        _current = next;
-        Route = route;
-        RouteChanged?.Invoke(route);
-        if (previous is not null && !isPromotion)
-            previous.Dispose();
+        var next = _factory.Create(FreshEnv());
+        await SwapAsync(next);
     }
 
-    public void SetPendingSubmission(string text) => _pendingSubmission = text;
-
-    public string? TakePendingSubmission()
+    public async Task ResumeAsync(string sessionId)
     {
-        var pending = _pendingSubmission;
-        _pendingSubmission = null;
-        return pending;
+        if (string.IsNullOrEmpty(sessionId))
+            throw new InvalidOperationException("Cannot resume an empty session id.");
+        var next = _factory.Resume(_env, sessionId);
+        await SwapAsync(next);
     }
 
     public IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7) =>
         new SessionManager(_env.Cwd).ListSessions(days);
 
-    public void Dispose() => _current?.Dispose();
+    public void Dispose() => _current.Dispose();
 
-    private CodingSession BuildSession(AppRoute route) => route switch
+    private async Task SwapAsync(CodingSession next)
     {
-        ChatRoute(NewSessionRequest) => _factory.Create(FreshEnv()),
-        // Promotion: navigating to the current session's own id adopts the
-        // in-memory instance (a fresh session not yet persisted) instead of
-        // rebuilding from disk.
-        ChatRoute(ExistingSessionRequest r) when _current is not null && _current.Id == r.SessionId
-            => _current,
-        ChatRoute(ExistingSessionRequest r) => _factory.Resume(_env, r.SessionId),
-        _ => throw new ArgumentOutOfRangeException(nameof(route)),
-    };
+        var previous = _current;
+        if (previous.State.IsRunning)
+            previous.Cancel();
+        await previous.WaitUntilIdleAsync();
+
+        _current = next;
+        SessionChanged?.Invoke();
+        previous.Dispose();
+    }
 
     /// <summary>
-    /// Environment for a fresh session: the startup defaults, or — when a
-    /// session is already live — that session's provider/model so <c>/new</c>
-    /// keeps the user connected instead of reverting to the default.
+    /// Environment for a fresh session: the startup defaults on first
+    /// create, or — when a session is already live — that session's
+    /// provider/model so <c>/new</c> keeps the user connected instead of
+    /// reverting to the default.
     /// </summary>
-    private SessionConfig FreshEnv() =>
-        _current is null ? _env : _env with
-        {
-            ProviderName = _current.State.ProviderName,
-            Model = _current.State.Model,
-        };
+    private SessionConfig FreshEnv() => _env with
+    {
+        ProviderName = _current.State.ProviderName,
+        Model = _current.State.Model,
+    };
 }

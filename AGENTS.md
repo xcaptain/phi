@@ -18,46 +18,42 @@ PhiAgent 是最底层的 package，依赖最少，可以注入不同的 provider
 
 ### 应用层依赖关系
 
-PhiTuiApp ─→ PageRegistry ─→ SessionPage ─→ PromptInput ─┐
-   (TUI)      (路由算法：     (页面/屏幕      (输入组件：  │
-               AppRoute →     控制器：        editor +    │
-               IPage 解析)    自含视图/        slash 分发/ │
-                             状态/交互)      对话框/      ├─→ ISession ─→ CodingSession ─→ Harness ─→ Provider
-                          ┌─ NewSessionPage  skill 补全) │    (接口，    (session +   (dispatch)  (LLM)
-                          └─ SessionPage    ↓            │    已水合的    harness +
-                                            ChatHeader    │    model)     provider + queue)
-                                            (chrome)
-    └─→ SessionNavigator ─→ CodingSessionFactory ─→ CodingSession
-        (导航：构建目标      (组装 runtime:
-         session、dispose    资源/tools/prompt/harness)
-         旧 session、触发
-         RouteChanged)
+PhiTuiApp ─→ PromptInput ─┐
+   (TUI 壳：     (输入组件：    │
+    nav 触发     editor +      │
+    整体换页)    slash 分发/   ├─→ ISession ─→ CodingSession ─→ Harness ─→ Provider
+                对话框/        │    (接口，    (session +   (dispatch)  (LLM)
+                skill 补全)    │    已水合的    harness +
+              ↓                │    model)     provider + queue)
+            ChatTranscript     │
+            (对话 + 输入反馈) │
+              ↓                │
+            ChatHeader
+            (chrome)
+            PhiStatusBar
+            (错误/上下文/模型)
 
-路由是强类型判别联合 `AppRoute`（`ChatRoute(NewSessionRequest | ExistingSessionRequest(id))`），
-PageRegistry 把路由族解析成页面（route→page）：
-- `ChatRoute(NewSessionRequest)` → NewSessionPage（/sessions/new 落地页：居中 editor，无 transcript）
-- `ChatRoute(ExistingSessionRequest(id))` → SessionPage（/sessions/:id 详情页：transcript + editor + status）
-页面每次导航都新建一个实例，绑定那条已水合的会话；两页都用 `PromptInput`（组合，不是继承）
-复用输入壳——editor/slash 分发/对话框/skill 补全，靠三条回调把"提交/信息/排队"交给页面。
+└─→ SessionNavigator ─→ CodingSessionFactory ─→ CodingSession
+    (拥有当前 session     (组装 runtime:
+     生命周期：cancel +    资源/tools/prompt/
+     await + dispose；      harness)
+     /new 走 NavigateToNewAsync、
+     /sessions/:id 走 ResumeAsync(id))
 
-session 切换（/new、resume）就是路由跳转：SessionNavigator 用 factory 构建目标 session、
-dispose 旧 session、触发 RouteChanged；TUI 据此重建绑定当前路由的 page。
-新建页提交首条 prompt 后"晋升"到详情路由：导航到当前 session 自己的 id 时 navigator
-直接采纳内存中的同一条（不重建、不取消、不 dispose），并把提交文本经 pending submission
-带给详情页渲染用户气泡。
-CodingSession 只代表"一条活着的会话"，不再自己换身份。
+### TUI 渲染
 
-每层只依赖下一层，不跨层。PhiTuiApp 不知道 Harness 的存在，Session 不知道 Provider 的存在。
-这样前后端分离，各司其职，未来要新增前端也好做；新增页面 = 加一个路由族 + 一个 IPage 实现 + PageRegistry 一行。
+PhiTuiApp 持有一个 `State<ISession>`，由 SessionNavigator 的 SessionChanged
+事件在 UI 线程翻转。一个 ComputedVisual 读这个 State，navigate 时自动重建整页（header + transcript
++ editor + strip + status bar）。空 session 的内容槽显示一行 slogan，提交首条 prompt 后被 user bubble
+自动替换——session 立刻有自己的 id，详情路径不再需要。
 
-### 目录约定（仿 Next.js 的 pages / components / lib）
+### 目录约定
 
-UI 代码统一放在 `PhiCoding/Tui/` 下，非 UI 代码放在 `PhiCoding/` 根、`Sessions/`、`Providers/`、`Routing/`：
-- `Tui/Pages/`（Next.js pages/）：路由绑定的屏幕——IPage、SessionPage、NewSessionPage，以及 route→page 的 PageRegistry（页面清单放页面旁边，避免非 UI 的 Routing 引用 UI）
-- `Tui/Components/`（Next.js components/）：可复用积木——PromptInput（输入壳：editor + slash 分发 + 对话框 + skill 补全）、ChatHeader、ChatTranscript、PhiStatusBar、SuggestionStrip、suggestion providers、ToolCards/
+UI 代码统一放在 `PhiCoding/Tui/` 下，非 UI 代码放在 `PhiCoding/` 根、`Sessions/`、`Providers/`：
+- `Tui/Components/`：可复用积木——PromptInput（输入壳：editor + slash 分发 + 对话框 + skill 补全）、ChatHeader、ChatTranscript、PhiStatusBar、StatusBarBinder（session state → status bar 接线，错误去重 + 分类）、SuggestionStrip、suggestion providers、ToolCards/
 - `Tui/` 根：应用壳 PhiTuiApp + 基础设施（SelectionCopyHost、ToastHostSentinel、SystemClipboard、ErrorClassifier、SlashCommands、SlashCommandCatalog）
-- `Routing/`：只剩纯路由值类型 AppRoute（无 UI 依赖）
-- 页面由组件构建：SessionPage/NewSessionPage 组合 PromptInput，靠三条回调（提交/信息/排队）把差异交给页面
+- `Sessions/`：ISession、ISessionNavigator、SessionNavigator、CodingSessionFactory — 拥有 session 生命周期
+- `Providers/`：ProviderManager、ProviderCatalog
 
 ## 开发工作流
 
