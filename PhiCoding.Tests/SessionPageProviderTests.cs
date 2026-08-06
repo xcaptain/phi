@@ -1,3 +1,4 @@
+using PhiCoding.Pages;
 using PhiCoding.Providers;
 using PhiCoding.Tests.Helpers;
 using PhiCoding.Tui;
@@ -6,20 +7,20 @@ using XenoAtom.Terminal.UI.Controls;
 namespace PhiCoding.Tests;
 
 /// <summary>
-/// Provider/model switching driven through <see cref="PhiCoding.Tui.PhiTuiApp"/>
+/// Provider/model switching driven through <see cref="SessionPage"/>
 /// (<c>/connect</c>, <c>/models</c>): key resolution, provider construction,
 /// session switching, and default-selection persistence. Exercises the pure
 /// connection logic against a <see cref="MockSession"/>; the live dialogs
 /// themselves are terminal-bound and not tested here.
 /// </summary>
 [NotInParallel(TuiTestGroups.BindingManager)]
-public class PhiTuiAppProviderTests : IDisposable
+public class SessionPageProviderTests : IDisposable
 {
     private readonly string _credentialsPath;
     private readonly string _settingsPath;
     private readonly List<IDisposable> _owned = [];
 
-    public PhiTuiAppProviderTests()
+    public SessionPageProviderTests()
     {
         _credentialsPath = Path.Combine(
             Path.GetTempPath(), "phi-tui-cred-" + Guid.NewGuid().ToString("N") + ".json");
@@ -40,8 +41,12 @@ public class PhiTuiAppProviderTests : IDisposable
         _settingsPath,
         _ => null);
 
-    private static PhiCoding.Tui.PhiTuiApp CreateApp(MockSession session, ProviderManager manager) =>
-        new(new FakeSessionNavigator(session), manager);
+    private static SessionPage CreatePage(MockSession session, ProviderManager manager)
+    {
+        var page = new SessionPage(session, new FakeSessionNavigator(session), manager);
+        page.Build();
+        return page;
+    }
 
     private static int TranscriptItems(ChatTranscript transcript) =>
         ((DocumentFlow)transcript.Visual).Items.Count;
@@ -51,10 +56,9 @@ public class PhiTuiAppProviderTests : IDisposable
     {
         var session = new MockSession();
         var manager = CreateManager();
-        var app = CreateApp(session, manager);
-        var transcript = new ChatTranscript();
+        var page = CreatePage(session, manager);
 
-        app.ConnectWithKey(ProviderCatalog.DeepSeek, "sk-123", transcript);
+        page.ConnectWithKey(ProviderCatalog.DeepSeek, "sk-123");
 
         await Assert.That(session.LastSwitchedProviderName).IsEqualTo("deepseek");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("deepseek-v4-flash");
@@ -64,7 +68,7 @@ public class PhiTuiAppProviderTests : IDisposable
         var settings = PhiSettings.Load(_settingsPath);
         await Assert.That(settings.DefaultProvider).IsEqualTo("deepseek");
         await Assert.That(settings.DefaultModel).IsEqualTo("deepseek-v4-flash");
-        await Assert.That(TranscriptItems(transcript)).IsEqualTo(1);
+        await Assert.That(TranscriptItems(page.Transcript)).IsEqualTo(1);
 
         if (session.LastSwitchedProvider is { } provider) _owned.Add(provider);
     }
@@ -74,10 +78,9 @@ public class PhiTuiAppProviderTests : IDisposable
     {
         var session = new MockSession();
         var manager = CreateManager();
-        var app = CreateApp(session, manager);
-        var transcript = new ChatTranscript();
+        var page = CreatePage(session, manager);
 
-        app.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new", transcript);
+        page.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
 
         // The entered key lands in the credential store so a later launch can
         // resolve it without the env var.
@@ -94,10 +97,9 @@ public class PhiTuiAppProviderTests : IDisposable
         var session = new MockSession();
         var manager = CreateManager();
         manager.SetApiKey(ProviderCatalog.Glm, "sk-old");
-        var app = CreateApp(session, manager);
-        var transcript = new ChatTranscript();
+        var page = CreatePage(session, manager);
 
-        app.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new", transcript);
+        page.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
 
         await Assert.That(manager.ResolveApiKey(ProviderCatalog.Glm)).IsEqualTo("sk-new");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("glm-4.7-flash");
@@ -109,13 +111,12 @@ public class PhiTuiAppProviderTests : IDisposable
     public async Task ConnectProviderByName_UnknownProvider_AddsInfo_NoSwitch()
     {
         var session = new MockSession();
-        var app = CreateApp(session, CreateManager());
-        var transcript = new ChatTranscript();
+        var page = CreatePage(session, CreateManager());
 
-        app.ConnectProviderByName("nope", transcript, new PromptEditor());
+        page.ConnectProviderByName("nope");
 
         await Assert.That(session.LastSwitchedProviderName).IsNull();
-        await Assert.That(TranscriptItems(transcript)).IsEqualTo(1);
+        await Assert.That(TranscriptItems(page.Transcript)).IsEqualTo(1);
     }
 
     [Test]
@@ -123,10 +124,9 @@ public class PhiTuiAppProviderTests : IDisposable
     {
         var session = new MockSession();
         var manager = CreateManager();
-        var app = CreateApp(session, manager);
-        var transcript = new ChatTranscript();
+        var page = CreatePage(session, manager);
 
-        app.ConnectWithModel(ProviderCatalog.Kimi, "sk-kimi", "kimi-k2-thinking", transcript);
+        page.ConnectWithModel(ProviderCatalog.Kimi, "sk-kimi", "kimi-k2-thinking");
 
         await Assert.That(session.LastSwitchedProviderName).IsEqualTo("kimi");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("kimi-k2-thinking");
@@ -135,7 +135,7 @@ public class PhiTuiAppProviderTests : IDisposable
         var settings = PhiSettings.Load(_settingsPath);
         await Assert.That(settings.DefaultProvider).IsEqualTo("kimi");
         await Assert.That(settings.DefaultModel).IsEqualTo("kimi-k2-thinking");
-        await Assert.That(TranscriptItems(transcript)).IsEqualTo(1);
+        await Assert.That(TranscriptItems(page.Transcript)).IsEqualTo(1);
 
         if (session.LastSwitchedProvider is { } provider) _owned.Add(provider);
     }
@@ -145,7 +145,7 @@ public class PhiTuiAppProviderTests : IDisposable
     {
         var providers = new[] { ProviderCatalog.DeepSeek, ProviderCatalog.Glm };
 
-        var (items, map) = PhiTuiApp.BuildModelPicker(providers, "deepseek", "deepseek-v4-flash");
+        var (items, map) = ChatScreen.BuildModelPicker(providers, "deepseek", "deepseek-v4-flash");
 
         // header + 2 models + header + 5 models
         await Assert.That(items.Count).IsEqualTo(1 + 2 + 1 + 5);
@@ -167,7 +167,7 @@ public class PhiTuiAppProviderTests : IDisposable
     [Test]
     public async Task BuildModelPicker_MarksCurrentModel_OnCurrentProvider()
     {
-        var (items, map) = PhiTuiApp.BuildModelPicker([ProviderCatalog.Glm], "glm", "glm-5.1");
+        var (items, map) = ChatScreen.BuildModelPicker([ProviderCatalog.Glm], "glm", "glm-5.1");
 
         // header(0), glm-4.7-flash(1), glm-4.7(2), glm-5-turbo(3), glm-5.1(4), glm-5v-turbo(5)
         await Assert.That(items[4].Label).IsEqualTo("  ✓ glm-5.1");
@@ -179,7 +179,7 @@ public class PhiTuiAppProviderTests : IDisposable
     [Test]
     public async Task BuildModelPickerProviders_IncludesCurrentEvenWithoutKey()
     {
-        var providers = PhiTuiApp.BuildModelPickerProviders(
+        var providers = ChatScreen.BuildModelPickerProviders(
             ProviderCatalog.All, "kimi", _ => false);
 
         await Assert.That(providers.Select(p => p.Name)).IsEquivalentTo(["kimi"]);
@@ -190,7 +190,7 @@ public class PhiTuiAppProviderTests : IDisposable
     {
         var hasKey = new Func<ProviderCatalogEntry, bool>(e => e.Name is "deepseek" or "glm" or "kimi");
 
-        var providers = PhiTuiApp.BuildModelPickerProviders(ProviderCatalog.All, "kimi", hasKey);
+        var providers = ChatScreen.BuildModelPickerProviders(ProviderCatalog.All, "kimi", hasKey);
 
         await Assert.That(providers.Select(p => p.Name)).IsEquivalentTo(["deepseek", "glm", "kimi"]);
         await Assert.That(providers.Count).IsEqualTo(3);
@@ -199,7 +199,7 @@ public class PhiTuiAppProviderTests : IDisposable
     [Test]
     public async Task FormatProviderLabel_CurrentWithKey_ShowsCheckAndModel()
     {
-        var label = PhiTuiApp.FormatProviderLabel(
+        var label = ChatScreen.FormatProviderLabel(
             ProviderCatalog.DeepSeek, "deepseek", hasKey: true, "deepseek-v4-flash");
 
         await Assert.That(label).IsEqualTo("  ✓ DeepSeek — deepseek · deepseek-v4-flash");
@@ -208,7 +208,7 @@ public class PhiTuiAppProviderTests : IDisposable
     [Test]
     public async Task FormatProviderLabel_OtherWithoutKey_MarksNoKey()
     {
-        var label = PhiTuiApp.FormatProviderLabel(
+        var label = ChatScreen.FormatProviderLabel(
             ProviderCatalog.Kimi, "deepseek", hasKey: false, null);
 
         await Assert.That(label).IsEqualTo("    Moonshot Kimi — kimi  (no key)");
@@ -217,7 +217,7 @@ public class PhiTuiAppProviderTests : IDisposable
     [Test]
     public async Task FormatProviderLabel_OtherWithKey_PlainRow()
     {
-        var label = PhiTuiApp.FormatProviderLabel(
+        var label = ChatScreen.FormatProviderLabel(
             ProviderCatalog.Glm, "deepseek", hasKey: true, "deepseek-v4-flash");
 
         await Assert.That(label).IsEqualTo("    Zhipu GLM — glm");

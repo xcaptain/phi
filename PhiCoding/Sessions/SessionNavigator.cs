@@ -1,3 +1,5 @@
+using PhiCoding.Routing;
+
 namespace PhiCoding.Sessions;
 
 /// <summary>
@@ -5,7 +7,7 @@ namespace PhiCoding.Sessions;
 /// <see cref="CodingSessionFactory"/>, owns the current session's lifecycle,
 /// and publishes route changes via <see cref="RouteChanged"/>.
 /// <para>
-/// A fresh session (<see cref="NewSessionRoute"/>) carries over the current
+/// A fresh session (<see cref="NewSessionRequest"/>) carries over the current
 /// session's provider + model when one exists, so <c>/new</c> keeps the user
 /// connected; at startup it uses the environment config's defaults.
 /// </para>
@@ -15,9 +17,10 @@ public sealed class SessionNavigator : ISessionNavigator
     private readonly CodingSessionFactory _factory;
     private readonly SessionConfig _env;
     private CodingSession? _current;
+    private string? _pendingSubmission;
 
     public SessionNavigator(
-        CodingSessionFactory factory, SessionConfig env, SessionRoute initialRoute)
+        CodingSessionFactory factory, SessionConfig env, AppRoute initialRoute)
     {
         ArgumentNullException.ThrowIfNull(factory);
         ArgumentNullException.ThrowIfNull(env);
@@ -32,19 +35,23 @@ public sealed class SessionNavigator : ISessionNavigator
 
     public ISession Current => _current!;
 
-    public SessionRoute Route { get; private set; }
+    public AppRoute Route { get; private set; }
 
-    public event Action<SessionRoute>? RouteChanged;
+    public event Action<AppRoute>? RouteChanged;
 
-    public async Task NavigateAsync(SessionRoute route)
+    public async Task NavigateAsync(AppRoute route)
     {
         ArgumentNullException.ThrowIfNull(route);
         // Build first: an unknown id throws before we disturb the current
         // session, so a failed navigation leaves everything untouched.
         var next = BuildSession(route);
 
+        // A promotion (new-session page → its detail route) adopts the very
+        // same session: skip the cancel/await/dispose so an in-flight first
+        // run keeps streaming.
         var previous = _current;
-        if (previous is not null)
+        var isPromotion = ReferenceEquals(previous, next);
+        if (previous is not null && !isPromotion)
         {
             if (previous.State.IsRunning)
                 previous.Cancel();
@@ -54,7 +61,17 @@ public sealed class SessionNavigator : ISessionNavigator
         _current = next;
         Route = route;
         RouteChanged?.Invoke(route);
-        previous?.Dispose();
+        if (previous is not null && !isPromotion)
+            previous.Dispose();
+    }
+
+    public void SetPendingSubmission(string text) => _pendingSubmission = text;
+
+    public string? TakePendingSubmission()
+    {
+        var pending = _pendingSubmission;
+        _pendingSubmission = null;
+        return pending;
     }
 
     public IReadOnlyList<SessionRecord> ListRecentSessions(int days = 7) =>
@@ -62,10 +79,15 @@ public sealed class SessionNavigator : ISessionNavigator
 
     public void Dispose() => _current?.Dispose();
 
-    private CodingSession BuildSession(SessionRoute route) => route switch
+    private CodingSession BuildSession(AppRoute route) => route switch
     {
-        NewSessionRoute => _factory.Create(FreshEnv()),
-        ExistingSessionRoute r => _factory.Resume(_env, r.SessionId),
+        ChatRoute(NewSessionRequest) => _factory.Create(FreshEnv()),
+        // Promotion: navigating to the current session's own id adopts the
+        // in-memory instance (a fresh session not yet persisted) instead of
+        // rebuilding from disk.
+        ChatRoute(ExistingSessionRequest r) when _current is not null && _current.Id == r.SessionId
+            => _current,
+        ChatRoute(ExistingSessionRequest r) => _factory.Resume(_env, r.SessionId),
         _ => throw new ArgumentOutOfRangeException(nameof(route)),
     };
 

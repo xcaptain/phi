@@ -1,5 +1,6 @@
 using PhiCoding;
 using PhiCoding.Providers;
+using PhiCoding.Routing;
 using PhiCoding.Sessions;
 using PhiCoding.Tui;
 
@@ -56,9 +57,9 @@ var env = new SessionConfig
     Model = providerManager.ResolveDefaultModel(defaultProvider),
 };
 
-SessionRoute route = resumeSessionId is null
-    ? new NewSessionRoute()
-    : new ExistingSessionRoute(resumeSessionId);
+AppRoute route = resumeSessionId is null
+    ? new ChatRoute(new NewSessionRequest())
+    : new ChatRoute(new ExistingSessionRequest(resumeSessionId));
 
 SessionNavigator navigator;
 try

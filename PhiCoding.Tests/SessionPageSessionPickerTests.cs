@@ -1,4 +1,4 @@
-using PhiCoding.Tui;
+using PhiCoding.Pages;
 using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tests;
@@ -10,7 +10,7 @@ namespace PhiCoding.Tests;
 /// loop silently missed sessions once the list spanned multiple day groups.
 /// </summary>
 [NotInParallel(TuiTestGroups.BindingManager)]
-public class PhiTuiAppSessionPickerTests
+public class SessionPageSessionPickerTests
 {
     private static SessionRecord Record(string id, long updatedAt, string model = "m") => new(
         id, "/cwd", model, $"session-{id}", updatedAt, updatedAt);
@@ -27,7 +27,7 @@ public class PhiTuiAppSessionPickerTests
             Record("c", NowMs() - 200),
         };
 
-        var (list, recordsByIndex) = PhiTuiApp.BuildSessionPicker(sessions);
+        var (list, recordsByIndex) = ChatScreen.BuildSessionPicker(sessions);
 
         // header + 3 sessions
         await Assert.That(list.Items.Count).IsEqualTo(4);
@@ -55,7 +55,7 @@ public class PhiTuiAppSessionPickerTests
             Record("c", yesterday),
         };
 
-        var (list, recordsByIndex) = PhiTuiApp.BuildSessionPicker(sessions);
+        var (list, recordsByIndex) = ChatScreen.BuildSessionPicker(sessions);
 
         // Today header, a, b, Yesterday header, c
         await Assert.That(list.Items.Count).IsEqualTo(5);
@@ -77,7 +77,7 @@ public class PhiTuiAppSessionPickerTests
             Record("c", yesterday),
         };
 
-        var (list, recordsByIndex) = PhiTuiApp.BuildSessionPicker(sessions);
+        var (list, recordsByIndex) = ChatScreen.BuildSessionPicker(sessions);
 
         for (var i = 0; i < list.Items.Count; i++)
         {

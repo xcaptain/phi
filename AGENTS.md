@@ -18,15 +18,35 @@ PhiAgent 是最底层的 package，依赖最少，可以注入不同的 provider
 
 ### 应用层依赖关系
 
-PhiTuiApp ─→ SessionNavigator ─→ CodingSessionFactory ─→ CodingSession ─→ Harness ─→ Provider
-   (TUI)         (路由：           (组装 runtime:        (session +     (dispatch)  (LLM)
-                /sessions/new      资源/tools/prompt/      harness +
-                /sessions/:id，    harness)               provider +
-                拥有当前 session                          queue)
-                生命周期、dispose)
-每层只依赖下一层，不跨层。PhiTuiApp 不知道 Harness 的存在，Session 不知道 Provider 的存在。 这样前后端分离，各司其职，未来要新增前端也好做
+PhiTuiApp ─→ PageRegistry ─→ ChatScreen ─┐
+   (TUI)      (路由算法：     (抽象基类：  │
+               AppRoute →     共享 editor/ │
+               IPage 解析)    对话框/       ├─→ ISession ─→ CodingSession ─→ Harness ─→ Provider
+                               slash 分发) │    (接口，    (session +   (dispatch)  (LLM)
+                                          │    已水合的    harness +
+                          ┌─ NewSessionPage  model)       provider + queue)
+                          └─ SessionPage  (页面/屏幕控制器：自含视图/状态/交互)
+    └─→ SessionNavigator ─→ CodingSessionFactory ─→ CodingSession
+        (导航：构建目标      (组装 runtime:
+         session、dispose    资源/tools/prompt/harness)
+         旧 session、触发
+         RouteChanged)
 
-session 切换（/new、resume）就是路由跳转：SessionNavigator 用 factory 构建目标 session、dispose 旧 session、触发 RouteChanged；TUI 据此重建绑定当前路由的 page。CodingSession 只代表"一条活着的会话"，不再自己换身份。
+路由是强类型判别联合 `AppRoute`（`ChatRoute(NewSessionRequest | ExistingSessionRequest(id))`），
+PageRegistry 把路由族解析成页面（route→page）：
+- `ChatRoute(NewSessionRequest)` → NewSessionPage（/sessions/new 落地页：居中 editor，无 transcript）
+- `ChatRoute(ExistingSessionRequest(id))` → SessionPage（/sessions/:id 详情页：transcript + editor + status）
+页面每次导航都新建一个实例，绑定那条已水合的会话；共享逻辑在 ChatScreen 基类（editor/slash/对话框）。
+
+session 切换（/new、resume）就是路由跳转：SessionNavigator 用 factory 构建目标 session、
+dispose 旧 session、触发 RouteChanged；TUI 据此重建绑定当前路由的 page。
+新建页提交首条 prompt 后"晋升"到详情路由：导航到当前 session 自己的 id 时 navigator
+直接采纳内存中的同一条（不重建、不取消、不 dispose），并把提交文本经 pending submission
+带给详情页渲染用户气泡。
+CodingSession 只代表"一条活着的会话"，不再自己换身份。
+
+每层只依赖下一层，不跨层。PhiTuiApp 不知道 Harness 的存在，Session 不知道 Provider 的存在。
+这样前后端分离，各司其职，未来要新增前端也好做；新增页面 = 加一个路由族 + 一个 IPage 实现 + PageRegistry 一行。
 
 ## 开发工作流
 
