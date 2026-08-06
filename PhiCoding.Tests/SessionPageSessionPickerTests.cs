@@ -1,4 +1,4 @@
-using PhiCoding.Pages;
+using PhiCoding.Tui.Inputs;
 using XenoAtom.Terminal.UI.Controls;
 
 namespace PhiCoding.Tests;
@@ -27,7 +27,7 @@ public class SessionPageSessionPickerTests
             Record("c", NowMs() - 200),
         };
 
-        var (list, recordsByIndex) = ChatScreen.BuildSessionPicker(sessions);
+        var (list, recordsByIndex) = PromptInput.BuildSessionPicker(sessions);
 
         // header + 3 sessions
         await Assert.That(list.Items.Count).IsEqualTo(4);
@@ -55,7 +55,7 @@ public class SessionPageSessionPickerTests
             Record("c", yesterday),
         };
 
-        var (list, recordsByIndex) = ChatScreen.BuildSessionPicker(sessions);
+        var (list, recordsByIndex) = PromptInput.BuildSessionPicker(sessions);
 
         // Today header, a, b, Yesterday header, c
         await Assert.That(list.Items.Count).IsEqualTo(5);
@@ -77,7 +77,7 @@ public class SessionPageSessionPickerTests
             Record("c", yesterday),
         };
 
-        var (list, recordsByIndex) = ChatScreen.BuildSessionPicker(sessions);
+        var (list, recordsByIndex) = PromptInput.BuildSessionPicker(sessions);
 
         for (var i = 0; i < list.Items.Count; i++)
         {

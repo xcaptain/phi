@@ -18,14 +18,15 @@ PhiAgent 是最底层的 package，依赖最少，可以注入不同的 provider
 
 ### 应用层依赖关系
 
-PhiTuiApp ─→ PageRegistry ─→ ChatScreen ─┐
-   (TUI)      (路由算法：     (抽象基类：  │
-               AppRoute →     共享 editor/ │
-               IPage 解析)    对话框/       ├─→ ISession ─→ CodingSession ─→ Harness ─→ Provider
-                               slash 分发) │    (接口，    (session +   (dispatch)  (LLM)
-                                          │    已水合的    harness +
-                          ┌─ NewSessionPage  model)       provider + queue)
-                          └─ SessionPage  (页面/屏幕控制器：自含视图/状态/交互)
+PhiTuiApp ─→ PageRegistry ─→ SessionPage ─→ PromptInput ─┐
+   (TUI)      (路由算法：     (页面/屏幕      (输入组件：  │
+               AppRoute →     控制器：        editor +    │
+               IPage 解析)    自含视图/        slash 分发/ │
+                             状态/交互)      对话框/      ├─→ ISession ─→ CodingSession ─→ Harness ─→ Provider
+                          ┌─ NewSessionPage  skill 补全) │    (接口，    (session +   (dispatch)  (LLM)
+                          └─ SessionPage    ↓            │    已水合的    harness +
+                                            ChatHeader    │    model)     provider + queue)
+                                            (chrome)
     └─→ SessionNavigator ─→ CodingSessionFactory ─→ CodingSession
         (导航：构建目标      (组装 runtime:
          session、dispose    资源/tools/prompt/harness)
@@ -36,7 +37,8 @@ PhiTuiApp ─→ PageRegistry ─→ ChatScreen ─┐
 PageRegistry 把路由族解析成页面（route→page）：
 - `ChatRoute(NewSessionRequest)` → NewSessionPage（/sessions/new 落地页：居中 editor，无 transcript）
 - `ChatRoute(ExistingSessionRequest(id))` → SessionPage（/sessions/:id 详情页：transcript + editor + status）
-页面每次导航都新建一个实例，绑定那条已水合的会话；共享逻辑在 ChatScreen 基类（editor/slash/对话框）。
+页面每次导航都新建一个实例，绑定那条已水合的会话；两页都用 `PromptInput`（组合，不是继承）
+复用输入壳——editor/slash 分发/对话框/skill 补全，靠三条回调把"提交/信息/排队"交给页面。
 
 session 切换（/new、resume）就是路由跳转：SessionNavigator 用 factory 构建目标 session、
 dispose 旧 session、触发 RouteChanged；TUI 据此重建绑定当前路由的 page。

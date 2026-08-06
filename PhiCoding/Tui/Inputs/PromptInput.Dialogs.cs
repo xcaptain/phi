@@ -3,13 +3,13 @@ using PhiCoding.Providers;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Pages;
+namespace PhiCoding.Tui.Inputs;
 
-public abstract partial class ChatScreen
+public sealed partial class PromptInput
 {
     // ──────── /sessions dialog ────────
 
-    private void ShowSessionsDialog()
+    internal void ShowSessionsDialog()
     {
         var sessions = _navigator.ListRecentSessions(7);
         if (sessions.Count == 0)
@@ -92,7 +92,7 @@ public abstract partial class ChatScreen
 
     // ──────── /connect dialog ────────
 
-    private void ShowConnectDialog()
+    internal void ShowConnectDialog()
     {
         var list = new OptionList<OptionListItem>().ActivateOnClick(true);
         foreach (var entry in _providers.Providers)
@@ -211,7 +211,7 @@ public abstract partial class ChatScreen
 
     // ──────── /models dialog ────────
 
-    private void ShowModelsDialog()
+    internal void ShowModelsDialog()
     {
         var providers = BuildModelPickerProviders(
             _providers.Providers, _session.State.ProviderName, _providers.HasApiKey);
@@ -301,10 +301,10 @@ public abstract partial class ChatScreen
     public sealed record ModelPickerItem(string Label, bool IsEnabled);
 
     /// <summary>
-    /// Builds the <c>/models</c> picker: a disabled header row per provider
-    /// followed by its models, plus a position-parallel map (null for
-    /// headers). The active model on the current provider is marked with a
-    /// check, so the picker doubles as a cross-provider model switcher.
+    /// Builds the models picker with a disabled header row per provider,
+    /// its models, and a position-parallel map. The active model on the
+    /// current provider is marked with a check, so the picker doubles as a
+    /// cross-provider model switcher.
     /// </summary>
     internal static (IReadOnlyList<ModelPickerItem> Items, IReadOnlyList<(ProviderCatalogEntry Entry, string Model)?> Map)
         BuildModelPicker(

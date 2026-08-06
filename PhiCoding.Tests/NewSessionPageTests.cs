@@ -23,7 +23,7 @@ public class NewSessionPageTests
         var root = page.Build();
 
         await Assert.That(root).IsNotNull();
-        await Assert.That(page.Editor).IsNotNull();
-        await Assert.That(page.SuggestionStrip).IsNotNull();
+        await Assert.That(page.Input.Editor).IsNotNull();
+        await Assert.That(page.Input.SuggestionStrip).IsNotNull();
     }
 }

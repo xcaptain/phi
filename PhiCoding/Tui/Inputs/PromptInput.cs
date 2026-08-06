@@ -1,77 +1,88 @@
-using System.Diagnostics.CodeAnalysis;
 using PhiAgent;
 using PhiCoding.Providers;
 using PhiCoding.Routing;
 using PhiCoding.Sessions;
-using PhiCoding.Tui;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 
-namespace PhiCoding.Pages;
+namespace PhiCoding.Tui.Inputs;
+
+/// <summary>Fired after a prompt (typed text or a skill) is submitted.</summary>
+public delegate void PromptSubmittedHandler(string text, bool isSkill);
 
 /// <summary>
-/// Base for the chat screens: the new-session landing page and the session
-/// detail page. Holds everything the two share — the prompt editor, the
-/// suggestion strip, slash-command dispatch, the <c>/sessions</c> /
-/// <c>/connect</c> / <c>/models</c> dialogs, skill completion, and
-/// navigation — and leaves each page to decide its own layout and what to do
-/// when a prompt is submitted.
+/// The shared input shell the chat pages compose. Owns the prompt editor,
+/// suggestion strip, slash-command dispatch, skill completion, the
+/// <c>/sessions</c> / <c>/connect</c> / <c>/models</c> dialogs, and the
+/// provider / model switchers — everything two chat screens would otherwise
+/// have to copy. A plain component, not a <see cref="Visual"/>: it composes
+/// an existing <see cref="PromptEditor"/>, it doesn't subclass or replace it.
 /// <para>
-/// Data flow: the session is already hydrated by the navigator (jsonl loaded
-/// into <see cref="ISession.State"/> by the factory); the page renders it and
-/// subscribes to the session's reactive events. A fresh page instance is built
-/// per navigation, so every binding and closure captures exactly the session
-/// this page renders.
+/// The composing page injects three callbacks (<see cref="OnSubmitted"/>,
+/// <see cref="ShowInfo"/>, <see cref="ShowSteeringQueued"/>) so the input
+/// stays ignorant of the page's layout / transcript / promotion strategy.
 /// </para>
 /// </summary>
-[SuppressMessage("Design", "CA1051", Justification = "Protected readonly DI fields for derived pages; properties would add ceremony")]
-public abstract partial class ChatScreen : IPage
+public sealed partial class PromptInput
 {
-    protected readonly ISession _session;
-    protected readonly ISessionNavigator _navigator;
-    protected readonly ProviderManager _providers;
+    private readonly ISession _session;
+    private readonly ISessionNavigator _navigator;
+    private readonly ProviderManager _providers;
+
+    /// <summary>The session this input is bound to.</summary>
+    public ISession Session => _session;
+
+    /// <summary>The navigator this input is bound to (exposed for pages that
+    /// need to navigate, e.g. the new-session page promoting to a detail route).</summary>
+    public ISessionNavigator Navigator => _navigator;
+
+    /// <summary>The prompt editor constructed by <see cref="Build"/>.</summary>
+    public PromptEditor Editor { get; private set; } = null!;
+
+    /// <summary>The live-autocomplete strip constructed by <see cref="Build"/>.</summary>
+    public SuggestionStrip SuggestionStrip { get; private set; } = null!;
+
+    /// <summary>(text, isSkill) — fired after a prompt or skill is submitted.</summary>
+    public PromptSubmittedHandler OnSubmitted { get; }
+
+    /// <summary>Surfaces an informational line (dialog feedback, errors).</summary>
+    public Action<string> ShowInfo { get; }
+
+    /// <summary>Surfaces a steering-queued message (called instead of SubmitPrompt when the session is running).</summary>
+    public Action<string> ShowSteeringQueued { get; }
+
     private SkillSuggestionProvider? _skillProvider;
 
-    protected ChatScreen(
-        ISession session, ISessionNavigator navigator, ProviderManager providers)
+    public PromptInput(
+        ISession session,
+        ISessionNavigator navigator,
+        ProviderManager providers,
+        PromptSubmittedHandler onSubmitted,
+        Action<string> showInfo,
+        Action<string> showSteeringQueued)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(navigator);
         ArgumentNullException.ThrowIfNull(providers);
+        ArgumentNullException.ThrowIfNull(onSubmitted);
+        ArgumentNullException.ThrowIfNull(showInfo);
+        ArgumentNullException.ThrowIfNull(showSteeringQueued);
         _session = session;
         _navigator = navigator;
         _providers = providers;
+        OnSubmitted = onSubmitted;
+        ShowInfo = showInfo;
+        ShowSteeringQueued = showSteeringQueued;
     }
 
-    /// <summary>The prompt editor rendered by this page (set by <see cref="Build"/>).</summary>
-    public PromptEditor Editor { get; private set; } = null!;
-
-    /// <summary>The suggestion strip rendered by this page (set by <see cref="Build"/>).</summary>
-    public SuggestionStrip SuggestionStrip { get; private set; } = null!;
-
-    /// <summary>The page's layout; called at the end of <see cref="Build"/>.</summary>
-    protected abstract Visual BuildLayout();
-
-    /// <summary>Surfaces an informational line (dialog feedback, errors).</summary>
-    protected abstract void ShowInfo(string message);
-
     /// <summary>
-    /// Called after any prompt (typed text or a skill) is submitted to the
-    /// session. The session page renders the user bubble in its transcript;
-    /// the new-session page promotes to the session's detail route.
+    /// Builds the input: constructs the prompt editor and suggestion strip,
+    /// wires the editor's Accepted event to the slash / skill / submit
+    /// dispatch, the Canceled event to <c>session.Cancel</c>. Must be called
+    /// exactly once before exposing <see cref="Editor"/> or
+    /// <see cref="SuggestionStrip"/>.
     /// </summary>
-    protected virtual void OnSubmitted(string text, bool isSkill) { }
-
-    /// <summary>Surfaces a steering-queued message (session page only).</summary>
-    protected virtual void ShowSteeringQueued(string text) { }
-
-    /// <summary>
-    /// Builds the page: constructs the view state (<c>State&lt;T&gt;</c>
-    /// locals, the React <c>useState</c> analog), assembles the shared editor
-    /// and suggestion strip, wires the interactions, and returns the page's
-    /// layout.
-    /// </summary>
-    public Visual Build()
+    public void Build()
     {
         var inputText = new State<string?>(string.Empty);
 
@@ -99,26 +110,6 @@ public abstract partial class ChatScreen : IPage
             HandleInput(text);
         });
         Editor.Canceled((_, _) => _session.Cancel());
-
-        return BuildLayout();
-    }
-
-    /// <summary>The shared header: phi logo + the session's provider/model.</summary>
-    protected Visual BuildHeader()
-    {
-        var modelMarkup = new Markup(
-            $"[dim]{FormatModel(_session.State.ProviderName, _session.State.Model)}[/]")
-        {
-            Wrap = false,
-        };
-        _session.StateChanged += s =>
-            modelMarkup.Text = $"[dim]{FormatModel(s.ProviderName, s.Model)}[/]";
-
-        return new Header
-        {
-            Left = new Markup("[bold]phi[/]") { Wrap = false },
-            Right = modelMarkup,
-        };
     }
 
     // ──────── Input dispatch ────────
@@ -175,7 +166,7 @@ public abstract partial class ChatScreen : IPage
         SubmitPrompt(text);
     }
 
-    protected void SubmitPrompt(string text)
+    private void SubmitPrompt(string text)
     {
         _session.SubmitPrompt(text);
         OnSubmitted(text, isSkill: false);
@@ -199,12 +190,16 @@ public abstract partial class ChatScreen : IPage
         }
     }
 
-    // ──────── /new ────────
-
     /// <summary>
-    /// Navigates to a fresh session (the landing page). The navigator keeps
-    /// the current provider/model for the new session.
+    /// Returns and clears the navigator's pending submission, if any. Pages
+    /// building a promoted detail view call this so the user bubble can be
+    /// rendered when the run is already in flight.
     /// </summary>
+    public string? TakePendingSubmission() => _navigator.TakePendingSubmission();
+
+    // ──────── Navigation ────────
+
+    /// <summary>Navigates to a fresh session (the landing page).</summary>
     private async Task NavigateToNewAsync()
     {
         try
@@ -217,10 +212,7 @@ public abstract partial class ChatScreen : IPage
         }
     }
 
-    /// <summary>
-    /// Navigates to an indexed session (<c>/sessions/:id</c>). An unknown id
-    /// surfaces an info line instead of disturbing the current session.
-    /// </summary>
+    /// <summary>Navigates to an indexed session (<c>/sessions/:id</c>).</summary>
     private async Task NavigateToSessionAsync(string sessionId)
     {
         try
@@ -257,7 +249,4 @@ public abstract partial class ChatScreen : IPage
 
         return new PromptEditorCompletion(true, candidates, match.ReplaceStart, prefixLength, 0, ghost);
     }
-
-    internal static string FormatModel(string providerName, string model) =>
-        providerName.Length > 0 ? $"{providerName}/{model}" : model;
 }

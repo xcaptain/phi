@@ -1,5 +1,6 @@
 using PhiCoding.Pages;
 using PhiCoding.Providers;
+using PhiCoding.Tui.Inputs;
 using PhiCoding.Tests.Helpers;
 using PhiCoding.Tui;
 using XenoAtom.Terminal.UI.Controls;
@@ -58,7 +59,7 @@ public class SessionPageProviderTests : IDisposable
         var manager = CreateManager();
         var page = CreatePage(session, manager);
 
-        page.ConnectWithKey(ProviderCatalog.DeepSeek, "sk-123");
+        page.Input.ConnectWithKey(ProviderCatalog.DeepSeek, "sk-123");
 
         await Assert.That(session.LastSwitchedProviderName).IsEqualTo("deepseek");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("deepseek-v4-flash");
@@ -80,7 +81,7 @@ public class SessionPageProviderTests : IDisposable
         var manager = CreateManager();
         var page = CreatePage(session, manager);
 
-        page.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
+        page.Input.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
 
         // The entered key lands in the credential store so a later launch can
         // resolve it without the env var.
@@ -99,7 +100,7 @@ public class SessionPageProviderTests : IDisposable
         manager.SetApiKey(ProviderCatalog.Glm, "sk-old");
         var page = CreatePage(session, manager);
 
-        page.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
+        page.Input.ApplyApiKeyAndConnect(ProviderCatalog.Glm, "sk-new");
 
         await Assert.That(manager.ResolveApiKey(ProviderCatalog.Glm)).IsEqualTo("sk-new");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("glm-4.7-flash");
@@ -113,7 +114,7 @@ public class SessionPageProviderTests : IDisposable
         var session = new MockSession();
         var page = CreatePage(session, CreateManager());
 
-        page.ConnectProviderByName("nope");
+        page.Input.ConnectProviderByName("nope");
 
         await Assert.That(session.LastSwitchedProviderName).IsNull();
         await Assert.That(TranscriptItems(page.Transcript)).IsEqualTo(1);
@@ -126,7 +127,7 @@ public class SessionPageProviderTests : IDisposable
         var manager = CreateManager();
         var page = CreatePage(session, manager);
 
-        page.ConnectWithModel(ProviderCatalog.Kimi, "sk-kimi", "kimi-k2-thinking");
+        page.Input.ConnectWithModel(ProviderCatalog.Kimi, "sk-kimi", "kimi-k2-thinking");
 
         await Assert.That(session.LastSwitchedProviderName).IsEqualTo("kimi");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("kimi-k2-thinking");
@@ -145,7 +146,7 @@ public class SessionPageProviderTests : IDisposable
     {
         var providers = new[] { ProviderCatalog.DeepSeek, ProviderCatalog.Glm };
 
-        var (items, map) = ChatScreen.BuildModelPicker(providers, "deepseek", "deepseek-v4-flash");
+        var (items, map) = PromptInput.BuildModelPicker(providers, "deepseek", "deepseek-v4-flash");
 
         // header + 2 models + header + 5 models
         await Assert.That(items.Count).IsEqualTo(1 + 2 + 1 + 5);
@@ -167,7 +168,7 @@ public class SessionPageProviderTests : IDisposable
     [Test]
     public async Task BuildModelPicker_MarksCurrentModel_OnCurrentProvider()
     {
-        var (items, map) = ChatScreen.BuildModelPicker([ProviderCatalog.Glm], "glm", "glm-5.1");
+        var (items, map) = PromptInput.BuildModelPicker([ProviderCatalog.Glm], "glm", "glm-5.1");
 
         // header(0), glm-4.7-flash(1), glm-4.7(2), glm-5-turbo(3), glm-5.1(4), glm-5v-turbo(5)
         await Assert.That(items[4].Label).IsEqualTo("  ✓ glm-5.1");
@@ -179,7 +180,7 @@ public class SessionPageProviderTests : IDisposable
     [Test]
     public async Task BuildModelPickerProviders_IncludesCurrentEvenWithoutKey()
     {
-        var providers = ChatScreen.BuildModelPickerProviders(
+        var providers = PromptInput.BuildModelPickerProviders(
             ProviderCatalog.All, "kimi", _ => false);
 
         await Assert.That(providers.Select(p => p.Name)).IsEquivalentTo(["kimi"]);
@@ -190,7 +191,7 @@ public class SessionPageProviderTests : IDisposable
     {
         var hasKey = new Func<ProviderCatalogEntry, bool>(e => e.Name is "deepseek" or "glm" or "kimi");
 
-        var providers = ChatScreen.BuildModelPickerProviders(ProviderCatalog.All, "kimi", hasKey);
+        var providers = PromptInput.BuildModelPickerProviders(ProviderCatalog.All, "kimi", hasKey);
 
         await Assert.That(providers.Select(p => p.Name)).IsEquivalentTo(["deepseek", "glm", "kimi"]);
         await Assert.That(providers.Count).IsEqualTo(3);
@@ -199,7 +200,7 @@ public class SessionPageProviderTests : IDisposable
     [Test]
     public async Task FormatProviderLabel_CurrentWithKey_ShowsCheckAndModel()
     {
-        var label = ChatScreen.FormatProviderLabel(
+        var label = PromptInput.FormatProviderLabel(
             ProviderCatalog.DeepSeek, "deepseek", hasKey: true, "deepseek-v4-flash");
 
         await Assert.That(label).IsEqualTo("  ✓ DeepSeek — deepseek · deepseek-v4-flash");
@@ -208,7 +209,7 @@ public class SessionPageProviderTests : IDisposable
     [Test]
     public async Task FormatProviderLabel_OtherWithoutKey_MarksNoKey()
     {
-        var label = ChatScreen.FormatProviderLabel(
+        var label = PromptInput.FormatProviderLabel(
             ProviderCatalog.Kimi, "deepseek", hasKey: false, null);
 
         await Assert.That(label).IsEqualTo("    Moonshot Kimi — kimi  (no key)");
@@ -217,7 +218,7 @@ public class SessionPageProviderTests : IDisposable
     [Test]
     public async Task FormatProviderLabel_OtherWithKey_PlainRow()
     {
-        var label = ChatScreen.FormatProviderLabel(
+        var label = PromptInput.FormatProviderLabel(
             ProviderCatalog.Glm, "deepseek", hasKey: true, "deepseek-v4-flash");
 
         await Assert.That(label).IsEqualTo("    Zhipu GLM — glm");
