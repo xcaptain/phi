@@ -56,7 +56,10 @@ public class DeskShellWorkspaceSwitchTests : IDisposable
         var deadline = Environment.TickCount64 + timeoutMs;
         while (true)
         {
-            var entries = DeskNavModel.BuildMainEntries(WorkspaceSessionStore.ListAllSessions());
+            var entries = DeskNavModel.BuildMainEntries(
+                WorkspaceSessionStore.ListAllSessions(),
+                DeskNavModel.GroupMode.ByWorkspace,
+                DeskNavModel.PaneMode.Expanded);
             var expected = DeskNavModel.IndexForActive(entries, session.State.SessionId);
             if (expected > 0 && shell.Nav.SelectedIndex == expected)
                 return;
@@ -212,7 +215,10 @@ public class DeskShellWorkspaceSwitchTests : IDisposable
 
             // The nav entry must show the real title, not the id-prefix
             // placeholder.
-            var entries = DeskNavModel.BuildMainEntries(WorkspaceSessionStore.ListAllSessions());
+            var entries = DeskNavModel.BuildMainEntries(
+                WorkspaceSessionStore.ListAllSessions(),
+                DeskNavModel.GroupMode.ByWorkspace,
+                DeskNavModel.PaneMode.Expanded);
             var sessionEntry = entries.Single(e =>
                 e.Kind == DeskNavModel.Kind.Session
                 && e.SessionId == navigator.Current.State.SessionId);
