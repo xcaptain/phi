@@ -1,7 +1,35 @@
+using Aprillz.MewUI;
 using PhiCoding;
 using PhiCoding.Desk;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
+
+// Capture any unhandled UI / background exception to a log file so
+// workspace-picker and submit failures can be diagnosed without a console.
+var errorLogPath = Path.Combine(SessionPaths.PhiHome, "desk-errors.log");
+void LogError(Exception ex)
+{
+    try
+    {
+        File.AppendAllText(
+            errorLogPath,
+            $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {ex}{Environment.NewLine}");
+    }
+    catch
+    {
+        // ignore log write failures
+    }
+}
+Application.DispatcherUnhandledException += e =>
+{
+    LogError(e.Exception);
+    e.Handled = true;
+};
+TaskScheduler.UnobservedTaskException += (_, e) =>
+{
+    LogError(e.Exception);
+    e.SetObserved();
+};
 
 // ──────── CLI args ────────
 // phi-desk                → /sessions/new (fresh session, persisted lazily)
@@ -34,12 +62,16 @@ var providerManager = new ProviderManager();
 var factory = new CodingSessionFactory(providerManager);
 var defaultProvider = providerManager.ResolveDefaultProvider();
 
-// Environment for any session: cwd, prompt, tools, compaction knobs. On a
-// fresh session the default provider/model apply; on resume the session
-// record's provider/model win (the config only supplies the environment).
+// Environment for any session: cwd, prompt, tools, compaction knobs. The
+// desktop isn't bound to a process working directory, so the default cwd is
+// the most recently used workspace derived from session records (falling
+// back to the launch directory when no sessions exist yet). On a fresh
+// session the default provider/model apply; on resume the session record's
+// provider/model win (the config only supplies the environment).
+var recentWorkspaces = WorkspaceSessionStore.ListWorkspaces();
 var env = new SessionConfig
 {
-    Cwd = Environment.CurrentDirectory,
+    Cwd = recentWorkspaces.Count > 0 ? recentWorkspaces[0] : Environment.CurrentDirectory,
     ProviderName = defaultProvider.Name,
     Model = providerManager.ResolveDefaultModel(defaultProvider),
 };

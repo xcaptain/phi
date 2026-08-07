@@ -20,7 +20,12 @@ internal sealed class DeskChatPage : IDisposable
     private readonly TranscriptView _transcript;
     private readonly PromptInputView _promptInput;
 
-    public DeskChatPage(ISessionNavigator navigator, ProviderManager providers, ISession session)
+    public DeskChatPage(
+        ISessionNavigator navigator,
+        ProviderManager providers,
+        ISession session,
+        Window? owner = null,
+        Action<Action>? postToUi = null)
     {
         ArgumentNullException.ThrowIfNull(navigator);
         ArgumentNullException.ThrowIfNull(providers);
@@ -31,7 +36,19 @@ internal sealed class DeskChatPage : IDisposable
 
         _statusBar = new StatusBarView();
         _transcript = new TranscriptView();
-        _promptInput = new PromptInputView(session, navigator, providers, _projector);
+        _promptInput = new PromptInputView(
+            session,
+            navigator,
+            providers,
+            _projector,
+            pickFolder: owner is null
+                ? null
+                : () => FileDialog.SelectFolder(new FolderDialogOptions
+                {
+                    Owner = owner,
+                    Title = "Choose working directory",
+                }),
+            postToUi: postToUi);
 
         _transcript.Bind(_projector);
         _statusBar.BindStatusBar(session);

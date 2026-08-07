@@ -18,7 +18,9 @@ namespace PhiCoding;
 public static partial class SessionPaths
 {
     private const string DefaultRootSegment = "sessions";
-    private const string IndexFileName = "index.jsonl";
+
+    /// <summary>Per-project session index file name.</summary>
+    public const string IndexFileName = "index.jsonl";
 
     /// <summary>
     /// Unique, human-readable project key for <paramref name="cwd"/>.

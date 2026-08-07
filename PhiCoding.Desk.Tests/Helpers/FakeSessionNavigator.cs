@@ -24,11 +24,15 @@ public sealed class FakeSessionNavigator : ISessionNavigator
     /// <summary>Number of times <see cref="NavigateToNewAsync"/> was called.</summary>
     public int NavigateToNewCalls { get; private set; }
 
+    /// <summary>Last cwd passed to <see cref="NavigateToNewAsync"/>, if any.</summary>
+    public string? LastNewCwd { get; private set; }
+
     public IReadOnlyList<SessionRecord> RecentSessions { get; set; } = [];
 
-    public Task NavigateToNewAsync()
+    public Task NavigateToNewAsync(string? cwd = null)
     {
         NavigateToNewCalls++;
+        LastNewCwd = cwd;
         SessionChanged?.Invoke();
         return Task.CompletedTask;
     }

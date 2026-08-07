@@ -52,28 +52,43 @@ public sealed class PhiDeskApp : IDisposable
 
     private Window BuildWindow()
     {
-        _shell = new DeskShell(
-            _navigator,
-            _providers,
-            dispatchToUi: action =>
-            {
-                var dispatcher = Application.Current.Dispatcher;
-                if (dispatcher is null) return;
-                dispatcher.Invoke(action);
-            },
-            postToUi: action =>
-            {
-                var dispatcher = Application.Current.Dispatcher;
-                if (dispatcher is null) return;
-                dispatcher.BeginInvoke(action);
-            });
-
         _window = new Window()
             .Resizable(1024, 720)
             .StartCenterScreen()
             .Title("Phi")
             .Padding(0)
             .OnClosed(Dispose);
+
+        _shell = new DeskShell(
+            _navigator,
+            _providers,
+            owner: _window,
+            dispatchToUi: action =>
+            {
+                // Before Application.Run starts (window/shell construction) we
+                // are already on the UI thread and Application.Current throws;
+                // run inline. Once running, marshal through the dispatcher.
+                if (!Application.IsRunning)
+                {
+                    action();
+                    return;
+                }
+                var dispatcher = Application.Current.Dispatcher;
+                if (dispatcher is null) return;
+                dispatcher.Invoke(action);
+            },
+            postToUi: action =>
+            {
+                if (!Application.IsRunning)
+                {
+                    action();
+                    return;
+                }
+                var dispatcher = Application.Current.Dispatcher;
+                if (dispatcher is null) return;
+                dispatcher.BeginInvoke(action);
+            });
+
         _window.Content = _shell.BuildRoot();
         return _window;
     }

@@ -27,16 +27,16 @@ public sealed class SessionNavigator : ISessionNavigator
         // TUI mounts (no session is in flight at this point to settle).
         _current = resumeSessionId is null
             ? _factory.Create(_env)
-            : _factory.Resume(_env, resumeSessionId);
+            : _factory.Resume(EnvFor(resumeSessionId), resumeSessionId);
     }
 
     public ISession Current => _current;
 
     public event Action? SessionChanged;
 
-    public async Task NavigateToNewAsync()
+    public async Task NavigateToNewAsync(string? cwd = null)
     {
-        var next = _factory.Create(FreshEnv());
+        var next = _factory.Create(FreshEnv(cwd));
         await SwapAsync(next);
     }
 
@@ -44,7 +44,11 @@ public sealed class SessionNavigator : ISessionNavigator
     {
         if (string.IsNullOrEmpty(sessionId))
             throw new InvalidOperationException("Cannot resume an empty session id.");
-        var next = _factory.Resume(_env, sessionId);
+        // Resolve the session's own working directory (it may live in a
+        // different workspace than the navigator's configured cwd) so
+        // cross-workspace resume works. The config only supplies the
+        // environment; the record's provider/model still win.
+        var next = _factory.Resume(EnvFor(sessionId), sessionId);
         await SwapAsync(next);
     }
 
@@ -69,11 +73,26 @@ public sealed class SessionNavigator : ISessionNavigator
     /// Environment for a fresh session: the startup defaults on first
     /// create, or — when a session is already live — that session's
     /// provider/model so <c>/new</c> keeps the user connected instead of
-    /// reverting to the default.
+    /// reverting to the default. <paramref name="cwd"/> overrides the working
+    /// directory (used by the desktop to start a chat in a chosen workspace).
     /// </summary>
-    private SessionConfig FreshEnv() => _env with
+    private SessionConfig FreshEnv(string? cwd = null) => _env with
     {
+        Cwd = cwd ?? _env.Cwd,
         ProviderName = _current.State.ProviderName,
         Model = _current.State.Model,
     };
+
+    /// <summary>
+    /// Environment for resuming <paramref name="sessionId"/>: the navigator's
+    /// config with <see cref="SessionConfig.Cwd"/> set to the session record's
+    /// own working directory so cross-workspace resume reads the right
+    /// transcript. Falls back to the configured cwd (and lets
+    /// <see cref="CodingSessionFactory.Resume"/> throw) when the id is
+    /// unknown.
+    /// </summary>
+    private SessionConfig EnvFor(string sessionId) =>
+        WorkspaceSessionStore.FindSession(sessionId) is { } record
+            ? _env with { Cwd = record.Cwd }
+            : _env;
 }

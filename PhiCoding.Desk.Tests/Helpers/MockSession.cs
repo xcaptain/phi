@@ -15,6 +15,9 @@ public sealed class MockSession : ISession
 
     public SessionState State { get; private set; } = SessionState.Empty;
 
+    /// <summary>Working directory this session is bound to.</summary>
+    public string Cwd { get; set; } = "/cwd";
+
     public IReadOnlyList<SkillDescriptor> Skills { get; private set; } = [];
 
     /// <summary>Override to capture SubmitPrompt calls.</summary>

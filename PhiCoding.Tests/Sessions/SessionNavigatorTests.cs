@@ -16,6 +16,7 @@ namespace PhiCoding.Tests.Sessions;
 public class SessionNavigatorTests : IDisposable
 {
     private readonly string _cwd;
+    private readonly string _cwdB;
     private readonly string _phiHome;
     private readonly FakeProviderResolver _resolver = new();
     private readonly CodingSessionFactory _factory;
@@ -23,17 +24,19 @@ public class SessionNavigatorTests : IDisposable
     public SessionNavigatorTests()
     {
         _cwd = Path.Combine(Path.GetTempPath(), $"phi-nav-{Guid.NewGuid():N}");
+        _cwdB = Path.Combine(Path.GetTempPath(), $"phi-nav-b-{Guid.NewGuid():N}");
         _phiHome = Path.Combine(Path.GetTempPath(), $"phi-nav-home-{Guid.NewGuid():N}");
         Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
         Directory.CreateDirectory(_cwd);
+        Directory.CreateDirectory(_cwdB);
         _factory = new CodingSessionFactory(_resolver);
     }
 
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("PHI_HOME", null);
-        if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
-        if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
+        foreach (var dir in new[] { _cwd, _cwdB, _phiHome })
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         GC.SuppressFinalize(this);
     }
 
@@ -229,6 +232,37 @@ public class SessionNavigatorTests : IDisposable
 
         await Assert.That(fresh.State.Messages.OfType<UserMessage>().Any(u => u.Text == "new")).IsTrue();
         await Assert.That(fresh.State.Messages.OfType<UserMessage>().Any(u => u.Text == "old")).IsFalse();
+    }
+
+    [Test]
+    public async Task NavigateToNewAsync_WithCwd_CreatesSessionInThatWorkspace()
+    {
+        var navigator = CreateNavigator();
+        var originalId = ((CodingSession)navigator.Current).Id;
+
+        await navigator.NavigateToNewAsync(_cwdB);
+
+        var fresh = (CodingSession)navigator.Current;
+        await Assert.That(fresh.Id).IsNotEqualTo(originalId);
+        await Assert.That(fresh.Cwd).IsEqualTo(_cwdB);
+    }
+
+    [Test]
+    public async Task ResumeAsync_SessionFromOtherWorkspace_ResolvesItsCwd()
+    {
+        // A session persisted in a DIFFERENT workspace than the navigator's
+        // configured cwd must be resumable — the navigator resolves the
+        // record's own cwd instead of assuming its configured one.
+        var sessionB = CodingSession.Create(_cwdB, "m");
+        sessionB.AppendMessage(new UserMessage { Content = "in workspace b" });
+
+        var navigator = CreateNavigator();
+        await navigator.ResumeAsync(sessionB.Id);
+
+        var current = (CodingSession)navigator.Current;
+        await Assert.That(current.State.SessionId).IsEqualTo(sessionB.Id);
+        await Assert.That(current.Cwd).IsEqualTo(_cwdB);
+        await Assert.That(current.State.Messages).Count().IsEqualTo(1);
     }
 
     [Test]

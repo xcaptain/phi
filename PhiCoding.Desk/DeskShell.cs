@@ -20,14 +20,19 @@ internal sealed class DeskShell : IDisposable
     private readonly ProviderManager _providers;
     private readonly Action<Action> _dispatchToUi;
     private readonly Action<Action> _postToUi;
+    private readonly Window? _owner;
 
     private DeskChatPage? _chatPage;
     private bool _showingChat;
     private bool _rebuilding;
+    private ISession? _watchedSession;
+    private bool _wasPersisted;
+    private string? _lastTitle;
 
     public DeskShell(
         ISessionNavigator navigator,
         ProviderManager providers,
+        Window? owner = null,
         Action<Action>? dispatchToUi = null,
         Action<Action>? postToUi = null)
     {
@@ -35,6 +40,7 @@ internal sealed class DeskShell : IDisposable
         ArgumentNullException.ThrowIfNull(providers);
         _navigator = navigator;
         _providers = providers;
+        _owner = owner;
         _dispatchToUi = dispatchToUi ?? (action => action());
         _postToUi = postToUi ?? (action => action());
 
@@ -77,13 +83,15 @@ internal sealed class DeskShell : IDisposable
         _rebuilding = true;
         try
         {
-            var entries = DeskNavModel.BuildMainEntries(_navigator.ListRecentSessions(7));
+            var entries = DeskNavModel.BuildMainEntries(WorkspaceSessionStore.ListAllSessions(7));
             Nav.Items(
                 entries,
                 e => e.Title,
                 icon: e => IconFor(e.Kind),
                 content: _ => ViewHost,
-                kind: e => e.Kind == DeskNavModel.Kind.Header ? NavigationItemKind.Header : NavigationItemKind.Item,
+                kind: e => e.Kind is DeskNavModel.Kind.Header or DeskNavModel.Kind.Workspace
+                    ? NavigationItemKind.Header
+                    : NavigationItemKind.Item,
                 keySelector: e => e);
             Nav.FooterItems(
                 DeskNavModel.BuildFooterEntries(),
@@ -180,9 +188,53 @@ internal sealed class DeskShell : IDisposable
     private void ShowChat()
     {
         _chatPage?.Dispose();
-        _chatPage = new DeskChatPage(_navigator, _providers, _navigator.Current);
+        _chatPage = new DeskChatPage(_navigator, _providers, _navigator.Current, _owner, _postToUi);
         ViewHost.Content = _chatPage.Root;
         _showingChat = true;
+        WatchSession(_navigator.Current);
+        // Focus the editor after the page attaches so Enter submits. This
+        // matters after a workspace pick, which rebuilds the chat page while
+        // the picker control still owns focus.
+        _postToUi(() => _chatPage?.PromptInput.FocusEditor());
+    }
+
+    /// <summary>
+    /// Watches the current session so the nav can pick up the session the
+    /// moment its first message persists. A fresh "New Chat" session is not
+    /// in the record-derived session list until it is written to disk; once
+    /// it persists we rebuild the nav so the new session appears and the
+    /// highlight moves to it (instead of staying on "New Chat").
+    /// </summary>
+    private void WatchSession(ISession session)
+    {
+        if (ReferenceEquals(_watchedSession, session)) return;
+        if (_watchedSession is not null)
+            _watchedSession.StateChanged -= OnSessionStateForNav;
+        _watchedSession = session;
+        _wasPersisted = session.State.IsPersisted;
+        _lastTitle = session.State.SessionTitle;
+        session.StateChanged += OnSessionStateForNav;
+    }
+
+    private void OnSessionStateForNav(SessionState state)
+    {
+        // A fresh "New Chat" session isn't in the record-derived list until
+        // its first message persists; when that happens, add it and move the
+        // highlight off "New Chat" onto the session.
+        if (!_wasPersisted && state.IsPersisted)
+        {
+            _wasPersisted = true;
+            RebuildNavigation();
+            return;
+        }
+        // The LLM auto-namer fills in the session title after the first
+        // message; refresh the nav so the real title replaces the id-prefix
+        // placeholder.
+        if (!string.Equals(_lastTitle, state.SessionTitle, StringComparison.Ordinal))
+        {
+            _lastTitle = state.SessionTitle;
+            RebuildNavigation();
+        }
     }
 
     private void ShowModels()
@@ -200,6 +252,8 @@ internal sealed class DeskShell : IDisposable
     public void Dispose()
     {
         _navigator.SessionChanged -= OnSessionChanged;
+        if (_watchedSession is not null)
+            _watchedSession.StateChanged -= OnSessionStateForNav;
         _chatPage?.Dispose();
         _chatPage = null;
     }

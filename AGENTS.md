@@ -70,7 +70,7 @@ PhiCoding 库下面分：
 - `PhiCoding/Prompt/`：UI-agnostic 输入建议提供器（ISuggestionProvider、SuggestionItem、SlashCommandProvider、SkillSuggestionProvider）
 - `PhiCoding/ToolCards/`：跨 UI 的 tool 元数据（ToolDescriptor、ToolDescriptors）
 - `PhiCoding/Chat/`：UI-agnostic chat 投影（ChatLine DU、ChatTranscriptProjector）——两个 UI 都订阅 projector 的 `Changed`，按稳定 `ChatLine.Id` DIFF 渲染
-- `PhiCoding/` 根：`ISession`、`SessionState`、`CodingSession`、`EnvLoader`、compaction 等
+- `PhiCoding/` 根：`ISession`、`SessionState`、`CodingSession`、`EnvLoader`、`WorkspaceSessionStore`（扫 `{PHI_HOME}/sessions/*/index.jsonl` 合并所有工作区的会话）、compaction 等
 
 PhiCoding.Tui exe 下分：
 
@@ -100,6 +100,14 @@ Sessions 列表 + footer 的 Models / Providers 入口；右侧内容区通过�
 在 dispatch 中重入修改 nav 的 items/content host，导致右侧界面（编辑器）消失。
 `DeskShell.OnNavSelection` 用 `postToUi`（`dispatcher.BeginInvoke`）把选中处理推迟到
 当前事件之后。`SessionChanged` 的重建走 `dispatchToUi`（`dispatcher.Invoke`）。
+
+**跨工作区会话**：session 按 cwd 分目录存储（`{PHI_HOME}/sessions/{projectKey}/`）。
+TUI 绑定进程 cwd，`/sessions` 只看当前目录；Desk 不绑定进程 cwd，用
+`WorkspaceSessionStore` 合并所有工作区的会话，左侧导航按工作区分组展示。
+`SessionNavigator.ResumeAsync` 会解析会话记录自己的 `Cwd`（跨工作区 resume），
+`NavigateToNewAsync(cwd)` 可指定新会话的工作目录。Desk 的 `PromptInputView`
+在新建（未持久化）会话的编辑器上方显示工作区选择器（来自记录的 distinct cwd +
+"Choose folder…"），第一条消息到达后隐藏。
 
 ## 开发工作流
 

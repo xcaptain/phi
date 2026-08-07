@@ -24,8 +24,11 @@ public interface ISessionNavigator : IDisposable
     /// <summary>
     /// Navigates to a fresh session. The current session (if running) is
     /// cancelled, awaited, and disposed before the new one takes over.
+    /// <paramref name="cwd"/> overrides the working directory for the new
+    /// session (defaults to the navigator's configured cwd) — used by the
+    /// desktop shell to start a chat in a chosen workspace.
     /// </summary>
-    Task NavigateToNewAsync();
+    Task NavigateToNewAsync(string? cwd = null);
 
     /// <summary>
     /// Resumes an indexed session by id. The current session is cancelled,

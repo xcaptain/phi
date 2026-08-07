@@ -86,4 +86,72 @@ public class PromptInputViewTests
         await Assert.That(session.LastSubmittedText).IsNull();
         await Assert.That(projector.Current.OfType<UserTextLine>().Any(l => l.Text == "steer me")).IsTrue();
     }
+
+    [Test]
+    public async Task TypedText_PropagatesToObservable_ThenSubmits()
+    {
+        // The user's typed text must reach the bound observable, otherwise
+        // SubmitCurrent reads an empty value and does nothing.
+        var (session, _, view, _) = Create();
+
+        view.Editor.Text = "hello from the editor";
+        await Assert.That(view.Text.Value).IsEqualTo("hello from the editor");
+
+        view.SubmitForTest();
+        await Assert.That(session.LastSubmittedText).IsEqualTo("hello from the editor");
+    }
+
+    // ──────── Workspace picker ────────
+
+    [Test]
+    public async Task WorkspacePicker_FreshSession_IsVisible()
+    {
+        var (session, _, view, _) = Create();
+        await Assert.That(session.State.Messages.Count).IsEqualTo(0);
+
+        await Assert.That(view.WorkspacePickerVisible).IsTrue();
+    }
+
+    [Test]
+    public async Task WorkspacePicker_ExistingSession_IsHidden()
+    {
+        var (session, _, view, _) = Create();
+        session.SetMessages(new PhiAgent.UserMessage { Content = "hello" });
+
+        await Assert.That(view.WorkspacePickerVisible).IsFalse();
+    }
+
+    [Test]
+    public async Task WorkspacePicker_FirstMessage_HidesIt()
+    {
+        var (session, _, view, _) = Create();
+        await Assert.That(view.WorkspacePickerVisible).IsTrue();
+
+        session.SetMessages(new PhiAgent.UserMessage { Content = "hello" });
+
+        await Assert.That(view.WorkspacePickerVisible).IsFalse();
+    }
+
+    [Test]
+    public async Task SelectDifferentWorkspace_NavigatesToNewSessionInThatCwd()
+    {
+        var (session, navigator, view, _) = Create();
+        session.Cwd = "/current";
+
+        view.SelectWorkspaceForTest("/other");
+
+        await Assert.That(navigator.NavigateToNewCalls).IsEqualTo(1);
+        await Assert.That(navigator.LastNewCwd).IsEqualTo("/other");
+    }
+
+    [Test]
+    public async Task SelectSameWorkspace_DoesNotNavigate()
+    {
+        var (session, navigator, view, _) = Create();
+        session.Cwd = "/current";
+
+        view.SelectWorkspaceForTest("/current");
+
+        await Assert.That(navigator.NavigateToNewCalls).IsEqualTo(0);
+    }
 }

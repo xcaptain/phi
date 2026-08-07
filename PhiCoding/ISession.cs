@@ -26,6 +26,9 @@ public interface ISession : IDisposable
     event Action<HarnessEvent>? HarnessEvent;
     SessionState State { get; }
 
+    /// <summary>Working directory this session is bound to (its workspace).</summary>
+    string Cwd { get; }
+
     /// <summary>
     /// Skills available to this session (project + user level), for
     /// autocompleting <c>/skill:NAME</c> and surfacing in the prompt.
