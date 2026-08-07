@@ -1,4 +1,4 @@
-namespace PhiCoding.Tui;
+namespace PhiCoding.Status;
 
 /// <summary>
 /// Heuristic classifier that decides whether an error message is

@@ -1,12 +1,13 @@
-namespace PhiCoding.Tui;
+namespace PhiCoding.Slash;
 
 /// <summary>
 /// Slash-command matching and completion for the prompt. Pure logic —
-/// execution is wired up in <see cref="PhiTuiApp"/>. The command list comes
-/// from <see cref="SlashCommandCatalog"/>; this class only matches and
-/// completes against it.
+/// execution is wired up in the UI layer (TUI's <c>PhiTuiApp</c>, future
+/// desktop shell). The command list comes from
+/// <see cref="SlashCommandCatalog"/>; this class only matches and completes
+/// against it.
 /// </summary>
-internal static class SlashCommands
+public static class SlashCommands
 {
     public static IReadOnlyList<string> All { get; } =
         [.. SlashCommandCatalog.All.Select(c => c.Name)];

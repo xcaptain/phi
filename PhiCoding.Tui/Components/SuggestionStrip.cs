@@ -1,3 +1,4 @@
+using PhiCoding.Prompt;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 using XenoAtom.Terminal.UI.Styling;

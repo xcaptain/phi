@@ -21,20 +21,7 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-// Load .env from cwd (dotnet does not auto-load .env files)
-if (File.Exists(".env"))
-{
-    foreach (var line in File.ReadAllLines(".env"))
-    {
-        var trimmed = line.Trim();
-        if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith('#')) continue;
-        var eq = trimmed.IndexOf('=');
-        if (eq <= 0) continue;
-        var key = trimmed[..eq].Trim();
-        var value = trimmed[(eq + 1)..].Trim().Trim('"', '\'');
-        Environment.SetEnvironmentVariable(key, value);
-    }
-}
+EnvLoader.LoadDotEnv();
 
 // Composition root: wire the provider manager (catalog + credentials +
 // settings) into a session factory and a navigator, pick the startup route
@@ -56,7 +43,7 @@ var env = new SessionConfig
     Model = providerManager.ResolveDefaultModel(defaultProvider),
 };
 
-SessionNavigator navigator;
+PhiCoding.Sessions.SessionNavigator navigator;
 try
 {
     navigator = new SessionNavigator(factory, env, resumeSessionId);

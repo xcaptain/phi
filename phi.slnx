@@ -4,6 +4,7 @@
 <Project Path="PhiCoding/PhiCoding.csproj" />
 <Project Path="PhiSchemaGen/PhiSchemaGen.csproj" />
 <Project Path="PhiCoding.Tests/PhiCoding.Tests.csproj" />
+<Project Path="PhiCoding.Tui/PhiCoding.Tui.csproj" />
 <Project Path="PhiProvider/PhiProvider.csproj" />
 <Project Path="PhiProvider.Tests/PhiProvider.Tests.csproj" />
 </Solution>

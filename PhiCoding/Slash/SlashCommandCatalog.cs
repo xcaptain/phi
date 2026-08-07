@@ -1,4 +1,4 @@
-namespace PhiCoding.Tui;
+namespace PhiCoding.Slash;
 
 /// <summary>
 /// One slash command's metadata: name, one-line description, optional usage

@@ -1,5 +1,5 @@
-using PhiCoding.Tui;
-using PhiCoding.Tui.Components;
+using PhiCoding.Prompt;
+using PhiCoding.Slash;
 
 namespace PhiCoding.Tests;
 

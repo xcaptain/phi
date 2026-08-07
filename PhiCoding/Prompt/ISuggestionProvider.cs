@@ -1,4 +1,4 @@
-namespace PhiCoding.Tui.Components;
+namespace PhiCoding.Prompt;
 
 /// <summary>
 /// Supplies context-aware autocomplete suggestions for the prompt editor.

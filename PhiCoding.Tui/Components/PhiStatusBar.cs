@@ -68,6 +68,13 @@ public sealed class PhiStatusBar
     }
 
     /// <summary>
+    /// Updates the current turn counter shown as <c>"turn N"</c> while
+    /// running. Wired by the status-bar binding from the session's
+    /// <see cref="SessionState.Turn"/> on every state change.
+    /// </summary>
+    public void SetTurn(int turn) => _turn.Value = turn;
+
+    /// <summary>
     /// Counter showing how many user-submitted messages are waiting to be
     /// drained by the run loop. Set externally via
     /// <see cref="UpdateStats"/> from the session's

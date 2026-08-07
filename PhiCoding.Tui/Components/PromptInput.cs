@@ -1,6 +1,8 @@
 using PhiAgent;
 using PhiCoding.Providers;
+using PhiCoding.Prompt;
 using PhiCoding.Sessions;
+using PhiCoding.Slash;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 

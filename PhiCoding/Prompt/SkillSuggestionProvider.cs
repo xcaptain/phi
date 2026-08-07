@@ -1,6 +1,6 @@
 using PhiCoding.Prompts;
 
-namespace PhiCoding.Tui.Components;
+namespace PhiCoding.Prompt;
 
 /// <summary>
 /// <see cref="ISuggestionProvider"/> that completes <c>/skill:NAME</c>.

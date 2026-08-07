@@ -1,4 +1,4 @@
-using PhiCoding.Tui;
+using PhiCoding.Status;
 
 namespace PhiCoding.Tests;
 

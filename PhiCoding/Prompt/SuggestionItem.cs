@@ -1,4 +1,4 @@
-namespace PhiCoding.Tui.Components;
+namespace PhiCoding.Prompt;
 
 /// <summary>One selectable suggestion shown in the suggestion strip.</summary>
 /// <param name="Label">Text displayed as the primary label.</param>
