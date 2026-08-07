@@ -1,5 +1,3 @@
-using PhiCoding.Desk;
-
 namespace PhiCoding.Desk.Tests;
 
 /// <summary>
