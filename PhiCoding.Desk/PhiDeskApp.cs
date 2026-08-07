@@ -38,12 +38,16 @@ public sealed class PhiDeskApp : IDisposable
     /// <summary>
     /// Mounts the chat window and starts MewUI's render loop. The window
     /// content is a <see cref="NavigationView"/> whose right region is
-    /// rebuilt on navigation.
+    /// rebuilt on navigation. Mirrors the upstream gallery demo's builder
+    /// flow: the accent is applied, then the window is created via
+    /// <c>BuildMainWindow</c>, then the render loop runs.
     /// </summary>
     public void Run()
     {
-        _window = BuildWindow();
-        Application.Run(_window);
+        Application.Create()
+            .UseAccent(Accent.Purple)
+            .BuildMainWindow(BuildWindow)
+            .Run();
     }
 
     private Window BuildWindow()
@@ -66,6 +70,7 @@ public sealed class PhiDeskApp : IDisposable
 
         _window = new Window()
             .Resizable(1024, 720)
+            .StartCenterScreen()
             .Title("Phi")
             .Padding(0)
             .OnClosed(Dispose);

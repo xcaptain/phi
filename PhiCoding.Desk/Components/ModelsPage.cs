@@ -53,7 +53,7 @@ public sealed class ModelsPage
         }
         else
         {
-            children.Add(new Label().Text("Provider models").Bold());
+            children.Add(new Label().Text("Provider models").SemiBold());
 
             var models = entry.Models;
             var list = new ListBox()

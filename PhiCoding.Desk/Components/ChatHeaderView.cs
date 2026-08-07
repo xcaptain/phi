@@ -20,7 +20,7 @@ public sealed class ChatHeaderView
         UpdateLabel(session.State.ProviderName, session.State.Model);
         session.StateChanged += s => UpdateLabel(s.ProviderName, s.Model);
 
-        var left = new Label().Text("phi").Bold().FontSize(16);
+        var left = new Label().Text("phi").SemiBold().FontSize(16);
         var right = new Label()
             .BindText(_modelLabel)
             .WithTheme((t, c) => c.Foreground(DeskTheme.TextSecondary(t)));

@@ -26,8 +26,7 @@ public sealed class StatusBarView : ISessionStatusSink
     public StatusBarView()
     {
         var left = new Label()
-            .BindText(_leftText)
-            .FontWeight(FontWeight.SemiBold);
+            .BindText(_leftText);
 
         var model = new Label()
             .BindText(_model)

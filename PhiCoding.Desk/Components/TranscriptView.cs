@@ -4,6 +4,7 @@ using PhiAgent;
 using PhiCoding.Chat;
 using PhiCoding.Desk.Components.ToolCards;
 using PhiCoding.Resources;
+using TextBlock = Aprillz.MewUI.Controls.TextBlock;
 
 namespace PhiCoding.Desk.Components;
 
@@ -120,10 +121,10 @@ public sealed class TranscriptView
         _ => new StaticHandle(new Label().Text($"[unknown line: {line.GetType().Name}]")),
     };
 
-    private static FrameworkElement CreateUserTextBubble(UserTextLine line)
+    private static Border CreateUserTextBubble(UserTextLine line)
         => new Border()
-            .Padding(8, 6)
-            .CornerRadius(6)
+            .Padding(14)
+            .CornerRadius(10)
             .WithTheme((t, b) =>
             {
                 b.Background(t.Palette.ContainerBackground);
@@ -133,17 +134,17 @@ public sealed class TranscriptView
             .Child(
                 new StackPanel()
                     .Orientation(Aprillz.MewUI.Orientation.Vertical)
-                    .Spacing(2)
+                    .Spacing(4)
                     .Children(
-                        new Label().Text("You").Bold().FontSize(11),
-                        new Label().Text(line.Text).TextWrapping(TextWrapping.Wrap)));
+                        new Label().Text("You").SemiBold().FontSize(12),
+                        new TextBlock().Text(line.Text).TextWrapping(TextWrapping.Wrap)));
 
-    private static FrameworkElement CreateSkillInvocationBubble(SkillInvocationLine line)
+    private static Border CreateSkillInvocationBubble(SkillInvocationLine line)
     {
         var block = new SkillBlock(line.SkillName, "", line.Body, line.TrailingPrompt);
         var header = new Label()
             .Text($"[skill] {block.Name}")
-            .Bold();
+            .SemiBold();
         var body = new Label()
             .Text(block.Content)
             .TextWrapping(TextWrapping.Wrap)
@@ -153,8 +154,8 @@ public sealed class TranscriptView
             .Header(header)
             .Content(body);
         return new Border()
-            .Padding(8, 6)
-            .CornerRadius(6)
+            .Padding(14)
+            .CornerRadius(10)
             .WithTheme((t, b) =>
             {
                 b.Background(t.Palette.ContainerBackground);
@@ -164,7 +165,7 @@ public sealed class TranscriptView
             .Child(expander);
     }
 
-    private static FrameworkElement CreateCompactionDivider(CompactionDividerLine line)
+    private static Border CreateCompactionDivider(CompactionDividerLine line)
     {
         var display = line.SummaryLine.Length > 120
             ? line.SummaryLine[..117] + "…"
@@ -183,15 +184,15 @@ public sealed class TranscriptView
         var bodyText = new ObservableValue<string>(line.Text);
         var titleLabel = new Label()
             .BindText(title)
-            .Bold()
+            .SemiBold()
             .WithTheme((t, c) => c.Foreground(DeskTheme.TextSecondary(t)));
-        var bodyLabel = new Label()
+        var bodyLabel = new TextBlock()
             .BindText(bodyText)
             .TextWrapping(TextWrapping.Wrap)
             .WithTheme((t, c) => c.Foreground(DeskTheme.TextSecondary(t)));
         var bubble = new Border()
-            .Padding(8, 6)
-            .CornerRadius(6)
+            .Padding(14)
+            .CornerRadius(10)
             .WithTheme((t, b) =>
             {
                 b.Background(t.Palette.ContainerBackground);
@@ -201,19 +202,24 @@ public sealed class TranscriptView
             .Child(
                 new StackPanel()
                     .Orientation(Aprillz.MewUI.Orientation.Vertical)
-                    .Spacing(2)
+                    .Spacing(4)
                     .Children(titleLabel, bodyLabel));
         return new ThinkingHandle(title, bodyText, bubble);
     }
 
     private static AssistantTextHandle CreateAssistantTextHandle(AssistantTextLine line)
     {
-        var bodyLabel = new Label()
+        var bodyLabel = new TextBlock()
             .Text(line.Text)
-            .TextWrapping(TextWrapping.Wrap)
-            .FontFamily("Consolas");
+            .TextWrapping(TextWrapping.Wrap);
         var bubble = new Border()
-            .Padding(8, 6)
+            .Padding(14)
+            .CornerRadius(10)
+            .WithTheme((t, b) =>
+            {
+                b.Background(t.Palette.ContainerBackground);
+            })
+            .BorderThickness(0)
             .Child(bodyLabel);
         return new AssistantTextHandle(bodyLabel, bubble);
     }
@@ -233,7 +239,7 @@ public sealed class TranscriptView
         return new ToolCallHandle(card, ToolResultState.Pending, card.Visual);
     }
 
-    private static FrameworkElement CreatePersistentErrorBubble(PersistentErrorLine line)
+    private static Border CreatePersistentErrorBubble(PersistentErrorLine line)
         => new Border()
             .Padding(8, 6)
             .CornerRadius(6)
@@ -261,7 +267,7 @@ public sealed class TranscriptView
 
     /// <summary>Assistant text line; the label is patched in place while
     /// the model streams.</summary>
-    private sealed class AssistantTextHandle(Label bodyLabel, FrameworkElement root) : LineHandle
+    private sealed class AssistantTextHandle(TextBlock bodyLabel, FrameworkElement root) : LineHandle
     {
         public override FrameworkElement Root => root;
         public void UpdateText(string text) => bodyLabel.Text = text;

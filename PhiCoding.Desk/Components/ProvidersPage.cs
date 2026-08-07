@@ -61,7 +61,7 @@ public sealed class ProvidersPage
 
         var nameLabel = new Label()
             .Text($"{entry.DisplayName} — {entry.Name}")
-            .Bold();
+            .SemiBold();
         var stateLabel = new Label()
             .Text(isCurrent
                 ? $"connected · {_session.State.Model}"
