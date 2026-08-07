@@ -279,7 +279,7 @@ public sealed class ChatTranscript : IDisposable
         System.Text.Json.Nodes.JsonNode? args = null;
         if (!string.IsNullOrEmpty(line.ArgumentsJson) && line.ArgumentsJson != "{}")
             args = System.Text.Json.Nodes.JsonNode.Parse(line.ArgumentsJson);
-        var stubCall = new ToolCall(line.ToolCallId, line.ToolName) { Arguments = (args as System.Text.Json.Nodes.JsonObject) ?? new System.Text.Json.Nodes.JsonObject() };
+        var stubCall = new ToolCall(line.ToolCallId, line.ToolName) { Arguments = (args as System.Text.Json.Nodes.JsonObject) ?? [] };
         card.ShowPending(stubCall);
         _toolCards[line.ToolCallId] = card;
         return new ToolCallVisual(card, ToolResultState.Pending);

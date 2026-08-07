@@ -1,6 +1,6 @@
 using PhiCoding.Sessions;
 
-namespace PhiCoding.Tests.Helpers;
+namespace PhiCoding.Desk.Tests.Helpers;
 
 /// <summary>
 /// In-memory <see cref="ISessionNavigator"/> for TUI tests. Wraps a single
