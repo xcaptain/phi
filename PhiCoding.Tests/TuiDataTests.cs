@@ -12,6 +12,7 @@ public class TuiDataTests
     public async Task ChatTranscript_AddPersistentError_AppendsItem()
     {
         var t = new ChatTranscript();
+        t.Bind(new MockSession());
         await Task.CompletedTask;
         t.AddPersistentError("something broke");
 
@@ -24,6 +25,7 @@ public class TuiDataTests
     public async Task ChatTranscript_ClearAndLoad_RendersAllMessages()
     {
         var t = new ChatTranscript();
+        t.Bind(new MockSession());
         await Task.CompletedTask;
 
         var msgs = new IAgentMessage[]

@@ -17,6 +17,11 @@ internal static class StatusBarBinder
         ArgumentNullException.ThrowIfNull(transcript);
         ArgumentNullException.ThrowIfNull(session);
 
+        // Ensure the transcript has a projector so AddPersistentError (which
+        // the sink calls for non-transient errors) actually lands in the
+        // flow. PhiTuiApp.BuildCurrentPage calls Bind too, but this keeps
+        // tests that skip PhiTuiApp (e.g. PhiTuiAppTests) self-sufficient.
+        transcript.Bind(session);
         SessionStatusRouter.Bind(session, new TuiStatusSink(status, transcript));
     }
 

@@ -1,4 +1,5 @@
 using PhiAgent;
+using PhiCoding.Tests.Helpers;
 using PhiCoding.Tui.Components;
 using TextBlock = PhiAgent.TextBlock;
 
@@ -10,7 +11,9 @@ public class ChatTranscriptResumeTests
     [Test]
     public async Task ClearAndLoad_RendersUserAndAssistantMessages()
     {
+        var session = new MockSession();
         var transcript = new ChatTranscript();
+        transcript.Bind(session);
 
         var messages = new IAgentMessage[]
         {
@@ -32,7 +35,9 @@ public class ChatTranscriptResumeTests
     [Test]
     public async Task AddPersistentError_RendersErrorMessage()
     {
+        var session = new MockSession();
         var transcript = new ChatTranscript();
+        transcript.Bind(session);
 
         transcript.AddPersistentError("something broke");
 

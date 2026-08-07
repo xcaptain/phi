@@ -1,5 +1,6 @@
 using System.Reflection;
 using PhiAgent;
+using PhiCoding.Tests.Helpers;
 using PhiCoding.Tui.Components;
 using PhiCoding.Tui.Components.ToolCards;
 
@@ -93,7 +94,9 @@ public class ChatTranscriptTests
     {
         // read results render as ONE Markup line (invocation + summary),
         // never the pending "Group(title, body)" card that other tools use.
+        var session = new MockSession();
         var transcript = new ChatTranscript();
+        transcript.Bind(session);
         var args = new System.Text.Json.Nodes.JsonObject
         {
             ["path"] = "a.cs",
@@ -102,7 +105,7 @@ public class ChatTranscriptTests
         };
         var call = new ToolCall("c1", "read") { Arguments = args };
 
-        transcript.Apply(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
 
         // Flow must contain exactly one item.
         var flow = transcript.Flow;
@@ -121,7 +124,9 @@ public class ChatTranscriptTests
     [Test]
     public async Task CompleteReadToolCall_UpdatesSingleLineTitle_WithUnescapedRange()
     {
+        var session = new MockSession();
         var transcript = new ChatTranscript();
+        transcript.Bind(session);
         var args = new System.Text.Json.Nodes.JsonObject
         {
             ["path"] = "a.cs",
@@ -130,8 +135,8 @@ public class ChatTranscriptTests
         };
         var call = new ToolCall("c1", "read") { Arguments = args };
 
-        transcript.Apply(new AssistantToolCallEvent(call));
-        transcript.Apply(new ToolExecutionEndEvent(
+        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new ToolExecutionEndEvent(
             call,
             new ToolResult(
                 [new TextBlock("file body")],
@@ -162,13 +167,15 @@ public class ChatTranscriptTests
         // body is a State<Visual> fed into a ComputedVisual; on completion
         // CompleteTool swaps BodyState.Value to the diff Grid, which the
         // already-laid-out Group re-renders in place.
+        var session = new MockSession();
         var transcript = new ChatTranscript();
+        transcript.Bind(session);
         var call = new ToolCall("e1", "edit")
         {
             Arguments = new System.Text.Json.Nodes.JsonObject { ["path"] = "a.cs" },
         };
 
-        transcript.Apply(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
 
         var toolCards = (System.Collections.IDictionary)
             typeof(ChatTranscript)
@@ -179,7 +186,7 @@ public class ChatTranscriptTests
         await Assert.That(card.BodyState.Value).IsTypeOf<XenoAtom.Terminal.UI.Controls.Markup>();
 
         // Complete the edit with an EditDetails result.
-        transcript.Apply(new ToolExecutionEndEvent(
+        session.EmitHarnessEvent(new ToolExecutionEndEvent(
             call,
             new ToolResult(
                 [new TextBlock("ok")],
