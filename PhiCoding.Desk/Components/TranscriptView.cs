@@ -284,7 +284,7 @@ public sealed class TranscriptView
         {
             bodyText.Value = text;
             title.Value = duration is { } d
-                ? $"💭 Thought {StatusBarView.FormatCount((int)d.TotalSeconds)}s"
+                ? $"💭 Thought {FormatHelpers.FormatSeconds((int)d.TotalSeconds)}s"
                 : "💭 Thinking…";
         }
     }

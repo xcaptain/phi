@@ -9,14 +9,13 @@ namespace PhiCoding.Desk;
 
 /// <summary>
 /// One chat page bound to a single session. Owns the projector + the
-/// header / transcript / input / status bar components. Disposed when the
-/// page is torn down (navigation) so subscriptions stop firing.
+/// transcript / prompt input components. Disposed when the page is torn
+/// down (navigation) so subscriptions stop firing.
 /// </summary>
 internal sealed class DeskChatPage : IDisposable
 {
     private readonly ISession _session;
     private readonly ChatTranscriptProjector _projector;
-    private readonly StatusBarView _statusBar;
     private readonly TranscriptView _transcript;
     private readonly PromptInputView _promptInput;
 
@@ -34,7 +33,6 @@ internal sealed class DeskChatPage : IDisposable
         _session = session;
         _projector = new ChatTranscriptProjector(session);
 
-        _statusBar = new StatusBarView();
         _transcript = new TranscriptView();
         _promptInput = new PromptInputView(
             session,
@@ -51,18 +49,16 @@ internal sealed class DeskChatPage : IDisposable
             postToUi: postToUi);
 
         _transcript.Bind(_projector);
-        _statusBar.BindStatusBar(session);
         _promptInput.Build();
 
         // The transcript is the LAST child so it fills the remaining space
         // (DockPanel.LastChildFill). Header is docked on top; the prompt
-        // input and status bar dock at the bottom.
+        // input docks at the bottom.
         Root = new DockPanel()
             .LastChildFill()
             .Children(
                 BuildHeader().DockTop(),
                 _promptInput.Root.DockBottom(),
-                _statusBar.Root.DockBottom(),
                 _transcript.Root);
     }
 

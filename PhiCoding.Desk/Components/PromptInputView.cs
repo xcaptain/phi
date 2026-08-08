@@ -2,23 +2,19 @@ using Aprillz.MewUI;
 using Aprillz.MewUI.Controls;
 using PhiAgent;
 using PhiCoding.Chat;
-using PhiCoding.Prompt;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
-using PhiCoding.Slash;
 
 namespace PhiCoding.Desk.Components;
 
 /// <summary>
-/// The prompt input shell. Composes a <see cref="MultiLineTextBox"/> with
-/// a slash/skill completion hint. <c>Enter</c> submits (Shift+Enter inserts
-/// a newline), <c>Esc</c> cancels the running turn. Slash commands
-/// (<c>/new</c>, <c>/exit</c>) dispatch through <see cref="HandleInput"/>;
-/// skill invocations (<c>/skill:NAME</c>) load the skill into the
-/// conversation; everything else becomes a user message (or, if a run is in
-/// flight, is queued as steering). Submitting always writes the user's own
-/// message into the projector so it appears in the transcript immediately —
-/// the session only exposes new messages at <c>TurnEndEvent</c>.
+/// The prompt input shell. A rounded <see cref="Border"/> containing a
+/// <see cref="MultiLineTextBox"/> plus a footer row holding the model
+/// picker, the workspace picker (only on fresh sessions), and the submit
+/// button. Enter submits, Shift+Enter inserts a newline, Esc cancels the
+/// running turn. Slash-command completion and dispatch are intentionally
+/// not exposed: navigation, connect, models, exit, etc. are reachable via
+/// the side bar; the input only knows about plain user messages.
 /// </summary>
 public sealed class PromptInputView
 {
@@ -30,13 +26,12 @@ public sealed class PromptInputView
     private readonly Action<Action> _postToUi;
 
     private readonly ObservableValue<string> _text = new(string.Empty);
-    private readonly ObservableValue<string> _completionText = new(string.Empty);
-    private readonly ObservableValue<bool> _completionVisible = new(false);
     private readonly ObservableValue<bool> _workspacePickerVisible = new(false);
 
     private MultiLineTextBox? _editor;
 
-    private readonly IReadOnlyList<ISuggestionProvider> _suggestionProviders;
+    private IReadOnlyList<ModelPickerItem> _modelItems = Array.Empty<ModelPickerItem>();
+    private IReadOnlyList<WorkspacePickerItem> _workspaceItems = Array.Empty<WorkspacePickerItem>();
 
     public PromptInputView(
         ISession session,
@@ -57,7 +52,6 @@ public sealed class PromptInputView
         _projector = projector;
         _pickFolder = pickFolder ?? (() => null);
         _postToUi = postToUi ?? (action => action());
-        _suggestionProviders = [new SlashCommandProvider(), new SkillSuggestionProvider(_session.Skills)];
     }
 
     public FrameworkElement Root { get; private set; } = null!;
@@ -77,6 +71,15 @@ public sealed class PromptInputView
     /// <summary>The workspace picker ComboBox, when built (tests).</summary>
     internal ComboBox? WorkspaceComboBox { get; private set; }
 
+    /// <summary>The model picker ComboBox, when built (tests).</summary>
+    internal ComboBox? ModelComboBox { get; private set; }
+
+    /// <summary>The built model picker item list (tests).</summary>
+    internal IReadOnlyList<ModelPickerItem> ModelItems => _modelItems;
+
+    /// <summary>The built workspace picker item list (tests).</summary>
+    internal IReadOnlyList<WorkspacePickerItem> WorkspaceItems => _workspaceItems;
+
     /// <summary>Drives the input dispatch directly (tests). Reads the current
     /// editor text from <see cref="Text"/>.</summary>
     internal void SubmitForTest() => SubmitCurrent();
@@ -90,27 +93,32 @@ public sealed class PromptInputView
     public void FocusEditor() => _editor?.Focus();
 
     /// <summary>
-    /// Builds the input shell: constructs the editor and completion hint,
-    /// wires the editor's key events to the slash / skill / submit
-    /// dispatch. Must be called exactly once before <see cref="Root"/> is
-    /// accessed.
+    /// Builds the input shell: constructs the editor, footer pickers, and
+    /// submit button. Must be called exactly once before <see cref="Root"/>
+    /// is accessed.
     /// </summary>
     public void Build()
     {
         _editor = new MultiLineTextBox()
             .BindText(_text)
-            .Placeholder("Ask Phi anything… (Enter submit · Esc cancel)")
+            .Placeholder("Ask Phi anything…")
             .Wrap(true)
             .FontFamily("Consolas")
             .MinHeight(48)
             .MaxHeight(200);
 
-        // Recompute completion on every text change.
-        _text.Subscribe(UpdateCompletion);
+        var modelCombo = BuildModelCombo();
+        ModelComboBox = modelCombo;
+
+        _workspacePickerVisible.Value = _session.State.Messages.Count == 0;
+        _session.StateChanged += OnSessionStateForPicker;
+        var workspaceCombo = BuildWorkspaceCombo();
+        WorkspaceComboBox = workspaceCombo;
 
         var submitButton = new Button()
-            .Content("Submit")
-            .OnClick(SubmitCurrent);
+            .Content("↑", accessKey: false)
+            .OnClick(SubmitCurrent)
+            .WithTheme((t, c) => c.Background(t.Palette.Accent).Foreground(t.Palette.AccentText));
 
         _editor.KeyDown += e =>
         {
@@ -128,97 +136,206 @@ public sealed class PromptInputView
             }
         };
 
-        var completionHint = new Label()
-            .BindText(_completionText)
-            .BindIsVisible(_completionVisible)
-            .WithTheme((t, c) => c.Foreground(DeskTheme.TextSecondary(t)))
-            .TextWrapping(TextWrapping.NoWrap);
-
-        // A fresh (unpersisted) session lets the user choose which workspace
-        // it belongs to before the first message; once the session has
-        // messages the picker disappears (the cwd is committed).
-        _workspacePickerVisible.Value = _session.State.Messages.Count == 0;
-        _session.StateChanged += OnSessionStateForPicker;
-        var workspacePicker = BuildWorkspacePicker();
-
-        var inputColumn = new StackPanel()
-            .Orientation(Aprillz.MewUI.Orientation.Vertical)
-            .Spacing(4)
-            .Children(workspacePicker, _editor, completionHint);
-
-        var inputRow = new DockPanel()
+        var footer = new DockPanel()
             .LastChildFill()
-            .Padding(8, 6)
+            .Spacing(6)
             .Children(
-                submitButton.DockRight(),
-                new Border().Padding(0, 0, 8, 0).Child(inputColumn));
+                modelCombo.DockLeft(),
+                workspaceCombo.DockLeft(),
+                submitButton.DockRight());
 
-        Root = inputRow;
+        var stack = new StackPanel()
+            .Orientation(Aprillz.MewUI.Orientation.Vertical)
+            .Spacing(6)
+            .Children(_editor, footer);
+
+        Root = new Border()
+            .Padding(8, 6)
+            .BorderThickness(1)
+            .WithTheme((t, c) => c.BorderBrush(t.Palette.ControlBorder))
+            .CornerRadius(8)
+            .Child(stack);
     }
 
     private void OnSessionStateForPicker(SessionState state)
     {
-        if (state.Messages.Count > 0)
+        if (state.Messages.Count > 0 && _workspacePickerVisible.Value)
+        {
             _workspacePickerVisible.Value = false;
+        }
     }
 
-    // ──────── Workspace picker (fresh sessions only) ────────
+    // ──────── Model picker ────────
 
     /// <summary>
-    /// Builds the workspace picker row: a ComboBox of the distinct
-    /// workspaces derived from session records, plus a separate "Choose
-    /// folder…" button that opens the native folder dialog. The dialog is
-    /// only ever triggered by a button click — keeping it out of the
-    /// ComboBox's selection handling avoids the modal dialog's close from
-    /// re-firing <c>SelectionChanged</c> and popping the dialog twice.
-    /// Selecting a workspace (or picking a folder) recreates the fresh
-    /// session in that directory via
-    /// <see cref="ISessionNavigator.NavigateToNewAsync(string?)"/>.
+    /// Builds the model picker footer: a <see cref="ComboBox"/> whose popup
+    /// lists every connected provider's models, grouped by provider with
+    /// a styled header row above each group. The current provider + model
+    /// are listed first; that row is prefixed with ✓. Selecting a row
+    /// constructs the live <see cref="IPhiProvider"/> (via
+    /// <see cref="ProviderManager"/>) and calls
+    /// <see cref="ISession.SwitchProvider"/>. Selection of a header row is
+    /// ignored.
     /// </summary>
-    private Border BuildWorkspacePicker()
+    private ComboBox BuildModelCombo()
     {
-        var workspaces = WorkspaceSessionStore.ListWorkspaces().ToList();
-        // Always keep the session's current cwd selectable/visible, even if
-        // it isn't in the record-derived list (e.g. just picked a new folder).
-        if (!workspaces.Any(w => Path.GetFullPath(w) == Path.GetFullPath(_session.Cwd)))
-            workspaces.Insert(0, _session.Cwd);
+        RebuildModelItems(_session.State.ProviderName, _session.State.Model);
 
         var combo = new ComboBox()
-            .Items(workspaces.Select(DeskNavModel.WorkspaceLabel).ToArray())
-            .Width(280);
-        var currentIndex = workspaces.FindIndex(
-            w => Path.GetFullPath(w) == Path.GetFullPath(_session.Cwd));
-        combo.SelectedIndex = currentIndex >= 0 ? currentIndex : 0;
-        WorkspaceComboBox = combo;
+            .MinWidth(160)
+            .MaxWidth(260)
+            .Placeholder("Select model")
+            .ItemHeight(22)
+            .Items(_modelItems, item => item.Label)
+            .ItemTemplate<ModelPickerItem>(
+                build: ctx => new Aprillz.MewUI.Controls.TextBlock()
+                    .Register(ctx, "Label")
+                    .TextWrapping(TextWrapping.NoWrap),
+                bind: (view, item, _, ctx) =>
+                {
+                    var label = ctx.Get<Aprillz.MewUI.Controls.TextBlock>("Label");
+                    label.Text = item.Label;
+                    label.WithTheme((t, c) =>
+                        c.Foreground(item.IsHeader
+                            ? DeskTheme.TextSecondary(t)
+                            : (item.IsCurrent
+                                ? t.Palette.Accent
+                                : t.Palette.WindowText))
+                        .FontWeight(item.IsHeader
+                            ? FontWeight.Bold
+                            : (item.IsCurrent ? FontWeight.SemiBold : FontWeight.Normal)));
+                });
+
+        var currentIndex = _modelItems.IndexOfFirstSelectable();
+        if (currentIndex >= 0)
+            combo.SelectedIndex = currentIndex;
 
         combo.SelectionChanged += _ =>
         {
             var idx = combo.SelectedIndex;
-            if (idx >= 0 && idx < workspaces.Count)
-                SwitchWorkspace(workspaces[idx]);
+            if (idx < 0 || idx >= _modelItems.Count) return;
+            var item = _modelItems[idx];
+            if (item.IsHeader || item.Entry is null || item.Model is null) return;
+            ApplyModelSelection(item.Entry, item.Model);
         };
 
-        var chooseFolderButton = new Button()
-            .Content("Choose folder…")
-            .OnClick(ChooseFolder);
+        _session.StateChanged += OnSessionStateForModel;
+        return combo;
+    }
 
-        var row = new DockPanel()
-            .LastChildFill()
-            .Spacing(8)
-            .Children(
-                new Label()
-                    .Text("Workspace")
-                    .WithTheme((t, c) => c.Foreground(DeskTheme.TextSecondary(t)))
-                    .DockLeft()
-                    .CenterVertical(),
-                chooseFolderButton.DockRight(),
-                combo);
+    private void OnSessionStateForModel(SessionState state)
+    {
+        RebuildModelItems(state.ProviderName, state.Model);
+        if (ModelComboBox is null) return;
+        var idx = _modelItems.IndexOfFirstSelectable();
+        if (idx >= 0 && ModelComboBox.SelectedIndex != idx)
+        {
+            ModelComboBox.SelectedIndex = idx;
+        }
+    }
 
-        var holder = new Border()
-            .Padding(0, 2)
-            .Child(row);
-        holder.BindIsVisible(_workspacePickerVisible);
-        return holder;
+    private void RebuildModelItems(string currentProviderName, string currentModel)
+    {
+        _modelItems = PromptInputPickerBuilder.BuildModelPickerItems(
+            _providers.Providers,
+            currentProviderName,
+            currentModel,
+            _providers.HasApiKey);
+    }
+
+    private void ApplyModelSelection(ProviderCatalogEntry entry, string model)
+    {
+        try
+        {
+            if (!_providers.HasApiKey(entry))
+            {
+                DeskLog.Write($"ApplyModelSelection: no API key for {entry.Name}; ignoring");
+                return;
+            }
+            var apiKey = _providers.GetApiKey(entry);
+            var provider = _providers.CreateProvider(entry, apiKey);
+            _session.SwitchProvider(provider, entry.Name, model);
+        }
+        catch (Exception ex)
+        {
+            DeskLog.Write($"ApplyModelSelection: threw: {ex}");
+        }
+    }
+
+    // ──────── Workspace picker ────────
+
+    /// <summary>
+    /// Builds the workspace picker footer: a single <see cref="ComboBox"/>
+    /// listing the distinct workspaces derived from session records plus
+    /// the session's current cwd if it isn't already present, with a
+    /// trailing "📁 Choose folder…" sentinel row that opens the native
+    /// folder dialog. The native dialog is only ever triggered from the
+    /// sentinel's click — keeping it out of the ComboBox's regular
+    /// selection handling avoids the modal dialog's close from re-firing
+    /// <c>SelectionChanged</c> and popping the dialog twice. Selecting a
+    /// workspace (or picking a folder) recreates the fresh session in
+    /// that directory via
+    /// <see cref="ISessionNavigator.NavigateToNewAsync(string?)"/>.
+    /// </summary>
+    private ComboBox BuildWorkspaceCombo()
+    {
+        RebuildWorkspaceItems(_session.Cwd);
+
+        var combo = new ComboBox()
+            .MinWidth(160)
+            .MaxWidth(260)
+            .Placeholder("Select workspace")
+            .ItemHeight(22)
+            .Items(_workspaceItems, item => item.Label)
+            .ItemTemplate<WorkspacePickerItem>(
+                build: ctx => new Aprillz.MewUI.Controls.TextBlock()
+                    .Register(ctx, "Label")
+                    .TextWrapping(TextWrapping.NoWrap),
+                bind: (view, item, _, ctx) =>
+                {
+                    var label = ctx.Get<Aprillz.MewUI.Controls.TextBlock>("Label");
+                    label.Text = item.Label;
+                    label.WithTheme((t, c) =>
+                        c.Foreground(item.IsSentinel
+                            ? DeskTheme.TextSecondary(t)
+                            : t.Palette.WindowText)
+                        .FontWeight(item.IsSentinel
+                            ? FontWeight.SemiBold
+                            : FontWeight.Normal));
+                });
+
+        var currentIndex = _workspaceItems.IndexOfCwd(_session.Cwd);
+        if (currentIndex >= 0)
+            combo.SelectedIndex = currentIndex;
+
+        combo.SelectionChanged += _ =>
+        {
+            var idx = combo.SelectedIndex;
+            if (idx < 0 || idx >= _workspaceItems.Count) return;
+            var item = _workspaceItems[idx];
+            if (item.IsSentinel)
+            {
+                ChooseFolder();
+                return;
+            }
+            if (!string.IsNullOrEmpty(item.Cwd))
+                SwitchWorkspace(item.Cwd);
+        };
+
+        combo.BindIsVisible(_workspacePickerVisible);
+        return combo;
+    }
+
+    private void RebuildWorkspaceItems(string cwd)
+    {
+        _workspaceItems = PromptInputPickerBuilder.BuildWorkspacePickerItems(
+            WorkspaceSessionStore.ListWorkspaces(),
+            cwd);
+        if (WorkspaceComboBox is null) return;
+        WorkspaceComboBox.ItemsSource = ItemsView.Create(_workspaceItems, item => item.Label);
+        var currentIndex = _workspaceItems.IndexOfCwd(cwd);
+        if (currentIndex >= 0)
+            WorkspaceComboBox.SelectedIndex = currentIndex;
     }
 
     /// <summary>
@@ -248,28 +365,12 @@ public sealed class PromptInputView
         {
             var picked = _pickFolder();
             if (string.IsNullOrEmpty(picked)) return;
-            _postToUi(() => _ = _navigator.NavigateToNewAsync(picked));
+            _postToUi(() => _navigator.NavigateToNewAsync(picked));
         }
         finally
         {
             _pickingFolder = false;
         }
-    }
-
-    private void UpdateCompletion()
-    {
-        var text = _text.Value;
-        var caret = text.Length;
-        foreach (var provider in _suggestionProviders)
-        {
-            if (provider.GetSuggestion(text, caret) is { } match && match.Items.Count > 0)
-            {
-                _completionText.Value = $"↳ {match.Items[0].Label} — {match.Items[0].Description}";
-                _completionVisible.Value = true;
-                return;
-            }
-        }
-        _completionVisible.Value = false;
     }
 
     private void SubmitCurrent()
@@ -289,35 +390,6 @@ public sealed class PromptInputView
 
     private void HandleInput(string text)
     {
-        if (SlashCommands.Match(text) is { } command)
-        {
-            DeskLog.Write($"HandleInput: slash command '{command}'");
-            switch (command)
-            {
-                case "/new":
-                    _ = _navigator.NavigateToNewAsync();
-                    break;
-                case "/exit":
-                    Application.Quit();
-                    break;
-                case "/sessions":
-                case "/connect":
-                case "/models":
-                    // Desktop exposes these through menu actions, not the
-                    // input shell; silently ignore to keep the input
-                    // shell UI-agnostic.
-                    break;
-            }
-            return;
-        }
-
-        if (SlashCommands.MatchSkill(text) is { } skillMatch)
-        {
-            DeskLog.Write($"HandleInput: skill '{skillMatch.SkillName}'");
-            _ = LoadSkillAsync(skillMatch.SkillName, skillMatch.Prompt);
-            return;
-        }
-
         if (_session.State.IsRunning)
         {
             DeskLog.Write("HandleInput: steering (running)");
@@ -339,21 +411,167 @@ public sealed class PromptInputView
             DeskLog.Write($"HandleInput: SubmitPrompt threw: {ex}");
         }
     }
+}
 
-    private async Task LoadSkillAsync(string name, string? prompt)
+// ──────── Picker item records (also consumed by tests) ────────
+
+/// <summary>
+/// One row in the model picker's dropdown. <see cref="IsHeader"/> rows
+/// are styled as provider group dividers and ignored on selection; the
+/// remaining rows carry the <see cref="Entry"/> + <see cref="Model"/> pair
+/// passed to <see cref="ISession.SwitchProvider"/>.
+/// </summary>
+public sealed record ModelPickerItem
+{
+    public required string Label { get; init; }
+    public required bool IsHeader { get; init; }
+    public ProviderCatalogEntry? Entry { get; init; }
+    public string? Model { get; init; }
+
+    /// <summary>True for the currently-active provider/model row.</summary>
+    public bool IsCurrent { get; init; }
+}
+
+/// <summary>
+/// One row in the workspace picker's dropdown. <see cref="IsSentinel"/>
+/// is the trailing "📁 Choose folder…" entry that opens the native
+/// folder dialog; the remaining rows switch to a fresh session in their
+/// <see cref="Cwd"/>.
+/// </summary>
+public sealed record WorkspacePickerItem
+{
+    public required string Label { get; init; }
+    public required bool IsSentinel { get; init; }
+    public required string Cwd { get; init; }
+}
+
+/// <summary>
+/// Pure builders for the picker item lists. Exposed at namespace level so
+/// tests can assert the rendering contract without spinning up a session.
+/// </summary>
+public static class PromptInputPickerBuilder
+{
+    /// <summary>
+    /// Ordered list backing the model dropdown. The current provider's
+    /// models come first, followed by the rest alphabetically. Each
+    /// provider group is preceded by a header row carrying its
+    /// <see cref="ProviderCatalogEntry.DisplayName"/>.
+    /// </summary>
+    public static IReadOnlyList<ModelPickerItem> BuildModelPickerItems(
+        IEnumerable<ProviderCatalogEntry> providers,
+        string currentProviderName,
+        string currentModel,
+        Func<ProviderCatalogEntry, bool> hasApiKey)
     {
-        try
+        ArgumentNullException.ThrowIfNull(providers);
+        ArgumentNullException.ThrowIfNull(hasApiKey);
+
+        var ordered = providers
+            .OrderBy(p => string.Equals(p.Name, currentProviderName, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var items = new List<ModelPickerItem>();
+        foreach (var p in ordered)
         {
-            var content = await _session.LoadSkillAsync(name, prompt);
-            // The loaded skill body rides along as the user message; render
-            // it (as a collapsible skill card) via the projector.
-            _projector.SubmitUserLine(content);
+            items.Add(new ModelPickerItem
+            {
+                Label = $"  {p.DisplayName}",
+                IsHeader = true,
+            });
+            foreach (var m in p.Models)
+            {
+                var isCurrent = string.Equals(p.Name, currentProviderName, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(m, currentModel, StringComparison.Ordinal);
+                items.Add(new ModelPickerItem
+                {
+                    Label = isCurrent
+                        ? $"    ✓ {p.Name} · {m}"
+                        : $"    {p.Name} · {m}",
+                    IsHeader = false,
+                    Entry = p,
+                    Model = m,
+                    IsCurrent = isCurrent,
+                });
+            }
         }
-        catch (InvalidOperationException)
+        return items;
+    }
+
+    /// <summary>
+    /// Ordered list backing the workspace dropdown: distinct workspaces
+    /// derived from session records, plus the current cwd if missing, plus
+    /// a trailing "📁 Choose folder…" sentinel row.
+    /// </summary>
+    public static IReadOnlyList<WorkspacePickerItem> BuildWorkspacePickerItems(
+        IEnumerable<string> knownWorkspaces,
+        string cwd)
+    {
+        ArgumentNullException.ThrowIfNull(knownWorkspaces);
+
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var list = new List<WorkspacePickerItem>();
+        foreach (var w in knownWorkspaces)
         {
-            // Skill load failed (unknown name, run in progress). The
-            // transcript surfaces errors via the status router; we just
-            // suppress here so the input flow continues.
+            var full = Path.GetFullPath(w);
+            if (!seen.Add(full)) continue;
+            list.Add(new WorkspacePickerItem
+            {
+                Label = WorkspaceLabel(full),
+                IsSentinel = false,
+                Cwd = full,
+            });
         }
+        if (!string.IsNullOrEmpty(cwd))
+        {
+            var fullCwd = Path.GetFullPath(cwd);
+            if (seen.Add(fullCwd))
+                list.Insert(0, new WorkspacePickerItem
+                {
+                    Label = WorkspaceLabel(fullCwd),
+                    IsSentinel = false,
+                    Cwd = fullCwd,
+                });
+        }
+        list.Add(new WorkspacePickerItem
+        {
+            Label = "📁 Choose folder…",
+            IsSentinel = true,
+            Cwd = string.Empty,
+        });
+        return list;
+    }
+
+    private static string WorkspaceLabel(string fullPath)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return fullPath.StartsWith(home, StringComparison.Ordinal)
+            ? "~" + fullPath[home.Length..]
+            : fullPath;
+    }
+}
+
+internal static class PromptInputPickerExtensions
+{
+    /// <summary>Index of the first selectable (non-header, non-sentinel) item.</summary>
+    public static int IndexOfFirstSelectable(this IReadOnlyList<ModelPickerItem> items)
+    {
+        for (var i = 0; i < items.Count; i++)
+            if (!items[i].IsHeader) return i;
+        return -1;
+    }
+
+    /// <summary>Index of the row whose <see cref="WorkspacePickerItem.Cwd"/> matches.</summary>
+    public static int IndexOfCwd(this IReadOnlyList<WorkspacePickerItem> items, string cwd)
+    {
+        if (string.IsNullOrEmpty(cwd)) return -1;
+        var full = Path.GetFullPath(cwd);
+        for (var i = 0; i < items.Count; i++)
+        {
+            if (items[i].IsSentinel) continue;
+            if (string.Equals(Path.GetFullPath(items[i].Cwd), full, StringComparison.OrdinalIgnoreCase))
+                return i;
+        }
+        return -1;
     }
 }
