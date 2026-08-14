@@ -13,7 +13,6 @@ namespace PhiCoding.Avalonia;
 /// </summary>
 public sealed class ChatPageView : IDisposable
 {
-    private readonly ISession _session;
     private readonly ChatTranscriptProjector _projector;
     private readonly TranscriptView _transcript;
     private readonly PromptInputView _promptInput;
@@ -30,7 +29,6 @@ public sealed class ChatPageView : IDisposable
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(session);
 
-        _session = session;
         _projector = new ChatTranscriptProjector(session);
 
         _transcript = new TranscriptView(dispatchToUi);
@@ -46,15 +44,15 @@ public sealed class ChatPageView : IDisposable
         _transcript.Bind(_projector);
         var input = _promptInput.Build();
 
+        // Transcript fills the page; the prompt input docks at the bottom.
+        // No header row — the model/provider label was dropped from this
+        // surface (it's already visible in the prompt input's picker).
         var grid = new Grid
         {
-            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
+            RowDefinitions = new RowDefinitions("*,Auto"),
         };
-        var header = new ChatHeaderView(_session).Root;
-        Grid.SetRow(header, 0);
-        Grid.SetRow(_transcript.Root, 1);
-        Grid.SetRow(input, 2);
-        grid.Children.Add(header);
+        Grid.SetRow(_transcript.Root, 0);
+        Grid.SetRow(input, 1);
         grid.Children.Add(_transcript.Root);
         grid.Children.Add(input);
         Root = grid;

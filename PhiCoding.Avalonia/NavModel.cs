@@ -19,7 +19,6 @@ public static class NavModel
 
     public enum Kind
     {
-        NewChat,
         Session,
         Models,
         Providers,
@@ -27,26 +26,37 @@ public static class NavModel
         Workspace,
     }
 
-    public sealed record Entry(Kind Kind, string Title, string? SessionId = null);
+    /// <summary>
+    /// One nav row. <see cref="SessionId"/> is set for session rows;
+    /// <see cref="Cwd"/> carries the full working directory for workspace
+    /// rows (kept separate from <see cref="Title"/>, which is the display
+    /// label — see <see cref="WorkspaceLeafLabel"/>).
+    /// </summary>
+    public sealed record Entry(Kind Kind, string Title, string? SessionId = null, string? Cwd = null);
 
     /// <summary>One workspace group: a cwd + its sessions (newest first).</summary>
     public sealed record WorkspaceGroup(string Workspace, IReadOnlyList<SessionRecord> Sessions);
 
     /// <summary>
-    /// Builds the main pane entries: a "New Chat" row followed by the
-    /// sessions arranged by the chosen <paramref name="mode"/>.
+    /// Builds the sessions-list entries arranged by the chosen
+    /// <paramref name="mode"/>. The "New Chat" row is NOT part of this list:
+    /// the shell renders it as a dedicated top button, so the list only
+    /// holds workspace headers and session rows.
     /// </summary>
     public static List<Entry> BuildMainEntries(
         IReadOnlyList<SessionRecord> sessions,
         GroupMode mode)
     {
-        var entries = new List<Entry> { new(Kind.NewChat, "New Chat") };
+        var entries = new List<Entry>();
 
         if (mode == GroupMode.ByWorkspace)
         {
             foreach (var group in GroupByWorkspace(sessions))
             {
-                entries.Add(new Entry(Kind.Workspace, WorkspaceLabel(group.Workspace)));
+                entries.Add(new Entry(
+                    Kind.Workspace,
+                    WorkspaceLeafLabel(group.Workspace),
+                    Cwd: group.Workspace));
                 foreach (var session in group.Sessions)
                     entries.Add(new Entry(Kind.Session, TitleOf(session), session.Id));
             }
@@ -84,6 +94,24 @@ public static class NavModel
     }
 
     /// <summary>
+    /// Last path segment of a workspace, for compact sidebar display (e.g.
+    /// <c>/Users/me/github/phi</c> → <c>phi</c>). Handles both slash
+    /// orientations so records created on any OS render consistently. Falls
+    /// back to the full label when there's no separator. The backend session
+    /// record keeps the full cwd — this is display-only.
+    /// </summary>
+    public static string WorkspaceLeafLabel(string cwd)
+    {
+        var trimmed = cwd.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var sepIndex = trimmed.LastIndexOfAny(PathSeparators);
+        return sepIndex >= 0 && sepIndex < trimmed.Length - 1
+            ? trimmed[(sepIndex + 1)..]
+            : WorkspaceLabel(cwd);
+    }
+
+    private static readonly char[] PathSeparators = ['/', '\\'];
+
+    /// <summary>
     /// Display label for a session row. Falls back to the first 8 chars of
     /// the session id when the LLM auto-namer hasn't produced a title yet.
     /// </summary>
@@ -94,9 +122,9 @@ public static class NavModel
 
     /// <summary>
     /// Returns the index of the entry for <paramref name="activeSessionId"/>,
-    /// or 0 (New Chat) when the active session is unpersisted or unknown.
-    /// Works across grouped entries (session rows live under workspace
-    /// headers, or flat in ByDate mode).
+    /// or -1 when the active session is unpersisted or unknown (nothing to
+    /// highlight). Works across grouped entries (session rows live under
+    /// workspace headers, or flat in ByDate mode).
     /// </summary>
     public static int IndexForActive(IReadOnlyList<Entry> entries, string? activeSessionId)
     {
@@ -108,6 +136,6 @@ public static class NavModel
                     return i;
             }
         }
-        return 0;
+        return -1;
     }
 }

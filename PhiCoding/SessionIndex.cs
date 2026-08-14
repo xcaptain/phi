@@ -43,10 +43,32 @@ public sealed class SessionIndex(string indexPath)
             if (existing >= 0) records[existing] = record;
             else records.Add(record);
 
-            var lines = records.Select(r => JsonSerializer.Serialize(r, PhiJsonContext.Default.SessionRecord)).ToList();
-            var content = string.Join("\n", lines) + "\n";
-            File.WriteAllText(indexPath, content);
+            WriteAll(records);
         }
+    }
+
+    /// <summary>
+    /// Removes the record for <paramref name="id"/> from the index. No-op
+    /// when the id isn't indexed. The session's transcript file is the
+    /// caller's responsibility.
+    /// </summary>
+    public void Remove(string id)
+    {
+        ArgumentNullException.ThrowIfNull(id);
+        lock (_lock)
+        {
+            var records = ReadRecordsUnsafe();
+            var removed = records.RemoveAll(r => r.Id == id);
+            if (removed == 0) return;
+            WriteAll(records);
+        }
+    }
+
+    private void WriteAll(List<SessionRecord> records)
+    {
+        var lines = records.Select(r => JsonSerializer.Serialize(r, PhiJsonContext.Default.SessionRecord)).ToList();
+        var content = string.Join("\n", lines) + "\n";
+        File.WriteAllText(indexPath, content);
     }
 
     private List<SessionRecord> ReadRecords()

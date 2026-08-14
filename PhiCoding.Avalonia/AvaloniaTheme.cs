@@ -34,7 +34,7 @@ public static class AvaloniaTheme
     public static IBrush Accent => Pick(0xFF7C3AED, 0xFFA78BFA);
 
     /// <summary>Text drawn on top of <see cref="Accent"/>.</summary>
-    public static IBrush AccentText => new SolidColorBrush(Colors.White);
+    public static IBrush AccentText { get; } = new SolidColorBrush(Colors.White);
 
     private static readonly Dictionary<uint, IBrush> Cache = [];
 

@@ -35,6 +35,21 @@ public class TranscriptViewTests
     }
 
     [Test]
+    public async Task Root_HasDocumentStyleSidePadding()
+    {
+        // The transcript must not run lines to the window edge: generous,
+        // symmetric horizontal padding on the scroll container (document
+        // reading margins) plus vertical breathing room.
+        var (_, _, view) = Create();
+
+        var scroll = (global::Avalonia.Controls.ScrollViewer)view.Root;
+        await Assert.That(scroll.Padding.Left).IsEqualTo(48);
+        await Assert.That(scroll.Padding.Right).IsEqualTo(48);
+        await Assert.That(scroll.Padding.Top).IsGreaterThan(0);
+        await Assert.That(scroll.Padding.Bottom).IsGreaterThan(0);
+    }
+
+    [Test]
     public async Task StreamingAssistantText_AddsAndPatchesLine()
     {
         var (session, projector, view) = Create();

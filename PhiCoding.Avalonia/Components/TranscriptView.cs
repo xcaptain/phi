@@ -41,10 +41,14 @@ public sealed class TranscriptView
         _panel = new StackPanel
         {
             Spacing = 8,
-            Margin = new Thickness(12, 8),
+            Margin = new Thickness(0, 4),
         };
         Root = new ScrollViewer
         {
+            // Document-style reading margins: generous horizontal padding on
+            // both sides so lines don't run to the window edge; the vertical
+            // padding keeps breathing room at top and bottom.
+            Padding = new Thickness(48, 16),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Content = _panel,
         };

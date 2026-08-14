@@ -4,8 +4,9 @@ namespace PhiCoding.Avalonia.Tests;
 
 /// <summary>
 /// <see cref="NavModel"/>: pure entry-building, workspace grouping, and
-/// active-session highlight. Ported from the MewUI desk's DeskNavModel
-/// tests so the ordering contract is preserved across the migration.
+/// active-session highlight. The "New Chat" row is NOT part of the session
+/// list (the shell renders it as a dedicated top button), so the model
+/// only emits workspace headers + session rows.
 /// </summary>
 [NotInParallel("Avalonia-Nav")]
 public class NavModelTests
@@ -16,7 +17,7 @@ public class NavModelTests
     private static long NowMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
     [Test]
-    public async Task BuildMainEntries_NewChatFirst_ByDate()
+    public async Task BuildMainEntries_ByDate_NoNewChatRow()
     {
         var sessions = new[]
         {
@@ -26,11 +27,13 @@ public class NavModelTests
 
         var entries = NavModel.BuildMainEntries(sessions, NavModel.GroupMode.ByDate);
 
-        await Assert.That(entries[0].Kind).IsEqualTo(NavModel.Kind.NewChat);
+        // The session list must NOT contain a New Chat row — the shell owns
+        // that as a top button. (The enum has no NewChat kind at all.)
+        await Assert.That(entries.Count).IsEqualTo(2);
         // Newest first within the flat list.
-        await Assert.That(entries[1].Kind).IsEqualTo(NavModel.Kind.Session);
-        await Assert.That(entries[1].SessionId).IsEqualTo("a");
-        await Assert.That(entries[2].SessionId).IsEqualTo("b");
+        await Assert.That(entries[0].Kind).IsEqualTo(NavModel.Kind.Session);
+        await Assert.That(entries[0].SessionId).IsEqualTo("a");
+        await Assert.That(entries[1].SessionId).IsEqualTo("b");
     }
 
     [Test]
@@ -45,14 +48,14 @@ public class NavModelTests
 
         var entries = NavModel.BuildMainEntries(sessions, NavModel.GroupMode.ByWorkspace);
 
-        // NewChat, /w1 header, a, c, /w2 header, b
-        await Assert.That(entries.Count).IsEqualTo(6);
-        await Assert.That(entries[1].Kind).IsEqualTo(NavModel.Kind.Workspace);
-        await Assert.That(entries[1].Title).IsEqualTo(NavModel.WorkspaceLabel(Path.GetFullPath("/w1")));
-        await Assert.That(entries[2].SessionId).IsEqualTo("a");
-        await Assert.That(entries[3].SessionId).IsEqualTo("c");
-        await Assert.That(entries[4].Kind).IsEqualTo(NavModel.Kind.Workspace);
-        await Assert.That(entries[5].SessionId).IsEqualTo("b");
+        // /w1 header, a, c, /w2 header, b
+        await Assert.That(entries.Count).IsEqualTo(5);
+        await Assert.That(entries[0].Kind).IsEqualTo(NavModel.Kind.Workspace);
+        await Assert.That(entries[0].Title).IsEqualTo(NavModel.WorkspaceLeafLabel(Path.GetFullPath("/w1")));
+        await Assert.That(entries[1].SessionId).IsEqualTo("a");
+        await Assert.That(entries[2].SessionId).IsEqualTo("c");
+        await Assert.That(entries[3].Kind).IsEqualTo(NavModel.Kind.Workspace);
+        await Assert.That(entries[4].SessionId).IsEqualTo("b");
     }
 
     [Test]
@@ -80,14 +83,41 @@ public class NavModelTests
     }
 
     [Test]
-    public async Task IndexForActive_UnknownSession_ReturnsNewChatIndex()
+    public async Task WorkspaceLeafLabel_ReturnsLastSegment()
+    {
+        await Assert.That(NavModel.WorkspaceLeafLabel("/Users/me/github/phi"))
+            .IsEqualTo("phi");
+        await Assert.That(NavModel.WorkspaceLeafLabel("/Users/me/github/phi/"))
+            .IsEqualTo("phi");
+        await Assert.That(NavModel.WorkspaceLeafLabel(@"C:\projects\demo"))
+            .IsEqualTo("demo");
+    }
+
+    [Test]
+    public async Task WorkspaceEntry_KeepsFullCwd_SeparateFromLeafTitle()
+    {
+        var sessions = new[]
+        {
+            Record("a", "/Users/me/github/phi", NowMs()),
+        };
+        var entries = NavModel.BuildMainEntries(sessions, NavModel.GroupMode.ByWorkspace);
+
+        // Title is the display leaf; Cwd carries the full backend path.
+        await Assert.That(entries[0].Title).IsEqualTo("phi");
+        await Assert.That(entries[0].Cwd).IsEqualTo("/Users/me/github/phi");
+    }
+
+    [Test]
+    public async Task IndexForActive_UnknownSession_ReturnsMinusOne()
     {
         var entries = NavModel.BuildMainEntries(
             [Record("a", "/w1", NowMs(), "A")],
             NavModel.GroupMode.ByDate);
 
-        await Assert.That(NavModel.IndexForActive(entries, "missing")).IsEqualTo(0);
-        await Assert.That(NavModel.IndexForActive(entries, null)).IsEqualTo(0);
+        // No New Chat row to fall back to: unknown/unpersisted active
+        // session means nothing is highlighted.
+        await Assert.That(NavModel.IndexForActive(entries, "missing")).IsEqualTo(-1);
+        await Assert.That(NavModel.IndexForActive(entries, null)).IsEqualTo(-1);
     }
 
     [Test]
@@ -101,7 +131,7 @@ public class NavModelTests
         };
         var entries = NavModel.BuildMainEntries(sessions, NavModel.GroupMode.ByWorkspace);
 
-        await Assert.That(NavModel.IndexForActive(entries, "b")).IsEqualTo(5);
-        await Assert.That(NavModel.IndexForActive(entries, "c")).IsEqualTo(3);
+        await Assert.That(NavModel.IndexForActive(entries, "b")).IsEqualTo(4);
+        await Assert.That(NavModel.IndexForActive(entries, "c")).IsEqualTo(2);
     }
 }

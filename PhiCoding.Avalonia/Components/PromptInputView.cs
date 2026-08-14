@@ -214,6 +214,9 @@ public sealed class PromptInputView
 
         Root = new Border
         {
+            // Side margins match the transcript's document padding so the
+            // input box aligns with the conversation content.
+            Margin = new Thickness(48, 0, 48, 12),
             Padding = new Thickness(12, 8, 10, 8),
             BorderThickness = new Thickness(1),
             BorderBrush = AvaloniaTheme.ControlBorder,

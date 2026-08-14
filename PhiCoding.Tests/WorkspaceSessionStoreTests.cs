@@ -105,4 +105,59 @@ public class WorkspaceSessionStoreTests : IDisposable
     {
         await Assert.That(WorkspaceSessionStore.FindSession("nope")).IsNull();
     }
+
+    // ──────── Rename / Delete ────────
+
+    [Test]
+    public async Task RenameSession_UpdatesIndexTitle()
+    {
+        var a = Persist(_cwdA, "a", "hello");
+
+        WorkspaceSessionStore.RenameSession(a.Id, "New title");
+
+        var found = WorkspaceSessionStore.FindSession(a.Id);
+        await Assert.That(found).IsNotNull();
+        await Assert.That(found!.Title).IsEqualTo("New title");
+    }
+
+    [Test]
+    public async Task RenameSession_UnknownId_Throws()
+    {
+        await Assert.That(() => WorkspaceSessionStore.RenameSession("nope", "t"))
+            .Throws<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task DeleteSession_RemovesIndexAndTranscript()
+    {
+        var a = Persist(_cwdA, "a", "hello");
+
+        WorkspaceSessionStore.DeleteSession(a.Id);
+
+        await Assert.That(WorkspaceSessionStore.FindSession(a.Id)).IsNull();
+        // The transcript file is gone too.
+        var file = SessionPaths.SessionFileFor(_cwdA, a.Id);
+        await Assert.That(File.Exists(file)).IsFalse();
+    }
+
+    [Test]
+    public async Task DeleteSession_UnknownId_IsNoOp()
+    {
+        WorkspaceSessionStore.DeleteSession("nope");
+        await Assert.That(WorkspaceSessionStore.FindSession("nope")).IsNull();
+    }
+
+    [Test]
+    public async Task DeleteWorkspace_RemovesAllSessionsInCwd_KeepsOthers()
+    {
+        var a1 = Persist(_cwdA, "a1", "one");
+        var a2 = Persist(_cwdA, "a2", "two");
+        var b = Persist(_cwdB, "b", "three");
+
+        WorkspaceSessionStore.DeleteWorkspace(_cwdA);
+
+        await Assert.That(WorkspaceSessionStore.FindSession(a1.Id)).IsNull();
+        await Assert.That(WorkspaceSessionStore.FindSession(a2.Id)).IsNull();
+        await Assert.That(WorkspaceSessionStore.FindSession(b.Id)).IsNotNull();
+    }
 }
