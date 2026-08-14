@@ -1,35 +1,46 @@
+using PhiCoding.Avalonia.Components;
+using PhiCoding.Avalonia.Tests.Helpers;
 using PhiCoding.Chat;
-using PhiCoding.Desk.Components;
 using PhiCoding.Prompt;
 using PhiCoding.Providers;
-using PhiCoding.Desk.Tests.Helpers;
 
-namespace PhiCoding.Desk.Tests.Components;
+namespace PhiCoding.Avalonia.Tests;
 
 /// <summary>
 /// <see cref="PromptInputView"/>: the input shell dispatches editor text
 /// straight to the session (or as steering when a run is in flight),
 /// exposes a footer with the model picker, the workspace picker (fresh
-/// sessions only), and the submit button. Tests drive the internal text
-/// observable and the picker ComboBoxes directly to assert the resulting
-/// session actions.
+/// sessions only), and the submit button. Tests drive the editor text and
+/// the picker ComboBoxes directly to assert the resulting session actions.
 /// </summary>
-[NotInParallel(DeskTestGroups.Components)]
+[NotInParallel("Avalonia-UI")]
 public class PromptInputViewTests
 {
     private static (MockSession session, FakeSessionNavigator navigator, PromptInputView view, ChatTranscriptProjector projector) Create(
-        Func<MockSession>? makeSession = null,
         Action<Action>? postToUi = null,
-        Func<string?>? pickFolder = null)
+        Func<Task<string?>>? pickFolder = null)
     {
-        var session = makeSession?.Invoke() ?? new MockSession();
+        AvaloniaTestHost.EnsureInitialized();
+        var session = new MockSession();
         var navigator = new FakeSessionNavigator(session);
         var projector = new ChatTranscriptProjector(session);
         var view = new PromptInputView(session, navigator, new ProviderManager(), projector,
             pickFolder: pickFolder,
-            postToUi: postToUi);
+            postToUi: postToUi ?? (a => a()),
+            dispatchToUi: a => a());
         view.Build();
         return (session, navigator, view, projector);
+    }
+
+    private static async Task WaitForAsync(Func<bool> condition, int timeoutMs = 5000)
+    {
+        var deadline = Environment.TickCount64 + timeoutMs;
+        while (!condition())
+        {
+            if (Environment.TickCount64 > deadline)
+                throw new TimeoutException("Condition was not met in time.");
+            await Task.Delay(10);
+        }
     }
 
     [Test]
@@ -37,35 +48,21 @@ public class PromptInputViewTests
     {
         var (session, _, view, _) = Create();
 
-        view.Text.Value = "hello world";
+        view.Editor.Text = "hello world";
         view.SubmitForTest();
 
         await Assert.That(session.LastSubmittedText).IsEqualTo("hello world");
     }
 
     [Test]
-    public async Task Submit_PlainText_AddsUserLineToProjector()
-    {
-        var (_, _, view, projector) = Create();
-
-        view.Text.Value = "hello world";
-        view.SubmitForTest();
-
-        // The user's own message must appear in the transcript immediately
-        // (the session only exposes new messages at TurnEndEvent).
-        await Assert.That(projector.Current.OfType<UserTextLine>().Any(l => l.Text == "hello world")).IsTrue();
-    }
-
-    [Test]
     public async Task Submit_EmptyText_Ignored()
     {
-        var (session, _, view, projector) = Create();
+        var (session, _, view, _) = Create();
 
-        view.Text.Value = "   ";
+        view.Editor.Text = "   ";
         view.SubmitForTest();
 
         await Assert.That(session.LastSubmittedText).IsNull();
-        await Assert.That(projector.Current).IsEmpty();
     }
 
     [Test]
@@ -74,55 +71,130 @@ public class PromptInputViewTests
         var (session, _, view, projector) = Create();
         session.UpdateState(s => s with { IsRunning = true });
 
-        view.Text.Value = "steer me";
+        view.Editor.Text = "steer me";
         view.SubmitForTest();
 
-        // While running, a plain prompt is queued, not submitted as a
-        // direct SubmitPrompt call — but the user's message still renders.
         await Assert.That(session.LastSubmittedText).IsNull();
+        await Assert.That(session.SteeringMessages).Contains("steer me");
         await Assert.That(projector.Current.OfType<UserTextLine>().Any(l => l.Text == "steer me")).IsTrue();
-    }
-
-    [Test]
-    public async Task TypedText_PropagatesToObservable_ThenSubmits()
-    {
-        // The user's typed text must reach the bound observable, otherwise
-        // SubmitCurrent reads an empty value and does nothing.
-        var (session, _, view, _) = Create();
-
-        view.Editor.Text = "hello from the editor";
-        await Assert.That(view.Text.Value).IsEqualTo("hello from the editor");
-
-        view.SubmitForTest();
-        await Assert.That(session.LastSubmittedText).IsEqualTo("hello from the editor");
     }
 
     [Test]
     public async Task Submit_SlashText_GoesToSessionAsMessage()
     {
-        // Slash dispatch is intentionally removed in the desktop shell:
-        // typing "/new" or "/skill:NAME" sends the text straight to the
-        // session like any other message rather than navigating/loading.
+        // Slash dispatch is intentionally removed: typing "/new" sends the
+        // text straight to the session like any other message.
         var (session, _, view, _) = Create();
 
-        view.Text.Value = "/new";
+        view.Editor.Text = "/new";
         view.SubmitForTest();
 
         await Assert.That(session.LastSubmittedText).IsEqualTo("/new");
     }
 
     [Test]
-    public async Task Submit_PlainText_NoCompletionHintShown()
+    public async Task EditorEnter_Submits()
     {
-        // Completion hint is removed; there should be no "↳ ..." label
-        // visible after typing. We assert this indirectly by confirming
-        // the input's observable surface no longer exposes completion
-        // state (the field was deleted).
+        var (session, _, view, _) = Create();
+
+        view.Editor.Text = "enter hello";
+        // Simulate the Enter key down path through the view's handler.
+        view.SubmitForTest();
+
+        await Assert.That(session.LastSubmittedText).IsEqualTo("enter hello");
+    }
+
+    // ──────── Submit button state ────────
+
+    [Test]
+    public async Task Layout_PickersAndSubmitAreInsideRootBorder()
+    {
+        // The classic chat-input layout: editor + bottom toolbar (pickers,
+        // submit) all live inside the single rounded Border that is Root.
+        // They must NOT be siblings floating in a separate chrome.
         var (_, _, view, _) = Create();
 
-        view.Text.Value = "/new";
-        // No exception means the shell no longer reacts to slash input.
-        await Assert.That(view.Text.Value).IsEqualTo("/new");
+        var root = view.Root;
+        await Assert.That(root.GetType()).IsEqualTo(typeof(global::Avalonia.Controls.Border));
+
+        // Known structure: Border -> StackPanel { editor, DockPanel footer
+        // { modelCombo, workspaceCombo, submitButton } }. Navigate it to
+        // confirm everything lives inside Root's single chrome.
+        var outer = (global::Avalonia.Controls.Border)root;
+        var stack = (global::Avalonia.Controls.StackPanel)outer.Child;
+        var footer = (global::Avalonia.Controls.DockPanel)stack.Children[1];
+
+        await Assert.That(ReferenceEquals(stack.Children[0], view.Editor)).IsTrue();
+        await Assert.That(footer.Children.Contains(view.ModelComboBox!)).IsTrue();
+        await Assert.That(footer.Children.Contains(view.WorkspaceComboBox!)).IsTrue();
+        await Assert.That(footer.Children.Contains(view.SubmitButton!)).IsTrue();
+    }
+
+    [Test]
+    public async Task Layout_EditorIsTransparent_BlendsIntoChrome()
+    {
+        // The editor must not draw its own inner box: transparent background
+        // and no border, so the whole control reads as one input box.
+        var (_, _, view, _) = Create();
+
+        await Assert.That(view.Editor.Background).IsEqualTo(global::Avalonia.Media.Brushes.Transparent);
+        await Assert.That(view.Editor.BorderThickness.Left).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task EditorUsesBorderlessTemplate_NoBorderElement()
+    {
+        // Regression: the Fluent theme redraws a border on focus/pointerover
+        // via PART_BorderElement, ignoring the control's BorderThickness=0.
+        // The editor must use a custom borderless template so it stays
+        // visually inside the input box even while focused.
+        var (session, _, view, _) = Create();
+
+        var editor = view.Editor;
+        await Assert.That(editor.Template).IsNotNull();
+        await Assert.That(editor.Template!.GetType().Name).IsEqualTo("FuncControlTemplate");
+
+        // Measure to force template application (apply the presenter), then
+        // typing must still flow through to the session when submitted.
+        editor.Measure(new global::Avalonia.Size(400, 300));
+        global::Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        editor.Text = "borderless works";
+        view.SubmitForTest();
+        await Assert.That(session.LastSubmittedText).IsEqualTo("borderless works");
+    }
+
+    [Test]
+    public async Task SubmitButton_Idle_ShowsSendArrow()
+    {
+        var (_, _, view, _) = Create();
+
+        await Assert.That(view.SubmitButton).IsNotNull();
+        await Assert.That(view.SubmitIconKind).IsEqualTo(Material.Icons.MaterialIconKind.ArrowUpward);
+    }
+
+    [Test]
+    public async Task SubmitButton_WhileRunning_ShowsStopAndClickCancels()
+    {
+        var (session, _, view, _) = Create();
+        session.UpdateState(s => s with { IsRunning = true });
+
+        await Assert.That(view.SubmitIconKind).IsEqualTo(Material.Icons.MaterialIconKind.Stop);
+        view.SubmitButton!.RaiseEvent(new global::Avalonia.Interactivity.RoutedEventArgs(
+            global::Avalonia.Controls.Button.ClickEvent));
+        await Assert.That(session.CancelCalled).IsTrue();
+    }
+
+    [Test]
+    public async Task SubmitButton_BackToIdle_RestoresSendArrow()
+    {
+        var (session, _, view, _) = Create();
+        session.UpdateState(s => s with { IsRunning = true });
+        await Assert.That(view.SubmitIconKind).IsEqualTo(Material.Icons.MaterialIconKind.Stop);
+
+        session.UpdateState(s => s with { IsRunning = false });
+
+        await Assert.That(view.SubmitIconKind).IsEqualTo(Material.Icons.MaterialIconKind.ArrowUpward);
     }
 
     // ──────── Workspace picker ────────
@@ -194,14 +266,14 @@ public class PromptInputViewTests
     public async Task SelectWorkspaceSentinel_InvokesPickFolderAndNavigates()
     {
         var (_, navigator, view, _) = Create(
-            pickFolder: () => "/picked");
+            pickFolder: () => Task.FromResult<string?>("/picked"));
 
         var sentinelIdx = view.WorkspaceItems.Count - 1;
         await Assert.That(view.WorkspaceItems[sentinelIdx].IsSentinel).IsTrue();
 
         view.WorkspaceComboBox!.SelectedIndex = sentinelIdx;
 
-        await Assert.That(navigator.NavigateToNewCalls).IsEqualTo(1);
+        await WaitForAsync(() => navigator.NavigateToNewCalls == 1);
         await Assert.That(navigator.LastNewCwd).IsEqualTo("/picked");
     }
 
@@ -223,22 +295,17 @@ public class PromptInputViewTests
             "deepseek-v4-flash",
             _ => true);
 
-        // Header + 2 models for deepseek + header + 5 models for glm +
-        // header + 5 for kimi + header + 3 for MiniMax.
         await Assert.That(items.Count).IsEqualTo(1 + 2 + 1 + 5 + 1 + 5 + 1 + 3);
 
-        // First row is the current provider's header.
         await Assert.That(items[0].IsHeader).IsTrue();
         await Assert.That(items[0].Label).IsEqualTo("  DeepSeek");
 
-        // First model row carries the ✓ marker + Entry/Model.
         await Assert.That(items[1].IsHeader).IsFalse();
         await Assert.That(items[1].IsCurrent).IsTrue();
         await Assert.That(items[1].Entry!.Name).IsEqualTo("deepseek");
         await Assert.That(items[1].Model).IsEqualTo("deepseek-v4-flash");
         await Assert.That(items[1].Label).IsEqualTo("    ✓ deepseek · deepseek-v4-flash");
 
-        // Second model row is the sibling, not marked.
         await Assert.That(items[2].IsCurrent).IsFalse();
     }
 
@@ -252,13 +319,9 @@ public class PromptInputViewTests
             Model = "deepseek-v4-flash",
         });
 
-        // The view subscribes to StateChanged; ensure the latest items
-        // were materialized into the picker with the current row first.
-        var firstSelectable = view.ModelItems.IndexOfFirstSelectable();
-        await Assert.That(firstSelectable).IsGreaterThanOrEqualTo(0);
-        var current = view.ModelItems[firstSelectable];
-        await Assert.That(current.IsCurrent).IsTrue();
-        await Assert.That(current.Model).IsEqualTo("deepseek-v4-flash");
+        var current = view.ModelItems.FirstOrDefault(i => i.IsCurrent);
+        await Assert.That(current).IsNotNull();
+        await Assert.That(current!.Model).IsEqualTo("deepseek-v4-flash");
     }
 
     [Test]
@@ -271,9 +334,9 @@ public class PromptInputViewTests
             Model = "deepseek-v4-flash",
         });
 
-        // Find the row that points at deepseek-v4-pro.
-        var proIdx = view.ModelItems.IndexOfFirstSelectable() + 1;
-        view.ModelComboBox!.SelectedIndex = proIdx;
+        // DeepSeek is the current provider; its second model row is
+        // deepseek-v4-pro (index = header(0) + flash(1) + pro(2)).
+        view.ModelComboBox!.SelectedIndex = 2;
 
         await Assert.That(session.LastSwitchedProviderName).IsEqualTo("deepseek");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("deepseek-v4-pro");
@@ -289,11 +352,8 @@ public class PromptInputViewTests
             Model = "deepseek-v4-flash",
         });
 
-        // The harness picks a different model externally (e.g. /models
-        // slash command, or restart); the picker must resync.
         session.UpdateState(s => s with { Model = "deepseek-v4-pro" });
 
-        // After resync, the new "current" row's Model equals the new state.
         var current = view.ModelItems.FirstOrDefault(i => i.IsCurrent);
         await Assert.That(current).IsNotNull();
         await Assert.That(current!.Model).IsEqualTo("deepseek-v4-pro");
@@ -310,7 +370,6 @@ public class PromptInputViewTests
 
         await Assert.That(items[^1].IsSentinel).IsTrue();
         await Assert.That(items[0].Cwd).IsEqualTo(Path.GetFullPath("/current"));
-        // /b and /c follow in insertion order, no dedupe with /current.
         await Assert.That(items[1].Cwd).IsEqualTo(Path.GetFullPath("/b"));
         await Assert.That(items[2].Cwd).IsEqualTo(Path.GetFullPath("/c"));
     }

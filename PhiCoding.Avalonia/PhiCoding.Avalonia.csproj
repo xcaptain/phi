@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>PhiCoding.Avalonia</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Markdown.Avalonia" />
+    <PackageReference Include="Material.Icons.Avalonia" />
+    <PackageReference Include="DiffPlex" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PhiCoding\PhiCoding.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PhiCoding.Avalonia.Tests" />
+    <InternalsVisibleTo Include="PhiCoding.Avalonia.Desktop" />
+  </ItemGroup>
+
+</Project>
