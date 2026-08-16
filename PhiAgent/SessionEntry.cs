@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace PhiAgent;
@@ -32,12 +33,19 @@ public sealed record AssistantSessionEntry(
     Usage Usage)
     : SessionEntry(Timestamp);
 
+// `Details` carries tool-specific structured info (BashDetails, EditDetails,
+// etc.) the runtime emitted alongside the textual `Content`. Persisted so a
+// resume can re-render rich tool cards (side-by-side diff for `edit`,
+// exit/duration for `bash`) instead of falling back to the textual-only
+// fallback. Optional: legacy transcripts written before this field was added
+// deserialize as null and the renderer degrades gracefully.
 public sealed record ToolResultSessionEntry(
     long Timestamp,
     string ToolCallId,
     string ToolName,
     IReadOnlyList<ContentBlock> Content,
-    bool IsError)
+    bool IsError,
+    JsonNode? Details = null)
     : SessionEntry(Timestamp);
 
 /// <summary>

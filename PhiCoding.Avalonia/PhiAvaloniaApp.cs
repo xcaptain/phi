@@ -3,6 +3,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml.XamlIl.Runtime;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
+using ColorTextBlock.Avalonia;
 using Material.Icons.Avalonia;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
@@ -48,6 +49,20 @@ public sealed class PhiAvaloniaApp : Application
         // Must be added to the app styles (see the package README for 2.0+).
         // The XAML-derived ctor needs a service provider; build a root one.
         Styles.Add(new MaterialIconStyles(XamlIlRuntimeHelpers.CreateRootServiceProviderV3(null)));
+        // Markdown.Avalonia's ColorTextBlock picks its monospace font by
+        // asking the FontManager for any system font whose name contains
+        // "menlo" / "monaco" / "consolas" / …; on macOS that heuristic can
+        // pick Consolas (e.g. installed via Office) and crash with
+        // "Could not create glyphTypeface" when the chosen family lacks
+        // required glyphs. Force the same portable fallback chain we use
+        // everywhere else so code blocks always resolve to a usable font.
+        Styles.Add(new Style(x => x.OfType<CCode>())
+        {
+            Setters =
+            {
+                new Setter(CCode.MonospaceFontFamilyProperty, AvaloniaTheme.MonoFontFamily),
+            },
+        });
         // Follow the OS light/dark preference; FluentTheme resolves the
         // effective variant from the platform when Default is requested.
         RequestedThemeVariant = ThemeVariant.Default;

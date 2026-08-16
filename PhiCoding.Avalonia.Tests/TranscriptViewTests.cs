@@ -2,10 +2,12 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Markdown.Avalonia.Full;
 using PhiAgent;
 using PhiCoding.Avalonia.Components;
 using PhiCoding.Avalonia.Tests.Helpers;
 using PhiCoding.Chat;
+using TextBlock = global::Avalonia.Controls.TextBlock;
 
 namespace PhiCoding.Avalonia.Tests;
 
@@ -114,6 +116,58 @@ public class TranscriptViewTests
     }
 
     [Test]
+    public async Task AssistantLine_NoCardWrapper_DirectMarkdown()
+    {
+        // Assistant text is no longer wrapped in a Border card: the line
+        // visual is the MarkdownScrollViewer itself so it sits flush in
+        // the document flow (matching the user bubble's "no card" feel).
+        var (session, projector, view) = Create();
+
+        session.EmitHarnessEvent(new AssistantTextDeltaEvent("hello"));
+
+        var line = view.LineAt(0);
+        await Assert.That(line).IsTypeOf<MarkdownScrollViewer>();
+    }
+
+    [Test]
+    public async Task ThinkingLine_IsCollapsibleSection_DefaultCollapsed()
+    {
+        // Thinking renders as a CollapsibleSection with a TextBlock title
+        // and a TextBlock body. Defaults to collapsed so a long chain of
+        // thought doesn't dominate the transcript; user expands on demand.
+        var (session, projector, view) = Create();
+
+        session.EmitHarnessEvent(new AssistantThinkingStartEvent());
+        session.EmitHarnessEvent(new AssistantThinkingDeltaEvent("let me reason"));
+        session.EmitHarnessEvent(new AssistantThinkingEndEvent(
+            new ThinkingBlock("let me reason") { DurationMs = 3000 }));
+
+        var section = (CollapsibleSection)view.LineAt(0);
+        await Assert.That(section.IsExpanded).IsFalse();
+        await Assert.That(section.HeaderContent).IsTypeOf<TextBlock>();
+        await Assert.That(section.BodyContent).IsTypeOf<TextBlock>();
+    }
+
+    [Test]
+    public async Task ToolCallLine_IsCollapsibleSection_DefaultCollapsed()
+    {
+        // Every tool card now goes through CollapsibleSection (collapsed by
+        // default). The header title updates from pending → "✓ Bash …" when
+        // the tool result arrives.
+        var (session, projector, view) = Create();
+
+        var call = new ToolCall("call-1", "bash")
+        {
+            Arguments = new System.Text.Json.Nodes.JsonObject { ["command"] = "ls" },
+        };
+        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+
+        var section = (CollapsibleSection)view.LineAt(0);
+        await Assert.That(section.IsExpanded).IsFalse();
+        await Assert.That(section.HeaderContent).IsTypeOf<TextBlock>();
+    }
+
+    [Test]
     public async Task MultipleLines_KeepStableIds()
     {
         var (_, projector, view) = Create();
@@ -149,6 +203,105 @@ public class TranscriptViewTests
 
         await Assert.That(view.LineCount).IsEqualTo(1);
         await Assert.That(projector.Current.OfType<ToolCallLine>().Single().ToolName).IsEqualTo("bash");
+    }
+
+    [Test]
+    public async Task Resume_ToolResultWithBashDetails_RendersStdoutInBody()
+    {
+        // Resume edge: a ToolResultMessage carrying BashDetails in
+        // `details` must produce a fully-rendered bash card — title with
+        // exit/duration and body with the actual stdout — not the
+        // pending-placeholder "…" or the textual-only fallback
+        // "<no output>". Regression: pre-fix, CreateToolCallHandle hard-
+        // coded the line's ResultState to Pending and never called
+        // Complete, so the card stayed in the placeholder state and the
+        // persisted Details (BashDetails) was never read by the card.
+        AvaloniaTestHost.EnsureInitialized();
+        var (session, projector, view) = Create();
+
+        var bashDetails = PhiCoding.Tools.Details.ToolDetails.Node(
+            new PhiCoding.Tools.Details.BashDetails(
+                Command: "ls",
+                ExitCode: 0,
+                DurationMs: 42,
+                Stdout: "file1\nfile2",
+                Stderr: ""));
+
+        var messages = new List<PhiAgent.IAgentMessage>
+        {
+            new PhiAgent.UserMessage { Content = "list files" },
+            new PhiAgent.AssistantMessage
+            {
+                Content = [new PhiAgent.ToolCall("call-1", "bash")
+                {
+                    Arguments = new System.Text.Json.Nodes.JsonObject { ["command"] = "ls" },
+                }],
+                StopReason = PhiAgent.StopReasons.ToolUse,
+            },
+            new PhiAgent.ToolResultMessage
+            {
+                ToolCallId = "call-1",
+                ToolName = "bash",
+                Content = [new PhiAgent.TextBlock("file1\nfile2")],
+                IsError = false,
+                Details = bashDetails,
+            },
+        };
+
+        projector.ClearAndLoad(messages);
+
+        // Two lines: UserTextLine, ToolCallLine (Completed).
+        await Assert.That(view.LineCount).IsEqualTo(2);
+
+        var section = (PhiCoding.Avalonia.Components.CollapsibleSection)view.LineAt(1);
+        // Body is now a BashOutputView: command row (Border) + stdout TextBlock.
+        // Last child is the stdout mono TextBlock.
+        var body = (PhiCoding.Avalonia.Components.ToolCards.BashOutputView)section.BodyContent;
+        var stdoutBlock = (global::Avalonia.Controls.TextBlock)body.Children[^1];
+        await Assert.That(stdoutBlock.Text).IsEqualTo("file1\nfile2");
+    }
+
+[Test]
+    public async Task Resume_ToolResultWithoutDetails_LegacyFallback_ShowsStdoutFromContent()
+    {
+        // A legacy ToolResultMessage (no `details` payload, e.g. persisted
+        // before Details started being round-tripped) must still render
+        // the actual bash output. The BashOutputView's stdout falls back
+        // to reading the first Content textblock when BashDetails is null.
+        AvaloniaTestHost.EnsureInitialized();
+        var (session, projector, view) = Create();
+
+        var messages = new List<PhiAgent.IAgentMessage>
+        {
+            new PhiAgent.UserMessage { Content = "run it" },
+            new PhiAgent.AssistantMessage
+            {
+                Content = [new PhiAgent.ToolCall("call-1", "bash")
+                {
+                        Arguments = new System.Text.Json.Nodes.JsonObject { ["command"] = "ls" },
+                    }],
+                StopReason = PhiAgent.StopReasons.ToolUse,
+            },
+            new PhiAgent.ToolResultMessage
+            {
+                ToolCallId = "call-1",
+                ToolName = "bash",
+                Content = [new PhiAgent.TextBlock("ok")],
+                IsError = false,
+                // Details intentionally null — legacy entry shape.
+            },
+        };
+
+        projector.ClearAndLoad(messages);
+
+        await Assert.That(view.LineCount).IsEqualTo(2);
+
+        var section = (PhiCoding.Avalonia.Components.CollapsibleSection)view.LineAt(1);
+        var body = (PhiCoding.Avalonia.Components.ToolCards.BashOutputView)section.BodyContent;
+        // Last child is the stdout mono TextBlock; legacy fallback reads
+        // from Content so the user sees "ok" rather than "(no output)".
+        var textBlock = (global::Avalonia.Controls.TextBlock)body.Children[^1];
+        await Assert.That(textBlock.Text).IsEqualTo("ok");
     }
 
     [Test]

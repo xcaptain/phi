@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace PhiAgent;
@@ -31,4 +32,6 @@ namespace PhiAgent;
 [JsonSerializable(typeof(IReadOnlyList<ContentBlock>))]
 [JsonSerializable(typeof(Usage))]
 [JsonSerializable(typeof(UsageCost))]
+[JsonSerializable(typeof(JsonNode))]
+[JsonSerializable(typeof(JsonObject))]
 public partial class PhiJsonContext : JsonSerializerContext;

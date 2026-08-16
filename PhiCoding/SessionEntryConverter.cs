@@ -17,7 +17,7 @@ public static class SessionEntryConverter
         AssistantMessage a => new AssistantSessionEntry(
             a.Timestamp, a.Content, a.StopReason, a.Usage),
         ToolResultMessage t => new ToolResultSessionEntry(
-            t.Timestamp, t.ToolCallId, t.ToolName, t.Content, t.IsError),
+            t.Timestamp, t.ToolCallId, t.ToolName, t.Content, t.IsError, t.Details),
         _ => throw new NotSupportedException(
             $"Session persistence does not support message type {msg.GetType().Name}"),
     };
@@ -43,6 +43,11 @@ public static class SessionEntryConverter
             Content = t.Content,
             IsError = t.IsError,
             Timestamp = t.Timestamp,
+            // Tool-specific Details (BashDetails, EditDetails, etc.) are
+            // restored so resume can re-render rich tool cards. Legacy
+            // transcripts (written before Details was persisted) leave this
+            // null and the renderer falls back to the textual-only view.
+            Details = t.Details,
         },
         CompactionSessionEntry c => new UserMessage
         {

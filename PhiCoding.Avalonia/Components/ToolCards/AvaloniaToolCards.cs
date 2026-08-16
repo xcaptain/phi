@@ -1,8 +1,8 @@
 using System.Text.Json.Nodes;
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using PhiAgent;
+using PhiCoding.Tools.Details;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 
 namespace PhiCoding.Avalonia.Components.ToolCards;
@@ -76,48 +76,38 @@ internal static class AvaloniaToolCardHelpers
         {
             Text = text,
             TextWrapping = TextWrapping.Wrap,
-            FontFamily = mono ? new FontFamily("Consolas,Menlo,Monospace") : FontFamily.Default,
+            FontFamily = mono ? AvaloniaTheme.MonoFontFamily : FontFamily.Default,
             Foreground = foreground ?? AvaloniaTheme.TextSecondary,
         };
 }
 
 /// <summary>
-/// Default card shape: a header row (status + invocation) plus a body
-/// that <see cref="ShowPending"/> initializes as a placeholder and
-/// <see cref="Complete"/> replaces with the tool-specific body.
+/// Default card shape: a collapsible <see cref="CollapsibleSection"/> whose
+/// header carries the status + invocation and whose body starts as a
+/// placeholder ("…") on <see cref="ShowPending"/>. <see cref="Complete"/>
+/// swaps the body via <see cref="SetBody"/> to a tool-specific summary.
 /// </summary>
 public abstract class AvaloniaToolCardBase : IAvaloniaToolCard
 {
     private ToolCall? _call;
     private readonly TextBlock _titleBlock;
-    private readonly ContentControl _bodyHolder = new();
+    private readonly CollapsibleSection _section;
 
     protected AvaloniaToolCardBase()
     {
         _titleBlock = new TextBlock { FontWeight = FontWeight.SemiBold };
-        Visual = new Border
-        {
-            Padding = new Thickness(8),
-            Margin = new Thickness(0, 0, 0, 4),
-            CornerRadius = new CornerRadius(6),
-            Background = AvaloniaTheme.ContainerBackground,
-            BorderBrush = AvaloniaTheme.ControlBorder,
-            BorderThickness = new Thickness(1),
-            Child = new StackPanel
-            {
-                Spacing = 4,
-                Children = { _titleBlock, _bodyHolder },
-            },
-        };
+        _section = new CollapsibleSection(
+            _titleBlock,
+            new TextBlock { Text = "…", Foreground = AvaloniaTheme.TextSecondary },
+            startExpanded: false);
     }
 
-    public Control Visual { get; }
+    public Control Visual => _section;
 
     public void ShowPending(ToolCall toolCall)
     {
         _call = toolCall;
         OnShowPending(toolCall);
-        _bodyHolder.Content = new TextBlock { Text = "…", Foreground = AvaloniaTheme.TextSecondary };
     }
 
     public void Complete(ToolResult result)
@@ -128,7 +118,14 @@ public abstract class AvaloniaToolCardBase : IAvaloniaToolCard
     }
 
     protected void SetTitle(string text) => _titleBlock.Text = text;
-    protected void SetBody(Control? body) => _bodyHolder.Content = body;
+    protected void SetBody(Control? body)
+    {
+        // Tool cards can complete with no body (success summaries that fit
+        // on the title row). Swap to an empty placeholder so the chevron
+        // still indicates "details available" stays consistent.
+        _section.SetBody(body
+            ?? new TextBlock { Text = string.Empty });
+    }
 
     protected abstract void OnShowPending(ToolCall toolCall);
     protected abstract void OnComplete(ToolCall toolCall, ToolResult result);
@@ -205,8 +202,10 @@ public sealed class WriteToolCardView : AvaloniaToolCardBase
 }
 
 /// <summary>
-/// Card for <c>edit</c>: title carries the path, body is the truncated
-/// result text (a real diff view can replace this later).
+/// Card for <c>edit</c>: title carries the path + block count summary, body
+/// is a <see cref="SideBySideDiff"/> grid on success and a truncated red
+/// error body on failure. Diff construction is delegated to
+/// <see cref="SideBySideDiff"/> because it owns the DiffPlex plumbing.
 /// </summary>
 public sealed class EditToolCardView : AvaloniaToolCardBase
 {
@@ -218,10 +217,20 @@ public sealed class EditToolCardView : AvaloniaToolCardBase
 
     protected override void OnComplete(ToolCall toolCall, ToolResult result)
     {
-        var path = AvaloniaToolCardHelpers.GetString(toolCall.Arguments, "path");
+        var edit = ToolDetails.Read<EditDetails>(result.Details);
+        var path = edit?.Path ?? AvaloniaToolCardHelpers.GetString(toolCall.Arguments, "path");
         var status = AvaloniaToolCardHelpers.StatusPrefix(result.IsError);
-        SetTitle($"{status} edit {path}");
-        SetBody(AvaloniaToolCardHelpers.BodyText(Truncate(result.Text)));
+        var summary = edit is not null ? $"{edit.Edits.Count} block(s)" : null;
+        SetTitle(summary is null
+            ? $"{status} edit {path}"
+            : $"{status} edit {path}  ·  {summary}");
+
+        if (!result.IsError && edit is not null)
+            SetBody(SideBySideDiff.Build(edit));
+        else
+            SetBody(AvaloniaToolCardHelpers.BodyText(
+                Truncate(result.Text),
+                foreground: result.IsError ? AvaloniaTheme.Danger : null));
     }
 
     private static string Truncate(string text) =>
@@ -229,27 +238,59 @@ public sealed class EditToolCardView : AvaloniaToolCardBase
 }
 
 /// <summary>
-/// Card for <c>bash</c>: title is <c>$ command</c>, body is the truncated
-/// output in a monospace font.
+/// Card for <c>bash</c>: title is just <c>✓ Bash 169 ms</c> / <c>✗ Bash 169 ms</c>
+/// (name + duration badge — the full command is moved into the expanded
+/// body as its own code-style row). Body shows the command at the top
+/// with a copy button and the stdout / stderr split below via
+/// <see cref="BashOutputView"/>.
+/// <para>
+/// When <see cref="BashDetails"/> is present (newer sessions) the body
+/// pulls stdout / stderr / command straight from it. When Details is
+/// missing (legacy transcripts written before persistence was added), the
+/// body falls back to parsing <see cref="ToolResult.Content"/>'s
+/// <see cref="TextBlock"/>s — <c>BashTool</c> emits the result as
+/// <c>[TextBlock(stdout), TextBlock(stderr)]</c> so we read those slots by
+/// convention. Either path produces the same rich body.
+/// </para>
 /// </summary>
 public sealed class BashToolCardView : AvaloniaToolCardBase
 {
     protected override void OnShowPending(ToolCall toolCall)
     {
-        var command = AvaloniaToolCardHelpers.GetString(toolCall.Arguments, "command");
-        SetTitle($"$ {command}");
+        SetTitle("Bash");
     }
 
     protected override void OnComplete(ToolCall toolCall, ToolResult result)
     {
-        var command = AvaloniaToolCardHelpers.GetString(toolCall.Arguments, "command");
+        var bash = ToolDetails.Read<BashDetails>(result.Details);
         var status = AvaloniaToolCardHelpers.StatusPrefix(result.IsError);
-        SetTitle($"{status} $ {command}");
-        SetBody(AvaloniaToolCardHelpers.BodyText(Truncate(result.Text), mono: true));
+        // Title mirrors the maka design: just the tool name + duration
+        // (or exit-code / "running" while pending). Full command is in
+        // the body so the title doesn't blow out on long pipelines.
+        var durationText = bash is not null
+            ? $"{bash.DurationMs}ms"
+            : result.IsError ? "exit" : "ok";
+        SetTitle($"{status} Bash {durationText}");
+
+        // Pull stdout / stderr / command from the best available source.
+        // BashDetails is preferred; legacy transcripts (no Details)
+        // fall back to Content textblocks.
+        var stdout = bash?.Stdout ?? ExtractText(result.Content, 0);
+        var stderr = bash?.Stderr ?? ExtractText(result.Content, 1);
+        var command = bash?.Command
+            ?? AvaloniaToolCardHelpers.GetString(toolCall.Arguments, "command");
+
+        SetBody(new BashOutputView(command, stdout, stderr));
     }
 
-    private static string Truncate(string text) =>
-        text.Length > 400 ? text[..397] + "…" : text;
+    /// <summary>
+    /// Returns the text of the <see cref="TextBlock"/> at
+    /// <paramref name="index"/> in <paramref name="content"/>, or empty
+    /// when missing. Used as the legacy fallback when
+    /// <see cref="BashDetails"/> isn't persisted.
+    /// </summary>
+    private static string ExtractText(IReadOnlyList<ContentBlock> content, int index) =>
+        content.OfType<PhiAgent.TextBlock>().ElementAtOrDefault(index)?.Text ?? "";
 }
 
 /// <summary>Fallback card for unknown tool names (MCP tools etc.).</summary>

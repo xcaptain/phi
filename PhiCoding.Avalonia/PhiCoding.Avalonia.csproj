@@ -11,6 +11,7 @@
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <PackageReference Include="Markdown.Avalonia" />
+    <PackageReference Include="ColorTextBlock.Avalonia" />
     <PackageReference Include="Material.Icons.Avalonia" />
     <PackageReference Include="DiffPlex" />
   </ItemGroup>

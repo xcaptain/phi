@@ -123,7 +123,7 @@ public sealed class ProvidersPage
         var apiKeyInput = new TextBox
         {
             PlaceholderText = "API key",
-            FontFamily = new FontFamily("Consolas,Menlo,Monospace"),
+            FontFamily = AvaloniaTheme.MonoFontFamily,
         };
         if (existingKey is { Length: > 0 })
             apiKeyInput.Text = existingKey;

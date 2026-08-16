@@ -188,7 +188,7 @@ public sealed class TranscriptView
         {
             Text = block.Content,
             TextWrapping = TextWrapping.Wrap,
-            FontFamily = new FontFamily("Consolas,Menlo,Monospace"),
+            FontFamily = AvaloniaTheme.MonoFontFamily,
             Foreground = AvaloniaTheme.TextSecondary,
         };
         var expander = new Expander { Header = header, Content = body };
@@ -224,49 +224,47 @@ public sealed class TranscriptView
     {
         var titleLabel = new TextBlock
         {
-            Text = "💭 Thinking…",
-            FontWeight = FontWeight.SemiBold,
             Foreground = AvaloniaTheme.TextSecondary,
         };
+        UpdateThinkingTitle(titleLabel, line.Duration, line.IsStreaming);
+
         var bodyLabel = new TextBlock
         {
             Text = line.Text,
             TextWrapping = TextWrapping.Wrap,
             Foreground = AvaloniaTheme.TextSecondary,
+            Margin = new Thickness(20, 4, 0, 4),
         };
-        var bubble = new Border
-        {
-            Padding = new Thickness(14),
-            CornerRadius = new CornerRadius(10),
-            Background = AvaloniaTheme.ContainerBackground,
-            BorderBrush = AvaloniaTheme.ControlBorder,
-            BorderThickness = new Thickness(1),
-            Child = new StackPanel
-            {
-                Spacing = 4,
-                Children = { titleLabel, bodyLabel },
-            },
-        };
-        return new ThinkingHandle(titleLabel, bodyLabel, bubble);
+
+        var section = new CollapsibleSection(titleLabel, bodyLabel, startExpanded: false);
+        return new ThinkingHandle(titleLabel, bodyLabel, section);
     }
+
+    private static void UpdateThinkingTitle(TextBlock titleLabel, TimeSpan? duration, bool isStreaming)
+    {
+        titleLabel.Text = !isStreaming && duration is { } d
+            ? $"💭 Thought {FormatSeconds((int)d.TotalSeconds)}"
+            : "💭 Thinking…";
+    }
+
+    private static string FormatSeconds(int seconds) => seconds switch
+    {
+        < 60 => $"{seconds}s",
+        < 3600 => $"{seconds / 60.0:F1}m",
+        _ => $"{seconds / 3600.0:F1}h",
+    };
 
     private static AssistantTextHandle CreateAssistantTextHandle(AssistantTextLine line)
     {
         // MarkdownScrollViewer measures to content when unconstrained, so
-        // it sits inline in the transcript without its own scrollbar.
+        // it sits inline in the transcript without its own scrollbar. No
+        // card wrapper: assistant text reads as part of the document flow
+        // (vertical spacing comes from the parent StackPanel's Spacing=8).
         var markdown = new MarkdownScrollViewer
         {
             Markdown = line.Text,
         };
-        var bubble = new Border
-        {
-            Padding = new Thickness(14),
-            CornerRadius = new CornerRadius(10),
-            Background = AvaloniaTheme.ContainerBackground,
-            BorderThickness = new Thickness(0),
-            Child = markdown,
-        };
-        return new AssistantTextHandle(markdown, bubble);
+        return new AssistantTextHandle(markdown, markdown);
     }
 
     private static ToolCallHandle CreateToolCallHandle(ToolCallLine line)
@@ -280,7 +278,28 @@ public sealed class TranscriptView
             Arguments = (args as System.Text.Json.Nodes.JsonObject) ?? [],
         };
         card.ShowPending(stubCall);
-        return new ToolCallHandle(card, ToolResultState.Pending, card.Visual);
+
+        // Resume edge: the projector's replay path delivers ToolCallLine
+        // already in its final ResultState (stream mode instead saw Pending
+        // first and then Complete via UpdateLine). Mirror stream mode by
+        // calling Complete with the synthetic ToolResult rebuilt from the
+        // line's persisted ResultText + DetailsJson so the card's title /
+        // body reflect the completed state, not the placeholder.
+        if (line.ResultState != ToolResultState.Pending)
+            card.Complete(BuildResultFromLine(line));
+
+        return new ToolCallHandle(card, line.ResultState, card.Visual);
+    }
+
+    private static ToolResult BuildResultFromLine(ToolCallLine line)
+    {
+        var contentBlocks = !string.IsNullOrEmpty(line.ResultText)
+            ? new ContentBlock[] { new PhiAgent.TextBlock(line.ResultText) }
+            : Array.Empty<ContentBlock>();
+        var details = string.IsNullOrEmpty(line.DetailsJson)
+            ? null
+            : System.Text.Json.Nodes.JsonNode.Parse(line.DetailsJson);
+        return new ToolResult(contentBlocks, details, line.ResultState == ToolResultState.Failed);
     }
 
     private static Border CreatePersistentErrorBubble(PersistentErrorLine line)
@@ -331,17 +350,8 @@ public sealed class TranscriptView
         public void UpdateText(string text, TimeSpan? duration)
         {
             bodyLabel.Text = text;
-            titleLabel.Text = duration is { } d
-                ? $"💭 Thought {FormatSeconds((int)d.TotalSeconds)}"
-                : "💭 Thinking…";
+            UpdateThinkingTitle(titleLabel, duration, isStreaming: false);
         }
-
-        private static string FormatSeconds(int seconds) => seconds switch
-        {
-            < 60 => $"{seconds}s",
-            < 3600 => $"{seconds / 60.0:F1}m",
-            _ => $"{seconds / 3600.0:F1}h",
-        };
     }
 
     /// <summary>Tool call line; the card completes in-place.</summary>

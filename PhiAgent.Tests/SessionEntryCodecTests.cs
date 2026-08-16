@@ -69,6 +69,48 @@ public class SessionEntryCodecTests
     }
 
     [Test]
+    public async Task RoundTrip_ToolResultEntry_PreservesDetails()
+    {
+        // Tool-specific Details (BashDetails / EditDetails) must round-trip
+        // so a resumed session can re-render rich tool cards (exit/duration
+        // for bash, side-by-side diff for edit) instead of falling back to
+        // the textual-only view.
+        var details = System.Text.Json.Nodes.JsonNode.Parse(
+            """{"command":"ls","exitCode":0,"durationMs":42,"stdout":"a\nb","stderr":""}""");
+        var entry = new ToolResultSessionEntry(
+            Timestamp: 1700000000003,
+            ToolCallId: "c2",
+            ToolName: "bash",
+            Content: [new TextBlock("a\nb")],
+            IsError: false,
+            Details: details);
+
+        var line = SessionEntryCodec.Serialize(entry).TrimEnd('\n');
+        var back = SessionEntryCodec.Deserialize(line);
+
+        await Assert.That(back).IsTypeOf<ToolResultSessionEntry>();
+        var tr = (ToolResultSessionEntry)back;
+        await Assert.That(tr.Details).IsNotNull();
+        await Assert.That(tr.Details!["exitCode"]!.GetValue<int>()).IsEqualTo(0);
+        await Assert.That(tr.Details!["durationMs"]!.GetValue<long>()).IsEqualTo(42);
+        await Assert.That(tr.Details!["stdout"]!.GetValue<string>()).IsEqualTo("a\nb");
+    }
+
+    [Test]
+    public async Task Deserialize_LegacyToolResultEntry_WithoutDetails_LeavesDetailsNull()
+    {
+        // Legacy transcripts (written before Details was persisted) lack the
+        // field. The new field's default-null lets them deserialize cleanly
+        // and the renderer falls back to the textual-only view.
+        var legacy = """{"kind":"toolResult","Timestamp":1700000000004,"ToolCallId":"c3","ToolName":"bash","Content":[{"type":"text","Text":"x","TextSignature":null}],"IsError":false}""";
+
+        var entry = SessionEntryCodec.Deserialize(legacy);
+
+        await Assert.That(entry).IsTypeOf<ToolResultSessionEntry>();
+        await Assert.That(((ToolResultSessionEntry)entry).Details).IsNull();
+    }
+
+    [Test]
     public async Task Serialize_AppendsNewline()
     {
         var line = SessionEntryCodec.Serialize(new UserSessionEntry(0, "x"));
