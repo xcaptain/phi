@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Markdown.Avalonia.Full;
@@ -143,24 +144,37 @@ public sealed class TranscriptView
         _ => new StaticHandle(new TextBlock { Text = $"[unknown line: {line.GetType().Name}]" }),
     };
 
-    private static Border CreateUserTextBubble(UserTextLine line)
-        => new()
+    private static Grid CreateUserTextBubble(UserTextLine line)
+    {
+        var bubble = new Border
         {
-            Padding = new Thickness(14),
+            Padding = new Thickness(12, 10),
             CornerRadius = new CornerRadius(10),
-            Background = AvaloniaTheme.ContainerBackground,
-            BorderBrush = AvaloniaTheme.ControlBorder,
-            BorderThickness = new Thickness(1),
-            Child = new StackPanel
+            Background = AvaloniaTheme.Accent,
+            BorderThickness = new Thickness(0),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = new SelectableTextBlock
             {
-                Spacing = 4,
-                Children =
-                {
-                    new TextBlock { Text = "You", FontWeight = FontWeight.SemiBold, FontSize = 12 },
-                    new SelectableTextBlock { Text = line.Text, TextWrapping = TextWrapping.Wrap },
-                },
+                Text = line.Text,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = AvaloniaTheme.AccentText,
             },
         };
+
+        // Two-column grid: left 1/5 stays empty (pushes the bubble right),
+        // right 4/5 caps the bubble width at 80% of the panel. The bubble
+        // sizes to its content (HorizontalAlignment=Right) so short messages
+        // stay narrow; long messages fill the 4* column and wrap.
+        var wrapper = new Grid
+        {
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            ColumnDefinitions = new ColumnDefinitions("*,4*"),
+        };
+        Grid.SetColumn(bubble, 1);
+        wrapper.Children.Add(bubble);
+        return wrapper;
+    }
 
     private static Border CreateSkillInvocationBubble(SkillInvocationLine line)
     {

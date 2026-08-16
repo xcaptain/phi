@@ -1,4 +1,7 @@
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
+using Avalonia.Media;
 using PhiAgent;
 using PhiCoding.Avalonia.Components;
 using PhiCoding.Avalonia.Tests.Helpers;
@@ -32,6 +35,51 @@ public class TranscriptViewTests
 
         await Assert.That(view.LineCount).IsEqualTo(1);
         await Assert.That(view.LineIds.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task UserBubble_IsRightAlignedAndPurple()
+    {
+        // The user bubble is a two-column Grid wrapper (the line element);
+        // the second column holds a single Border sized to content and
+        // right-aligned within the 4* column. Background is the theme
+        // Accent (purple); text is AccentText (white); no border stroke.
+        var (_, projector, view) = Create();
+
+        projector.SubmitUserLine("hello there");
+
+        var wrapper = (Grid)view.LineAt(0);
+        await Assert.That(wrapper).IsTypeOf<Grid>();
+        await Assert.That(wrapper.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Stretch);
+
+        var bubble = wrapper.Children.OfType<Border>().Single();
+        await Assert.That(bubble.HorizontalAlignment).IsEqualTo(HorizontalAlignment.Right);
+        await Assert.That(bubble.VerticalAlignment).IsEqualTo(VerticalAlignment.Top);
+        await Assert.That(bubble.Background).IsEqualTo(PhiCoding.Avalonia.AvaloniaTheme.Accent);
+        await Assert.That(bubble.BorderThickness).IsEqualTo(new Thickness(0));
+        await Assert.That(bubble.CornerRadius).IsEqualTo(new CornerRadius(10));
+
+        var text = (SelectableTextBlock)bubble.Child;
+        await Assert.That(text.Text).IsEqualTo("hello there");
+        await Assert.That(text.Foreground).IsEqualTo(PhiCoding.Avalonia.AvaloniaTheme.AccentText);
+        await Assert.That(text.TextWrapping).IsEqualTo(TextWrapping.Wrap);
+    }
+
+    [Test]
+    public async Task UserBubble_WrapperCapsWidthAt80Percent()
+    {
+        // The wrapper's two columns are "*" + "4*" so the bubble column is
+        // exactly 80% of the panel width. That's the implicit max-width —
+        // any text beyond 80% wraps inside the bubble instead of stretching
+        // it to the panel edge.
+        var (_, projector, view) = Create();
+
+        projector.SubmitUserLine("hello there");
+
+        var wrapper = (Grid)view.LineAt(0);
+        await Assert.That(wrapper.ColumnDefinitions.Count).IsEqualTo(2);
+        await Assert.That(wrapper.ColumnDefinitions[0].Width).IsEqualTo(new GridLength(1, GridUnitType.Star));
+        await Assert.That(wrapper.ColumnDefinitions[1].Width).IsEqualTo(new GridLength(4, GridUnitType.Star));
     }
 
     [Test]
