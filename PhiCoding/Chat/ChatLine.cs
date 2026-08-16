@@ -5,7 +5,7 @@ namespace PhiCoding.Chat;
 /// <summary>
 /// UI-agnostic projection of one chat line. The <see cref="ChatTranscriptProjector"/>
 /// owns a list of these; both the TUI and the desktop UI render the same list
-/// into their own control trees (XenoAtom.Visual / MewUI.FrameworkElement).
+/// into their own control trees (XenoAtom.Visual / Avalonia.Control).
 /// <para>
 /// Every line carries a stable <see cref="Id"/> assigned by the projector at
 /// creation time so a renderer can DIFF a new projection against its previous

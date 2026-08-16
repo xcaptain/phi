@@ -9,8 +9,7 @@ namespace PhiCoding.Avalonia.Tests;
 
 /// <summary>
 /// <see cref="ShellView"/>: two-pane shell hosting the chat page and
-/// exposing navigation through the sessions list. Mirrors the MewUI desk's
-/// shell tests so the behavior contract is preserved across the migration.
+/// exposing navigation through the sessions list.
 /// </summary>
 [NotInParallel("Avalonia-UI")]
 public class ShellViewTests

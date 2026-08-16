@@ -6,8 +6,8 @@ namespace PhiCoding.Avalonia.Desktop;
 
 /// <summary>
 /// Desktop entry point. Composes the provider manager, session factory,
-/// and navigator, then hands them to the Avalonia app. Mirrors the MewUI
-/// desk's Program.cs; the only difference is the UI stack.
+/// and navigator, then hands them to the Avalonia app, and starts the
+/// classic desktop lifetime.
 /// </summary>
 internal static class Program
 {

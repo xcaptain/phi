@@ -4,7 +4,7 @@ namespace PhiCoding.Avalonia;
 /// Pure navigation model for the desktop shell's left pane. Free of any
 /// Avalonia dependency so the entry ordering, workspace grouping and
 /// active-session highlight can be unit tested without a render loop.
-/// Ported from the MewUI shell's <c>DeskNavModel</c>.
+/// Ported from the earlier desk shell's <c>DeskNavModel</c>.
 /// </summary>
 public static class NavModel
 {

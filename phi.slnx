@@ -5,8 +5,6 @@
 <Project Path="PhiSchemaGen/PhiSchemaGen.csproj" />
 <Project Path="PhiCoding.Tests/PhiCoding.Tests.csproj" />
 <Project Path="PhiCoding.Tui/PhiCoding.Tui.csproj" />
-<Project Path="PhiCoding.Desk/PhiCoding.Desk.csproj" />
-<Project Path="PhiCoding.Desk.Tests/PhiCoding.Desk.Tests.csproj" />
 <Project Path="PhiCoding.Avalonia/PhiCoding.Avalonia.csproj" />
 <Project Path="PhiCoding.Avalonia.Desktop/PhiCoding.Avalonia.Desktop.csproj" />
 <Project Path="PhiCoding.Avalonia.Tests/PhiCoding.Avalonia.Tests.csproj" />

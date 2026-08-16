@@ -29,7 +29,7 @@ public enum ToolKind
 /// <param name="Title">Short label (e.g. <c>"read"</c>, <c>"edit"</c>) for chip rendering.</param>
 /// <param name="IconKey">
 /// Free-form icon identifier. Each UI maps this to its own icon set (the TUI
-/// uses emoji glyphs; Desk uses MewUI <c>PathShape</c> data or text labels).
+/// uses emoji glyphs; Avalonia uses <c>MaterialIcon</c> from Material.Icons.Avalonia).
 /// Unrecognized keys degrade gracefully to plain text.
 /// </param>
 public sealed record ToolDescriptor(ToolKind Kind, string Title, string IconKey);

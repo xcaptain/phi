@@ -34,7 +34,7 @@ public sealed record WorkspacePickerItem
 
 /// <summary>
 /// Pure builders for the prompt input's picker item lists. UI-agnostic so
-/// every shell (MewUI desk, Avalonia desk, tests) renders the same rows.
+/// every shell (Avalonia desk, tests) renders the same rows.
 /// </summary>
 public static class PromptInputPickerBuilder
 {
