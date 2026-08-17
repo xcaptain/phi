@@ -142,7 +142,7 @@ public class ShellViewTests
         {
             var outer = (global::Avalonia.Controls.Grid)shell.Root;
             var leftBorder = (global::Avalonia.Controls.Border)outer.Children[0];
-            var pane = (global::Avalonia.Controls.Grid)leftBorder.Child;
+            var pane = (global::Avalonia.Controls.Grid)leftBorder.Child!;
             await Assert.That(pane.RowDefinitions.Count).IsEqualTo(6);
 
             // Row 0 is the New Chat button.

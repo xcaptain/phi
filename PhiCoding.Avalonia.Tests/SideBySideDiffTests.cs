@@ -171,7 +171,7 @@ public class SideBySideDiffTests
         {
             var (ln, _) = RowTexts(RowAt(left, i));
             var (rn, _) = RowTexts(RowAt(right, i));
-            await Assert.That(rn.Text.Length).IsEqualTo(ln.Text.Length);
+            await Assert.That(rn.Text!.Length).IsEqualTo(ln.Text!.Length);
         }
     }
 
