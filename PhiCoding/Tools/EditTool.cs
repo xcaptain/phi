@@ -133,26 +133,31 @@ public sealed partial class EditTool : TypedTool<EditArgs>
                 .GetBytes(finalContent);
             await File.WriteAllBytesAsync(path, finalBytes, cancellationToken);
 
-            var (diffText, firstChangedLine) = GenerateDiffString(normalized, newNormalized);
+            var diffText = GenerateDiffString(normalized, newNormalized);
             var patch = UnidiffRenderer.GenerateUnidiff(
                 oldText: normalized,
                 newText: newNormalized,
                 oldFileName: path,
                 newFileName: path);
 
+            // Per-edit FirstLine anchors each EditOp at its real file
+            // position so the side-by-side diff can offset DiffPlex's
+            // local (1-based per slice) line numbers into global file
+            // line numbers. Count newlines in normalized[..m.Start] to
+            // convert the byte offset into a 1-based line number.
             var editOps = matches
                 .OrderBy(m => m.Start)
                 .Select(m => new EditOpDetails(
                     OldText: NormalizeToLf(m.Edit.OldText),
-                    NewText: NormalizeToLf(m.Edit.NewText)))
+                    NewText: NormalizeToLf(m.Edit.NewText),
+                    FirstLine: 1 + CountNewlines(normalized, 0, m.Start)))
                 .ToList();
 
             var details = new EditDetails(
                 Path: path,
                 Edits: editOps,
                 Diff: diffText,
-                Patch: patch,
-                FirstChangedLine: firstChangedLine);
+                Patch: patch);
 
             var opCount = matches.Count;
             return new ToolResult(
@@ -217,10 +222,17 @@ public sealed partial class EditTool : TypedTool<EditArgs>
         ending == "\r\n" ? text.Replace("\n", "\r\n") : text;
 
     /// <summary>
-    /// Produces a line-based diff string and the first changed line number.
-    /// Uses DiffPlex's inline diff builder (line chunker).
+    /// Produces a line-based diff string with <c>  </c> / <c>- </c> /
+    /// <c>+ </c> prefixes via DiffPlex's inline diff builder (line
+    /// chunker). The result is stored as <see cref="EditDetails.Diff"/>
+    /// in the session record for replay / inspection; the side-by-side
+    /// renderers in <c>PhiCoding.Avalonia</c> and <c>PhiCoding.Tui</c> do
+    /// NOT parse this string — each re-runs DiffPlex on the edit's
+    /// <see cref="EditOpDetails.OldText"/> / <see cref="EditOpDetails.NewText"/>
+    /// and anchors the local (1-based per slice) line numbers at their
+    /// real file position via <see cref="EditOpDetails.FirstLine"/>.
     /// </summary>
-    private static (string Diff, int? FirstChangedLine) GenerateDiffString(string oldText, string newText)
+    private static string GenerateDiffString(string oldText, string newText)
     {
         var model = InlineDiffBuilder.Diff(
             DiffPlex.Differ.Instance,
@@ -230,7 +242,6 @@ public sealed partial class EditTool : TypedTool<EditArgs>
             ignoreCase: false);
 
         var lines = new List<string>();
-        int? firstChanged = null;
         var newLineNo = 0;
         foreach (var piece in model.Lines)
         {
@@ -243,16 +254,13 @@ public sealed partial class EditTool : TypedTool<EditArgs>
                     break;
                 case ChangeType.Inserted:
                     newLineNo++;
-                    firstChanged ??= newLineNo;
                     lines.Add("+ " + text);
                     break;
                 case ChangeType.Deleted:
-                    firstChanged ??= newLineNo + 1;
                     lines.Add("- " + text);
                     break;
                 case ChangeType.Modified:
                     newLineNo++;
-                    firstChanged ??= newLineNo;
                     lines.Add("- " + text);
                     break;
                 default:
@@ -260,6 +268,21 @@ public sealed partial class EditTool : TypedTool<EditArgs>
                     break;
             }
         }
-        return (string.Join("\n", lines), firstChanged);
+        return string.Join("\n", lines);
+    }
+
+    /// <summary>
+    /// Counts <c>\n</c> in <paramref name="text"/>[<paramref name="start"/>..
+    /// <paramref name="end"/>). Used to convert a character offset (from
+    /// <see cref="string.IndexOf"/>, i.e. a UTF-16 char index) into a
+    /// 1-based line number (line 1 starts at offset 0; a <c>\n</c> at
+    /// position N starts line N+1).
+    /// </summary>
+    private static int CountNewlines(string text, int start, int end)
+    {
+        var count = 0;
+        for (var i = start; i < end; i++)
+            if (text[i] == '\n') count++;
+        return count;
     }
 }

@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using PhiCoding.Avalonia.Components.ToolCards;
 
 namespace PhiCoding.Avalonia.Tests;
@@ -56,6 +57,31 @@ public class ToolCardBodyFrameTests
         await Assert.That(frame.BorderBrush).IsEqualTo(AvaloniaTheme.ControlBorder);
         await Assert.That(frame.CornerRadius).IsEqualTo(new CornerRadius(6));
         await Assert.That(frame.Padding.Left).IsGreaterThan(0);
+    }
+
+    [Test]
+    public async Task Constructor_AllowHorizontalScrollDefault_EnablesHorizontalScrollbar()
+    {
+        AvaloniaTestHost.EnsureInitialized();
+
+        var frame = new ToolCardBodyFrame(new TextBlock { Text = "x" });
+        var scroll = (ScrollViewer)frame.Child!;
+
+        await Assert.That(scroll.HorizontalScrollBarVisibility)
+            .IsEqualTo(ScrollBarVisibility.Auto);
+    }
+
+    [Test]
+    public async Task Constructor_AllowHorizontalScrollFalse_DisablesHorizontalScrollbar()
+    {
+        AvaloniaTestHost.EnsureInitialized();
+
+        var frame = new ToolCardBodyFrame(
+            new TextBlock { Text = "x" }, allowHorizontalScroll: false);
+        var scroll = (ScrollViewer)frame.Child!;
+
+        await Assert.That(scroll.HorizontalScrollBarVisibility)
+            .IsEqualTo(ScrollBarVisibility.Disabled);
     }
 
     [Test]

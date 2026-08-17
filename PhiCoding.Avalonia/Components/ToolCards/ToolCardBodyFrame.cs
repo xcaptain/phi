@@ -25,6 +25,11 @@ internal sealed class ToolCardBodyFrame : Border
     public const double DefaultMaxHeight = 400;
 
     public ToolCardBodyFrame(Control content, double maxHeight = DefaultMaxHeight)
+        : this(content, allowHorizontalScroll: true, maxHeight)
+    {
+    }
+
+    public ToolCardBodyFrame(Control content, bool allowHorizontalScroll, double maxHeight = DefaultMaxHeight)
     {
         ArgumentNullException.ThrowIfNull(content);
         Padding = new Thickness(8);
@@ -35,7 +40,14 @@ internal sealed class ToolCardBodyFrame : Border
         MaxHeight = maxHeight;
         Child = new ScrollViewer
         {
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            // With horizontal scrolling enabled, content is measured with
+            // infinite width: text never wraps and Grid "star" columns size
+            // to their content, which misaligns multi-block diffs and forces
+            // the user to drag the scrollbar. Diff bodies disable it so the
+            // content is constrained to the viewport width and wraps.
+            HorizontalScrollBarVisibility = allowHorizontalScroll
+                ? ScrollBarVisibility.Auto
+                : ScrollBarVisibility.Disabled,
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             Padding = new Thickness(4),
             Content = content,

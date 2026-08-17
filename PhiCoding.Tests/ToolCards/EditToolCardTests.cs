@@ -35,8 +35,7 @@ public class EditToolCardTests
                 "c.cs",
                 [new EditOpDetails("a", "b"), new EditOpDetails("c", "d")],
                 Diff: "",
-                Patch: "",
-                FirstChangedLine: null))));
+                Patch: ""))));
 
         await Assert.That(card.Title).Contains("[green]✓[/]");
         await Assert.That(card.Title).Contains("→ edit c.cs");
@@ -54,8 +53,7 @@ public class EditToolCardTests
                 "c.cs",
                 [new EditOpDetails("line 1\nold line 2\nline 3", "line 1\nnew line 2\nline 3")],
                 Diff: "",
-                Patch: "",
-                FirstChangedLine: null))));
+                Patch: ""))));
 
         await Assert.That(card.BodyState.Value).IsTypeOf<XenoAtom.Terminal.UI.Controls.Grid>();
         var grid = (XenoAtom.Terminal.UI.Controls.Grid)card.BodyState.Value;
@@ -101,8 +99,7 @@ public class EditToolCardTests
                 "c.cs",
                 [new EditOpDetails("line 1\nold line 2\nline 3", "line 1\nnew line 2\nline 3")],
                 Diff: "",
-                Patch: "",
-                FirstChangedLine: null))));
+                Patch: ""))));
 
         // Render the full card Visual; the title shows up as markup text
         // and the body Grid (carrying the diff Markup pair) sits below.

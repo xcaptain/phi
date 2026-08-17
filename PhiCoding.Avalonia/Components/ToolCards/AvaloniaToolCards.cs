@@ -154,14 +154,17 @@ public abstract class AvaloniaToolCardBase : IAvaloniaToolCard
     /// <summary>
     /// Sets the detail body, wrapped in the standard
     /// <see cref="ToolCardBodyFrame"/>. Pass <c>null</c> to render no
-    /// detail (header summary is enough — e.g. successful write).
+    /// detail (header summary is enough — e.g. successful write). Set
+    /// <paramref name="allowHorizontalScroll"/> to <c>false</c> for bodies
+    /// that must wrap (e.g. the edit diff) so no horizontal scrollbar
+    /// appears and Grid columns stay aligned.
     /// </summary>
-    protected void SetDetailBody(Control? body)
+    protected void SetDetailBody(Control? body, bool allowHorizontalScroll = true)
     {
         if (body is null)
             _section.SetBody(new TextBlock { Text = string.Empty });
         else
-            _section.SetBody(new ToolCardBodyFrame(body));
+            _section.SetBody(new ToolCardBodyFrame(body, allowHorizontalScroll));
     }
 
     protected abstract void OnShowPending(ToolCall toolCall);
@@ -323,7 +326,10 @@ public sealed class EditToolCardView : AvaloniaToolCardBase
         SetHeader(status, "edit", summary);
 
         if (!result.IsError && edit is not null)
-            SetDetailBody(SideBySideDiff.Build(edit));
+            // Disable horizontal scroll so the two diff columns get a
+            // bounded width: text wraps instead of overflowing, and the
+            // Grid's star columns stay equal so multi-block diffs align.
+            SetDetailBody(SideBySideDiff.Build(edit), allowHorizontalScroll: false);
         else
             SetDetailBody(AvaloniaToolCardHelpers.BodyText(
                 Truncate(result.Text),

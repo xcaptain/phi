@@ -195,8 +195,7 @@ public class ChatTranscriptTests
                         "a.cs",
                         [new PhiCoding.Tools.Details.EditOpDetails("old line", "new line")],
                         Diff: "",
-                        Patch: "",
-                        FirstChangedLine: null)))));
+                        Patch: "")))));
 
         // Body state now holds the diff Grid.
         await Assert.That(card.BodyState.Value).IsTypeOf<XenoAtom.Terminal.UI.Controls.Grid>();

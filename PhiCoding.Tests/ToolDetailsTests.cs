@@ -106,7 +106,9 @@ public class EditToolDetailsTests
         await Assert.That(File.ReadAllText(file.Path)).IsEqualTo("ONE\ntwo\nTHREE\nfour");
         var details = ToolDetails.Read<EditDetails>(result.Details);
         await Assert.That(details!.Edits.Count).IsEqualTo(2);
-        await Assert.That(details.FirstChangedLine).IsNotNull();
+        await Assert.That(details.Edits.All(e => e.FirstLine >= 1)).IsTrue();
+        await Assert.That(details.Edits[0].FirstLine).IsEqualTo(1);  // "one" is on line 1
+        await Assert.That(details.Edits[1].FirstLine).IsEqualTo(3);  // "three" is on line 3
     }
 
     [Test]
