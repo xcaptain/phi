@@ -2,8 +2,9 @@ namespace PhiCoding.Providers;
 
 /// <summary>
 /// One built-in provider: a vendor endpoint, the wire format it speaks, the
-/// models it offers, and which env var / credential name its API key lives
-/// under. Static data — see <see cref="ProviderCatalog"/>.
+/// models it offers, and which credential-name slot its API key lives under
+/// in <see cref="ICredentialStore"/>. Static data — see
+/// <see cref="ProviderCatalog"/>.
 /// </summary>
 public sealed record ProviderCatalogEntry
 {
@@ -19,10 +20,11 @@ public sealed record ProviderCatalogEntry
     /// <summary>Base endpoint sent to the provider.</summary>
     public required string BaseUrl { get; init; }
 
-    /// <summary>Environment variable that holds the API key (e.g. <c>DEEPSEEK_API_KEY</c>).</summary>
-    public required string ApiKeyEnv { get; init; }
-
-    /// <summary>Credential name used in the credential store.</summary>
+    /// <summary>Credential-name slot in the <see cref="ICredentialStore"/>
+    /// where the API key is persisted. Users add a key through the in-app
+    /// <c>/connect</c> flow (TUI) or Providers page (desktop); the app then
+    /// hands it to the provider without reading any environment variable.
+    /// </summary>
     public required string CredentialName { get; init; }
 
     /// <summary>Models this provider offers; the picker in <c>/models</c>.</summary>

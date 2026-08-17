@@ -93,7 +93,7 @@ PhiCoding 库下面分：
 - `PhiCoding/Prompt/`：UI-agnostic 输入建议提供器（ISuggestionProvider、SuggestionItem、SlashCommandProvider、SkillSuggestionProvider）
 - `PhiCoding/ToolCards/`：跨 UI 的 tool 元数据（ToolDescriptor、ToolDescriptors）
 - `PhiCoding/Chat/`：UI-agnostic chat 投影（ChatLine DU、ChatTranscriptProjector）——两个 UI 都订阅 projector 的 `Changed`，按稳定 `ChatLine.Id` DIFF 渲染
-- `PhiCoding/` 根：`ISession`、`SessionState`、`CodingSession`、`EnvLoader`、`WorkspaceSessionStore`（扫 `{PHI_HOME}/sessions/*/index.jsonl` 合并所有工作区的会话）、compaction 等
+- `PhiCoding/` 根：`ISession`、`SessionState`、`CodingSession`、`WorkspaceSessionStore`（扫 `{PHI_HOME}/sessions/*/index.jsonl` 合并所有工作区的会话）、compaction 等
 
 PhiCoding.Tui exe 下分：
 

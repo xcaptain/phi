@@ -37,8 +37,7 @@ public class PromptInputProviderTests : IDisposable
 
     private ProviderManager CreateManager() => new(
         new FileCredentialStore(_credentialsPath),
-        _settingsPath,
-        _ => null);
+        _settingsPath);
 
     private static (PromptInput Input, ChatTranscript Transcript) CreateInput(
         MockSession session, ProviderManager manager)

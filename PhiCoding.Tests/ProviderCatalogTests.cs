@@ -46,7 +46,6 @@ public class ProviderCatalogTests
         {
             await Assert.That(entry.DisplayName).IsNotEmpty();
             await Assert.That(entry.BaseUrl).StartsWith("https://");
-            await Assert.That(entry.ApiKeyEnv).EndsWith("_API_KEY");
             await Assert.That(entry.CredentialName).IsEqualTo(entry.Name);
         }
     }

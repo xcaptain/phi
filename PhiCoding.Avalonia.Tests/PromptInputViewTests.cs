@@ -24,7 +24,14 @@ public class PromptInputViewTests
         var session = new MockSession();
         var navigator = new FakeSessionNavigator(session);
         var projector = new ChatTranscriptProjector(session);
-        var view = new PromptInputView(session, navigator, new ProviderManager(), projector,
+        // ProviderManager reads API keys from the credential store, not
+        // from env vars — inject a fake credential store so HasApiKey
+        // returns true regardless of the host's environment. CI runners
+        // don't ship keys; dev boxes do. Either way the model picker's
+        // ApplyModelSelection should fire SwitchProvider.
+        var providers = new ProviderManager(
+            credentials: new AllKeysCredentialStore());
+        var view = new PromptInputView(session, navigator, providers, projector,
             pickFolder: pickFolder,
             postToUi: postToUi ?? (a => a()),
             dispatchToUi: a => a());

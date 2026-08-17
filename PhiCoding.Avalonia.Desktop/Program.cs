@@ -55,8 +55,6 @@ internal static class Program
             }
         }
 
-        EnvLoader.LoadDotEnv();
-
         // Composition root: wire the provider manager (catalog + credentials
         // + settings) into a session factory and a navigator. Provider
         // construction is entirely the factory's job — it resolves the

@@ -6,7 +6,6 @@ namespace PhiCoding.Tests;
 public class ProviderManagerTests : IDisposable
 {
     private readonly string _settingsPath;
-    private readonly Dictionary<string, string> _env = [];
     private readonly List<string> _tempPaths = [];
 
     public ProviderManagerTests()
@@ -25,8 +24,7 @@ public class ProviderManagerTests : IDisposable
 
     private ProviderManager CreateManager(ICredentialStore? store = null) => new(
         store ?? new FileCredentialStore(_tempPath("credentials.json")),
-        _settingsPath,
-        name => _env.TryGetValue(name, out var v) ? v : null);
+        _settingsPath);
 
     private static string _tempPath(string fileName) =>
         Path.Combine(Path.GetTempPath(), "phi-manager-" + Guid.NewGuid().ToString("N") + "-" + fileName);
@@ -47,14 +45,16 @@ public class ProviderManagerTests : IDisposable
     }
 
     [Test]
-    public async Task ResolveApiKey_EnvWinsOverStore()
+    public async Task ResolveApiKey_FromStore()
     {
-        _env["DEEPSEEK_API_KEY"] = "from-env";
+        // API keys are now exclusively sourced from the credential store;
+        // no env-var fallback. Set on the store and read back through the
+        // manager.
         var store = new FileCredentialStore(_tempPath("c.json"));
         store.Set("deepseek", "from-store");
 
         var manager = CreateManager(store);
-        await Assert.That(manager.ResolveApiKey(ProviderCatalog.DeepSeek)).IsEqualTo("from-env");
+        await Assert.That(manager.ResolveApiKey(ProviderCatalog.DeepSeek)).IsEqualTo("from-store");
     }
 
     [Test]
@@ -75,16 +75,13 @@ public class ProviderManagerTests : IDisposable
     }
 
     [Test]
-    public async Task HasApiKey_ReflectsEnvAndStore()
+    public async Task HasApiKey_ReflectsStore()
     {
         var store = new FileCredentialStore(_tempPath("c.json"));
         var manager = CreateManager(store);
 
         await Assert.That(manager.HasApiKey(ProviderCatalog.DeepSeek)).IsFalse();
         store.Set("deepseek", "k");
-        await Assert.That(manager.HasApiKey(ProviderCatalog.DeepSeek)).IsTrue();
-
-        _env["DEEPSEEK_API_KEY"] = "env-k";
         await Assert.That(manager.HasApiKey(ProviderCatalog.DeepSeek)).IsTrue();
     }
 
@@ -94,7 +91,11 @@ public class ProviderManagerTests : IDisposable
         var manager = CreateManager();
         var ex = Assert.Throws<InvalidOperationException>(
             () => manager.GetApiKey(ProviderCatalog.DeepSeek));
-        await Assert.That(ex.Message).Contains("DEEPSEEK_API_KEY");
+        // The message points the user at the in-app provisioning flows
+        // (TUI slash command + desktop Providers page); we no longer hint
+        // at env vars since keys come exclusively from the credential
+        // store now.
+        await Assert.That(ex.Message).Contains("deepseek");
         await Assert.That(ex.Message).Contains("/connect");
     }
 

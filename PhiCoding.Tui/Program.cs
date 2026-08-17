@@ -21,8 +21,6 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-EnvLoader.LoadDotEnv();
-
 // Composition root: wire the provider manager (catalog + credentials +
 // settings) into a session factory and a navigator, pick the startup route
 // from the CLI, and hand the navigator to the TUI. Provider construction is

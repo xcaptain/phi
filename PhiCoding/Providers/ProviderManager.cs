@@ -11,9 +11,11 @@ namespace PhiCoding.Providers;
 /// <see cref="IPhiProvider"/> instances, and persist the default selection.
 /// <para>
 /// Providers are constructed here and handed to the session, which takes
-/// ownership (disposing the outgoing provider on switch). Credentials are
-/// resolved <c>env var → credential store</c>; the env lookup is injectable
-/// for hermetic tests.
+/// ownership (disposing the outgoing provider on switch). API keys are
+/// resolved from <see cref="ICredentialStore"/> — the file-backed
+/// <see cref="FileCredentialStore"/> by default; tests can inject a fake.
+/// Users add keys through the in-app <c>/connect</c> flow (TUI) or the
+/// Providers page (desktop).
 /// </para>
 /// <para>
 /// Also implements <see cref="IProviderResolver"/> so the session factory
@@ -24,12 +26,10 @@ namespace PhiCoding.Providers;
 [SuppressMessage("Performance", "CA1822", Justification = "Service facade; instance members stay swappable/injectable")]
 public sealed class ProviderManager(
     ICredentialStore? credentials = null,
-    string? settingsPath = null,
-    Func<string, string?>? getEnv = null) : IProviderResolver
+    string? settingsPath = null) : IProviderResolver
 {
     private readonly ICredentialStore _credentials = credentials ?? new FileCredentialStore(FileCredentialStore.DefaultPath);
     private readonly string _settingsPath = settingsPath ?? PhiSettings.DefaultPath;
-    private readonly Func<string, string?> _getEnv = getEnv ?? Environment.GetEnvironmentVariable;
 
     /// <summary>All connectable providers, in <c>/connect</c> display order.</summary>
     public IReadOnlyList<ProviderCatalogEntry> Providers => ProviderCatalog.All;
@@ -42,27 +42,19 @@ public sealed class ProviderManager(
     /// <summary>Models the given provider offers, for the <c>/models</c> picker.</summary>
     public IReadOnlyList<string> GetAvailableModels(ProviderCatalogEntry entry) => entry.Models;
 
-    /// <summary>
-    /// Resolves the API key for a provider: env var first, then the
-    /// credential store. Returns null when neither has one.
-    /// </summary>
-    public string? ResolveApiKey(ProviderCatalogEntry entry)
-    {
-        var fromEnv = _getEnv(entry.ApiKeyEnv);
-        if (!string.IsNullOrWhiteSpace(fromEnv)) return fromEnv;
-        return _credentials.Get(entry.CredentialName);
-    }
+    /// <summary>Resolves the API key for a provider from the credential store.</summary>
+    public string? ResolveApiKey(ProviderCatalogEntry entry) =>
+        _credentials.Get(entry.CredentialName);
 
-    /// <summary>Whether a key is available (env or store) for the provider.</summary>
+    /// <summary>Whether a key is available in the credential store for the provider.</summary>
     public bool HasApiKey(ProviderCatalogEntry entry) =>
-        !string.IsNullOrWhiteSpace(_getEnv(entry.ApiKeyEnv))
-        || _credentials.Has(entry.CredentialName);
+        _credentials.Has(entry.CredentialName);
 
     /// <summary>Returns the resolved key or throws with actionable guidance.</summary>
     public string GetApiKey(ProviderCatalogEntry entry) =>
         ResolveApiKey(entry)
         ?? throw new InvalidOperationException(
-            $"No API key for {entry.Name}. Set {entry.ApiKeyEnv} or run /connect.");
+            $"No API key for {entry.Name}. Run /connect (TUI) or open the Providers page (desktop) to add one.");
 
     /// <summary>Persists a key for the provider to the credential store.</summary>
     public void SetApiKey(ProviderCatalogEntry entry, string key) =>

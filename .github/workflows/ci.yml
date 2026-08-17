@@ -34,4 +34,4 @@ jobs:
       # feedback. The -- separator forwards it to the test runner rather
       # than being parsed as a dotnet test argument.
       - name: Test
-        run: dotnet test -c Release
+        run: dotnet test -c Release --no-build -- --fail-fast
