@@ -10,15 +10,12 @@ using TextBlock = global::Avalonia.Controls.TextBlock;
 namespace PhiCoding.Avalonia.Tests;
 
 /// <summary>
-/// <see cref="BashToolCardView"/>: title shows <c>✓ Bash 169 ms</c> /
-/// <c>✗ Bash 169 ms</c> (just name + duration badge, no command). Body
-/// is a <see cref="BashOutputView"/>: command row on top (with copy
-/// button), stdout / stderr split below, mono font throughout. When
-/// <see cref="BashDetails"/> is missing (legacy sessions without persisted
-/// Details), the body falls back to <see cref="ToolResult.Content"/>
-/// textblocks via the BashTool emit convention
-/// (<c>[TextBlock(stdout), TextBlock(stderr)]</c>) so the user still sees
-/// the actual output.
+/// <see cref="BashToolCardView"/>: header is <c>✓ Bash: &lt;command&gt;</c>
+/// (long commands are truncated with <c>…</c>); body is a
+/// <see cref="BashOutputView"/> (stdout + stderr mono blocks only) wrapped
+/// in a <see cref="ToolCardBodyFrame"/> (scrollable, MaxHeight=400).
+/// When <see cref="BashDetails"/> is missing the body falls back to
+/// parsing <see cref="ToolResult.Content"/> textblocks.
 /// </summary>
 [NotInParallel("Avalonia-UI")]
 public class BashToolCardViewTests
@@ -35,12 +32,8 @@ public class BashToolCardViewTests
             Details: ToolDetails.Node(details),
             IsError: isError);
 
-    /// <summary>
-    /// Legacy-session shape: <see cref="ToolResult.Details"/> is null,
-    /// only the textual <see cref="ContentBlock"/>s are persisted. Used
-    /// to verify the body falls back to reading stdout / stderr from
-    /// Content rather than <c>&lt;no output&gt;</c>.
-    /// </summary>
+    /// <summary>Legacy-session shape: Details null, only the textual
+    /// Content blocks are persisted.</summary>
     private static ToolResult LegacyBashResult(string stdout, string stderr, bool isError = false) =>
         new(
             [
@@ -50,54 +43,66 @@ public class BashToolCardViewTests
             Details: null,
             IsError: isError);
 
-    /// <summary>Returns the header TextBlock of the card's collapsible section.</summary>
     private static TextBlock TitleOf(BashToolCardView card)
         => (TextBlock)((CollapsibleSection)card.Visual).HeaderContent;
 
-    /// <summary>Returns the body Control of the card's collapsible section.</summary>
+    /// <summary>The bash card's body is wrapped in a
+    /// <see cref="ToolCardBodyFrame"/>; unwrap the Border → ScrollViewer
+    /// → BashOutputView chain to get to the inner view.</summary>
     private static BashOutputView BodyOf(BashToolCardView card)
-        => (BashOutputView)((CollapsibleSection)card.Visual).BodyContent;
+    {
+        var frame = (ToolCardBodyFrame)((CollapsibleSection)card.Visual).BodyContent;
+        var scroll = (ScrollViewer)frame.Child!;
+        return (BashOutputView)scroll.Content!;
+    }
 
     [Test]
-    public async Task ShowPending_TitleIsBash()
+    public async Task ShowPending_TitleIsBashWithCommand()
     {
         AvaloniaTestHost.EnsureInitialized();
         var card = new BashToolCardView();
         card.ShowPending(Call("ls -la"));
 
-        await Assert.That(TitleOf(card).Text).IsEqualTo("Bash");
+        await Assert.That(TitleOf(card).Text).IsEqualTo("› Bash: ls -la");
     }
 
     [Test]
-    public async Task Complete_Success_TitleIncludesBashNameAndDuration()
+    public async Task Complete_Success_TitleIsCheckBashWithCommand()
     {
         AvaloniaTestHost.EnsureInitialized();
         var card = new BashToolCardView();
         card.ShowPending(Call("ls"));
         card.Complete(BashResult(new BashDetails("ls", 0, 42, "ok", "")));
 
-        var title = TitleOf(card).Text;
-        await Assert.That(title).Contains("✓");
-        await Assert.That(title).Contains("Bash");
-        await Assert.That(title).Contains("42ms");
-        await Assert.That(title).DoesNotContain("ls"); // command moved to body
+        await Assert.That(TitleOf(card).Text).IsEqualTo("✓ Bash: ls");
     }
 
     [Test]
-    public async Task Complete_Failure_TitleShowsRedStatusAndDuration()
+    public async Task Complete_Failure_TitleIsCrossBashWithCommand()
     {
         AvaloniaTestHost.EnsureInitialized();
         var card = new BashToolCardView();
         card.ShowPending(Call("false"));
-        // BashTool maps non-zero ExitCode to IsError=true; mirror that here.
         card.Complete(BashResult(
             new BashDetails("false", 1, 123, "", "command not found"),
             isError: true));
 
-        var title = TitleOf(card).Text;
-        await Assert.That(title).Contains("✗");
-        await Assert.That(title).Contains("Bash");
-        await Assert.That(title).Contains("123ms");
+        await Assert.That(TitleOf(card).Text).IsEqualTo("✗ Bash: false");
+    }
+
+    [Test]
+    public async Task Complete_LongCommand_TruncatesWithEllipsisInHeader()
+    {
+        AvaloniaTestHost.EnsureInitialized();
+        var card = new BashToolCardView();
+        var longCmd = new string('x', 200);
+        card.ShowPending(Call(longCmd));
+        card.Complete(BashResult(new BashDetails(longCmd, 0, 1, "", "")));
+
+        // Header collapses long commands to <=80 chars + "…".
+        var title = TitleOf(card).Text!;
+        await Assert.That(title.Length).IsLessThanOrEqualTo("✓ Bash: ".Length + 80);
+        await Assert.That(title).EndsWith("…");
     }
 
     [Test]
@@ -108,19 +113,11 @@ public class BashToolCardViewTests
         card.ShowPending(Call("ls"));
         card.Complete(BashResult(new BashDetails("ls", 0, 1, "file1\nfile2", "")));
 
+        // Body is now BashOutputView wrapped in ToolCardBodyFrame; the
+        // frame's Child is the BashOutputView's StackPanel.
         var body = BodyOf(card);
-        await Assert.That(body.Children.Count).IsGreaterThanOrEqualTo(2);
-
-        // First child: command row (Border wrapping DockPanel with copy button).
-        var commandBorder = (Border)body.Children[0];
-        var commandText = (TextBlock)((DockPanel)commandBorder.Child!).Children[1];
-        await Assert.That(commandText.Text).IsEqualTo("$ ls");
-
-        // Last child: stdout mono TextBlock with explicit theme foreground
-        // (an Avalonia FluentTheme bug resolves a null Foreground inside a
-        // ContentControl-wrapped StackPanel to transparent — see the
-        // comment on BuildOutputBlock for context).
-        var stdoutBlock = (TextBlock)body.Children[^1];
+        await Assert.That(body.Children.Count).IsEqualTo(1);
+        var stdoutBlock = (TextBlock)body.Children[0];
         await Assert.That(stdoutBlock.Text).IsEqualTo("file1\nfile2");
         await Assert.That(stdoutBlock.FontFamily).IsNotNull();
         await Assert.That(stdoutBlock.Foreground).IsEqualTo(AvaloniaTheme.TextPrimary);
@@ -137,7 +134,7 @@ public class BashToolCardViewTests
             isError: true));
 
         var body = BodyOf(card);
-        var stderrBlock = (TextBlock)body.Children[^1];
+        var stderrBlock = (TextBlock)body.Children[0];
         await Assert.That(stderrBlock.Text).IsEqualTo("command not found");
         await Assert.That(stderrBlock.Foreground).IsEqualTo(AvaloniaTheme.Danger);
     }
@@ -151,11 +148,9 @@ public class BashToolCardViewTests
         card.Complete(BashResult(new BashDetails("mixed", 1, 1, "partial", "warn: deprecated")));
 
         var body = BodyOf(card);
-        // 1 command row + 1 stdout + 1 stderr = 3 children
-        await Assert.That(body.Children.Count).IsEqualTo(3);
-
-        var stdout = (TextBlock)body.Children[1];
-        var stderr = (TextBlock)body.Children[2];
+        await Assert.That(body.Children.Count).IsEqualTo(2);
+        var stdout = (TextBlock)body.Children[0];
+        var stderr = (TextBlock)body.Children[1];
         await Assert.That(stdout.Text).IsEqualTo("partial");
         await Assert.That(stdout.Foreground).IsEqualTo(AvaloniaTheme.TextPrimary);
         await Assert.That(stderr.Text).IsEqualTo("warn: deprecated");
@@ -171,7 +166,7 @@ public class BashToolCardViewTests
         card.Complete(BashResult(new BashDetails("true", 0, 1, "", "")));
 
         var body = BodyOf(card);
-        var hint = (TextBlock)body.Children[^1];
+        var hint = (TextBlock)body.Children[0];
         await Assert.That(hint.Text).IsEqualTo("(no output)");
         await Assert.That(hint.Foreground).IsEqualTo(AvaloniaTheme.TextSecondary);
     }
@@ -179,48 +174,28 @@ public class BashToolCardViewTests
     [Test]
     public async Task Complete_NoDetails_LegacyFallback_ShowsStdoutFromContent()
     {
-        // Legacy transcripts: no Details payload — Details wasn't
-        // persisted when this row was written. The body must fall back
-        // to reading stdout / stderr from the Content textblocks so
-        // the user still sees the actual output.
         AvaloniaTestHost.EnsureInitialized();
         var card = new BashToolCardView();
         card.ShowPending(Call("ls"));
         card.Complete(LegacyBashResult(stdout: "file1\nfile2", stderr: ""));
 
         var body = BodyOf(card);
-        var stdoutBlock = (TextBlock)body.Children[^1];
+        var stdoutBlock = (TextBlock)body.Children[0];
         await Assert.That(stdoutBlock.Text).IsEqualTo("file1\nfile2");
     }
 
     [Test]
-    public async Task Complete_NoDetails_LegacyFallback_ShowsStderrFromContent()
+    public async Task Complete_Body_IsWrappedInToolCardBodyFrame()
     {
-        AvaloniaTestHost.EnsureInitialized();
-        var card = new BashToolCardView();
-        card.ShowPending(Call("false"));
-        card.Complete(LegacyBashResult(stdout: "", stderr: "command not found", isError: true));
-
-        var body = BodyOf(card);
-        var stderrBlock = (TextBlock)body.Children[^1];
-        await Assert.That(stderrBlock.Text).IsEqualTo("command not found");
-        await Assert.That(stderrBlock.Foreground).IsEqualTo(AvaloniaTheme.Danger);
-    }
-
-    [Test]
-    public async Task Complete_NoDetails_CommandFromArguments_FallsBackWhenDetailsMissing()
-    {
-        // When Details is null and Content textblocks are also empty,
-        // command comes from the tool call arguments (still surfaced
-        // so the user can see what was run, just without output).
+        // The body must live inside a ToolCardBodyFrame so long bash
+        // output scrolls inside the transcript instead of stretching it.
         AvaloniaTestHost.EnsureInitialized();
         var card = new BashToolCardView();
         card.ShowPending(Call("ls"));
-        card.Complete(LegacyBashResult(stdout: "", stderr: ""));
+        card.Complete(BashResult(new BashDetails("ls", 0, 1, "ok", "")));
 
-        var body = BodyOf(card);
-        var commandBorder = (Border)body.Children[0];
-        var commandText = (TextBlock)((DockPanel)commandBorder.Child!).Children[1];
-        await Assert.That(commandText.Text).IsEqualTo("$ ls");
+        var frame = (ToolCardBodyFrame)((CollapsibleSection)card.Visual).BodyContent;
+        await Assert.That(frame.MaxHeight).IsEqualTo(ToolCardBodyFrame.DefaultMaxHeight);
+        await Assert.That(frame.Child).IsAssignableFrom<ScrollViewer>();
     }
 }

@@ -1,34 +1,26 @@
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input.Platform;
-using Avalonia.Layout;
 using Avalonia.Media;
-using Material.Icons;
-using Material.Icons.Avalonia;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 
 namespace PhiCoding.Avalonia.Components.ToolCards;
 
 /// <summary>
-/// Bash tool body: command row (mono + copy button) on top, stdout
-/// (default mono) + stderr (mono, <see cref="AvaloniaTheme.Danger"/>)
-/// below. Pure layout / styling; no IO, no state. Used by
-/// <see cref="BashToolCardView"/> as the expanded body of the bash card.
+/// Bash tool body: stdout (default mono) + stderr (mono,
+/// <see cref="AvaloniaTheme.Danger"/>) stacked vertically. The command
+/// itself lives in the card's collapsed header, so this view carries no
+/// copy-to-clipboard button — keeping the body minimal and aligned with
+/// every other tool's detail shape (a scrollable content frame).
 /// <para>
-/// Empty states are rendered as a dim <c>(no output)</c> hint so the
-/// body always has at least one visible row — a user clicking an
-/// already-collapsed card and seeing absolutely nothing reads as a
-/// "click did nothing" bug, even when the section toggled correctly.
+/// Empty states still render a dim <c>(no output)</c> hint so the body
+/// always has at least one visible row.
 /// </para>
 /// </summary>
 public sealed class BashOutputView : StackPanel
 {
-    public BashOutputView(string command, string stdout, string stderr)
+    public BashOutputView(string stdout, string stderr)
     {
-        Orientation = Orientation.Vertical;
-        Spacing = 6;
-
-        Children.Add(BuildCommandRow(command));
+        base.Orientation = global::Avalonia.Layout.Orientation.Vertical;
+        base.Spacing = 6;
 
         if (stdout.Length > 0)
             Children.Add(BuildOutputBlock(stdout, danger: false));
@@ -42,58 +34,6 @@ public sealed class BashOutputView : StackPanel
                 Foreground = AvaloniaTheme.TextSecondary,
                 FontFamily = AvaloniaTheme.MonoFontFamily,
             });
-    }
-
-    /// <summary>
-    /// Command row: <c>$ &lt;command&gt;</c> in a monospace TextBlock on
-    /// the left, copy-to-clipboard button on the right. Wrapped in a
-    /// Border with a faint background so it reads as a "command box"
-    /// above the output, matching the maka design.
-    /// </summary>
-    private static Border BuildCommandRow(string command)
-    {
-        var commandText = new TextBlock
-        {
-            Text = string.IsNullOrEmpty(command) ? "(no command)" : $"$ {command}",
-            FontFamily = AvaloniaTheme.MonoFontFamily,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-
-        var copyButton = new Button
-        {
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            Padding = new Thickness(6, 2),
-            Content = new MaterialIcon
-            {
-                Kind = MaterialIconKind.ContentCopy,
-                Width = 14,
-                Height = 14,
-                Foreground = AvaloniaTheme.TextSecondary,
-            },
-        };
-        ToolTip.SetTip(copyButton, "Copy command");
-        copyButton.Click += (_, _) =>
-        {
-            var clipboard = TopLevel.GetTopLevel(copyButton)?.Clipboard;
-            clipboard?.SetTextAsync(command ?? "");
-        };
-
-        var row = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(copyButton, Dock.Right);
-        row.Children.Add(copyButton);
-        row.Children.Add(commandText);
-
-        return new Border
-        {
-            Padding = new Thickness(10, 6),
-            CornerRadius = new CornerRadius(6),
-            Background = AvaloniaTheme.ContainerBackground,
-            BorderBrush = AvaloniaTheme.ControlBorder,
-            BorderThickness = new Thickness(1),
-            Child = row,
-        };
     }
 
     private static TextBlock BuildOutputBlock(string text, bool danger) =>

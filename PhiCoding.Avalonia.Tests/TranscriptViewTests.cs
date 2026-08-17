@@ -61,7 +61,7 @@ public class TranscriptViewTests
         await Assert.That(bubble.BorderThickness).IsEqualTo(new Thickness(0));
         await Assert.That(bubble.CornerRadius).IsEqualTo(new CornerRadius(10));
 
-        var text = (SelectableTextBlock)bubble.Child;
+        var text = (SelectableTextBlock)bubble.Child!;
         await Assert.That(text.Text).IsEqualTo("hello there");
         await Assert.That(text.Foreground).IsEqualTo(PhiCoding.Avalonia.AvaloniaTheme.AccentText);
         await Assert.That(text.TextWrapping).IsEqualTo(TextWrapping.Wrap);
@@ -254,9 +254,10 @@ public class TranscriptViewTests
         await Assert.That(view.LineCount).IsEqualTo(2);
 
         var section = (PhiCoding.Avalonia.Components.CollapsibleSection)view.LineAt(1);
-        // Body is now a BashOutputView: command row (Border) + stdout TextBlock.
-        // Last child is the stdout mono TextBlock.
-        var body = (PhiCoding.Avalonia.Components.ToolCards.BashOutputView)section.BodyContent;
+        // Body is wrapped in ToolCardBodyFrame → ScrollViewer → BashOutputView.
+        var frame = (PhiCoding.Avalonia.Components.ToolCards.ToolCardBodyFrame)section.BodyContent;
+        var scroll = (global::Avalonia.Controls.ScrollViewer)frame.Child!;
+        var body = (PhiCoding.Avalonia.Components.ToolCards.BashOutputView)scroll.Content!;
         var stdoutBlock = (global::Avalonia.Controls.TextBlock)body.Children[^1];
         await Assert.That(stdoutBlock.Text).IsEqualTo("file1\nfile2");
     }
@@ -297,7 +298,9 @@ public class TranscriptViewTests
         await Assert.That(view.LineCount).IsEqualTo(2);
 
         var section = (PhiCoding.Avalonia.Components.CollapsibleSection)view.LineAt(1);
-        var body = (PhiCoding.Avalonia.Components.ToolCards.BashOutputView)section.BodyContent;
+        var frame = (PhiCoding.Avalonia.Components.ToolCards.ToolCardBodyFrame)section.BodyContent;
+        var scroll = (global::Avalonia.Controls.ScrollViewer)frame.Child!;
+        var body = (PhiCoding.Avalonia.Components.ToolCards.BashOutputView)scroll.Content!;
         // Last child is the stdout mono TextBlock; legacy fallback reads
         // from Content so the user sees "ok" rather than "(no output)".
         var textBlock = (global::Avalonia.Controls.TextBlock)body.Children[^1];
