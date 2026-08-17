@@ -4,7 +4,7 @@ using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
-using Markdown.Avalonia.Full;
+using MarkView.Avalonia;
 using PhiAgent;
 using PhiCoding.Avalonia.Components.ToolCards;
 using PhiCoding.Chat;
@@ -21,8 +21,8 @@ namespace PhiCoding.Avalonia.Components;
 /// element, existing Ids patch the existing element in place (text stream
 /// extends, tool call completes, etc.).
 /// <para>
-/// Assistant text renders through Markdown.Avalonia's
-/// <see cref="MarkdownScrollViewer"/> so code fences, lists, and headings
+/// Assistant text renders through MarkView.Avalonia's
+/// <see cref="MarkdownViewer"/> so code fences, lists, and headings
 /// come out formatted instead of raw markdown source. Streaming updates
 /// re-assign the <c>Markdown</c> property in place.
 /// </para>
@@ -256,11 +256,11 @@ public sealed class TranscriptView
 
     private static AssistantTextHandle CreateAssistantTextHandle(AssistantTextLine line)
     {
-        // MarkdownScrollViewer measures to content when unconstrained, so
+        // MarkdownViewer measures to content when unconstrained, so
         // it sits inline in the transcript without its own scrollbar. No
         // card wrapper: assistant text reads as part of the document flow
         // (vertical spacing comes from the parent StackPanel's Spacing=8).
-        var markdown = new MarkdownScrollViewer
+        var markdown = new MarkdownViewer
         {
             Markdown = line.Text,
         };
@@ -334,7 +334,7 @@ public sealed class TranscriptView
 
     /// <summary>Assistant text line; the markdown is patched in place while
     /// the model streams.</summary>
-    private sealed class AssistantTextHandle(MarkdownScrollViewer markdown, Control root) : LineHandle
+    private sealed class AssistantTextHandle(MarkdownViewer markdown, Control root) : LineHandle
     {
         public override Control Root => root;
         public void UpdateText(string text) => markdown.Markdown = text;

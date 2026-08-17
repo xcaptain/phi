@@ -1,7 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Markdown.Avalonia.Full;
+using MarkView.Avalonia;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 
 namespace PhiCoding.Avalonia.Components.ToolCards;
@@ -12,9 +12,9 @@ namespace PhiCoding.Avalonia.Components.ToolCards;
 /// <list type="bullet">
 /// <item>Known code / data extension (e.g. <c>.cs</c>, <c>.py</c>,
 /// <c>.json</c>, <c>.md</c>): wraps the content in a fenced code
-/// block and hands it to <see cref="MarkdownScrollViewer"/> — AvaloniaEdit
-/// + ColorTextBlock.Avalonia handle per-token coloring and the chosen
-/// language's grammar.</item>
+/// block and hands it to a <see cref="MarkdownViewer"/> — TextMate
+/// highlighting (registered app-wide via
+/// <see cref="MarkdownViewerDefaults"/>) colors the code.</item>
 /// <item>Unknown extension: falls back to a mono <see cref="TextBlock"/>
 /// so plain text (logs, configs, etc.) still renders readably.</item>
 /// </list>
@@ -42,7 +42,7 @@ public sealed class SyntaxHighlightedContent : StackPanel
 
         if (language is not null)
         {
-            var md = new MarkdownScrollViewer
+            var md = new MarkdownViewer
             {
                 Markdown = $"```{language}\n{content}\n```",
                 HorizontalAlignment = HorizontalAlignment.Stretch,
@@ -63,10 +63,10 @@ public sealed class SyntaxHighlightedContent : StackPanel
     }
 
     /// <summary>
-    /// Maps a file path's extension to the language identifier that
-    /// ColorTextBlock.Avalonia recognizes for fenced code blocks. Returns
-    /// <c>null</c> for unknown extensions so the caller can fall back to
-    /// plain mono rendering.
+    /// Maps a file path's extension to the language identifier used for
+    /// the fenced code block (TextMate grammar). Returns <c>null</c> for
+    /// unknown extensions so the caller can fall back to plain mono
+    /// rendering.
     /// </summary>
     public static string? DetectLanguage(string? path)
     {

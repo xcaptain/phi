@@ -1,0 +1,16 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PhiCoding.Avalonia.PhiAvaloniaApp"
+             RequestedThemeVariant="Default">
+  <!--
+    Fluent theme + MarkView.Avalonia's MarkdownTheme, referenced via a
+    compiled StyleInclude. StyleInclude defined in XAML is resolved at
+    build time and is safe with trimming and AOT — unlike loading it from
+    code (StyleInclude / AvaloniaXamlLoader in C#), which fails under
+    NativeAOT because MarkView ships its theme as a raw AvaloniaResource.
+  -->
+  <Application.Styles>
+    <FluentTheme />
+    <StyleInclude Source="avares://MarkView.Avalonia/Themes/MarkdownTheme.axaml" />
+  </Application.Styles>
+</Application>

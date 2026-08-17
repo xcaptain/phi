@@ -108,7 +108,7 @@ public class ReadToolCardViewTests
             "print('hi')"));
 
         var body = BodyOf(card);
-        await Assert.That(body.Children[1]).IsAssignableFrom<Markdown.Avalonia.Full.MarkdownScrollViewer>();
+        await Assert.That(body.Children[1]).IsAssignableFrom<MarkView.Avalonia.MarkdownViewer>();
     }
 
     [Test]
@@ -142,7 +142,7 @@ public class ReadToolCardViewTests
             Details: ToolDetails.Node(new ReadDetails("foo.cs", 1, 5, 5, 100, 1234))));
 
         var body = BodyOf(card);
-        // The MarkdownScrollViewer wraps the body in a code block; we
+        // The MarkdownViewer wraps the body in a code block; we
         // can't easily pull the rendered text, so the contract is
         // "stripped" verified via the known StripContinuationHint helper
         // (also exercised via the bash card fallback tests).

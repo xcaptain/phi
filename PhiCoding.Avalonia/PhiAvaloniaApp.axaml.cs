@@ -1,13 +1,13 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Markup.Xaml;
 using Avalonia.Markup.Xaml.XamlIl.Runtime;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
-using Avalonia.Themes.Fluent;
-using ColorTextBlock.Avalonia;
+using MarkView.Avalonia;
 using Material.Icons.Avalonia;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
@@ -15,13 +15,14 @@ using PhiCoding.Sessions;
 namespace PhiCoding.Avalonia;
 
 /// <summary>
-/// Code-only Avalonia <see cref="Application"/>. The shell is built
-/// entirely in C# (no XAML) to mirror the rest of the repo's style. The
-/// desktop head installs a classic lifetime with a single main window;
-/// single-view platforms (Android, browser) host the same shell control
-/// directly.
+/// Avalonia <see cref="Application"/>. The application shell lives in
+/// <c>PhiAvaloniaApp.axaml</c> (Fluent theme + MarkView theme via compiled
+/// <c>StyleInclude</c>, which is AOT-safe), while the rest of the UI is
+/// built in C# to mirror the repo's code-only style. The desktop head
+/// installs a classic lifetime with a single main window; single-view
+/// platforms (Android, browser) host the same shell control directly.
 /// </summary>
-public sealed class PhiAvaloniaApp : Application
+public sealed partial class PhiAvaloniaApp : Application
 {
     private readonly ISessionNavigator _navigator;
     private readonly ProviderManager _providers;
@@ -52,29 +53,31 @@ public sealed class PhiAvaloniaApp : Application
 
     public override void Initialize()
     {
-        Styles.Add(new FluentTheme());
+        // Load the compiled PhiAvaloniaApp.axaml (FluentTheme + MarkView
+        // MarkdownTheme via a compile-time-resolved StyleInclude). This is
+        // the official AOT-safe pattern — the XAML is compiled into the
+        // assembly and loaded by type, with no runtime XAML compilation.
+        AvaloniaXamlLoader.Load(this);
+
         // Material.Icons.Avalonia's MaterialIcon control is a templated
         // control; without its styles the icons render as empty boxes.
         // Must be added to the app styles (see the package README for 2.0+).
         // The XAML-derived ctor needs a service provider; build a root one.
         Styles.Add(new MaterialIconStyles(XamlIlRuntimeHelpers.CreateRootServiceProviderV3(null)));
-        // Markdown.Avalonia's ColorTextBlock picks its monospace font by
-        // asking the FontManager for any system font whose name contains
-        // "menlo" / "monaco" / "consolas" / …; on macOS that heuristic can
-        // pick Consolas (e.g. installed via Office) and crash with
-        // "Could not create glyphTypeface" when the chosen family lacks
-        // required glyphs. Force the same portable fallback chain we use
-        // everywhere else so code blocks always resolve to a usable font.
-        Styles.Add(new Style(x => x.OfType<CCode>())
+        // Keep code blocks on the same portable mono chain as the rest of
+        // the app (the MarkView theme defaults to Cascadia Code / Consolas).
+        Styles.Add(new Style(x => x.OfType<Border>()
+            .Class("markdown-code-block").Child().OfType<TextBlock>())
         {
             Setters =
             {
-                new Setter(CCode.MonospaceFontFamilyProperty, AvaloniaTheme.MonoFontFamily),
+                new Setter(TextBlock.FontFamilyProperty, AvaloniaTheme.MonoFontFamily),
             },
         });
-        // Follow the OS light/dark preference; FluentTheme resolves the
-        // effective variant from the platform when Default is requested.
-        RequestedThemeVariant = ThemeVariant.Default;
+        // TextMate syntax highlighting for fenced code blocks in every
+        // MarkdownViewer (transcript + read-tool cards), switching between
+        // DarkPlus / LightPlus automatically with the OS theme.
+        MarkdownViewerDefaults.Extensions.AddTextMateHighlighting();
 
         // macOS: install the app menu BEFORE the platform builds it. The
         // Avalonia.Native application-menu exporter constructs itself during

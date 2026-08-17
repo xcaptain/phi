@@ -2,7 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
-using Markdown.Avalonia.Full;
+using MarkView.Avalonia;
 using PhiAgent;
 using PhiCoding.Avalonia.Components;
 using PhiCoding.Avalonia.Tests.Helpers;
@@ -109,7 +109,7 @@ public class TranscriptViewTests
 
         await Assert.That(view.LineCount).IsEqualTo(1);
 
-        // The line visual is a MarkdownScrollViewer wrapped in a Border;
+        // The line visual is a MarkdownViewer wrapped in a Border;
         // assert the projector's projection (the renderer input) carries the
         // accumulated text — that's the contract the view binds to.
         await Assert.That(projector.Current.OfType<AssistantTextLine>().Single().Text).IsEqualTo("Hello world");
@@ -119,14 +119,14 @@ public class TranscriptViewTests
     public async Task AssistantLine_NoCardWrapper_DirectMarkdown()
     {
         // Assistant text is no longer wrapped in a Border card: the line
-        // visual is the MarkdownScrollViewer itself so it sits flush in
+        // visual is the MarkdownViewer itself so it sits flush in
         // the document flow (matching the user bubble's "no card" feel).
         var (session, projector, view) = Create();
 
         session.EmitHarnessEvent(new AssistantTextDeltaEvent("hello"));
 
         var line = view.LineAt(0);
-        await Assert.That(line).IsTypeOf<MarkdownScrollViewer>();
+        await Assert.That(line).IsTypeOf<MarkdownViewer>();
     }
 
     [Test]

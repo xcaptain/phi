@@ -1,4 +1,4 @@
-using Markdown.Avalonia.Full;
+using MarkView.Avalonia;
 using PhiCoding.Avalonia.Components.ToolCards;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 
@@ -7,11 +7,11 @@ namespace PhiCoding.Avalonia.Tests;
 /// <summary>
 /// <see cref="SyntaxHighlightedContent"/>: renders a metadata header
 /// line + a content body. Picks the renderer by file extension —
-/// markdown code block (via <see cref="MarkdownScrollViewer"/> →
-/// ColorTextBlock.Avalonia / AvaloniaEdit) for known code / data
-/// extensions, mono TextBlock fallback otherwise. The point of these
-/// tests is the <see cref="SyntaxHighlightedContent.DetectLanguage"/>
-/// mapping plus the structure of the constructed body.
+/// markdown code block (via <see cref="MarkdownViewer"/> → TextMate
+/// highlighting) for known code / data extensions, mono TextBlock
+/// fallback otherwise. The point of these tests is the
+/// <see cref="SyntaxHighlightedContent.DetectLanguage"/> mapping plus the
+/// structure of the constructed body.
 /// </summary>
 [NotInParallel("Avalonia-UI")]
 public class SyntaxHighlightedContentTests
@@ -83,14 +83,14 @@ public class SyntaxHighlightedContentTests
     }
 
     [Test]
-    public async Task Constructor_KnownLanguage_RendersMarkdownScrollViewer()
+    public async Task Constructor_KnownLanguage_RendersMarkdownViewer()
     {
         AvaloniaTestHost.EnsureInitialized();
         var view = new SyntaxHighlightedContent("h", "code", "csharp");
 
         await Assert.That(view.Children.Count).IsEqualTo(2);
         // Second child is the markdown viewer carrying the fenced code block.
-        await Assert.That(view.Children[1]).IsAssignableFrom<MarkdownScrollViewer>();
+        await Assert.That(view.Children[1]).IsAssignableFrom<MarkdownViewer>();
     }
 
     [Test]
