@@ -26,9 +26,22 @@ STAGE="$BUILD_DIR/.stage"
 APP="$BUILD_DIR/Phi.app"
 ICONSET="$STAGE/AppIcon.iconset"
 
-echo "==> Publish PhiCoding.Avalonia.Desktop ($RID, self-contained)"
+# PHI_DEV=1 switches to a fast framework-dependent Debug publish so a
+# development .app can be refreshed quickly; the default (Release +
+# self-contained) is what the release workflow uses.
+CONFIG="${PHI_DEV:-Release}"
+SELF_CONTAINED=""
+[ "$CONFIG" = "Release" ] && SELF_CONTAINED="--self-contained"
+
+# Clean the staging dir: a previous self-contained publish leaves
+# libhostfxr/libhostpolicy behind, which would make a later
+# framework-dependent publish's apphost mis-detect itself as self-contained
+# and fail to locate the runtime.
+rm -rf "$STAGE"
+
+echo "==> Publish PhiCoding.Avalonia.Desktop ($RID, $CONFIG${SELF_CONTAINED:+ self-contained})"
 dotnet publish "$REPO_ROOT/PhiCoding.Avalonia.Desktop/PhiCoding.Avalonia.Desktop.csproj" \
-  -c Release -r "$RID" --self-contained -o "$STAGE/phi-avalonia"
+  -c "$CONFIG" -r "$RID" $SELF_CONTAINED -o "$STAGE/phi-avalonia"
 
 echo "==> Assemble $APP"
 rm -rf "$APP"

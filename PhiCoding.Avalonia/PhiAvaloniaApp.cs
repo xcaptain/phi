@@ -116,7 +116,7 @@ public sealed class PhiAvaloniaApp : Application
     {
         var about = new NativeMenuItem("About Phi");
         about.Click += async (_, _) => await ShowAboutDialogAsync();
-        NativeMenu.SetMenu(this, new NativeMenu { about });
+        NativeMenu.SetMenu(this, [about]);
     }
 
     /// <summary>
