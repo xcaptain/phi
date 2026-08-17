@@ -109,6 +109,9 @@ public sealed class CodingSessionFactory
                 Skills = skills,
                 ContextFiles = contextResources.ContextFiles,
                 Options = config.SystemPrompt,
+                Shell = OperatingSystem.IsWindows()
+                    ? ShellKind.PowerShell
+                    : ShellKind.Bash,
             });
 
         var harness = new Harness(

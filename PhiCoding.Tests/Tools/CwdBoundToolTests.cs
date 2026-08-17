@@ -25,6 +25,11 @@ public class CwdBoundToolTests : IDisposable
     [Test]
     public async Task BashTool_RunsInProvidedCwd()
     {
+        // /bin/bash does not exist on desktop Windows (the tool switches to
+        // PowerShell there); CI runs on Linux, so just no-op the assertion.
+        if (OperatingSystem.IsWindows())
+            return;
+
         var tool = new BashTool(_cwd);
         var args = new System.Text.Json.Nodes.JsonObject { ["command"] = "pwd" };
 
@@ -109,6 +114,11 @@ public class CwdBoundToolTests : IDisposable
     [Test]
     public async Task BuiltInToolProvider_BashToolHonoursCwd()
     {
+        // /bin/bash does not exist on desktop Windows (the tool switches to
+        // PowerShell there); CI runs on Linux, so just no-op the assertion.
+        if (OperatingSystem.IsWindows())
+            return;
+
         var provider = new BuiltInToolProvider(_cwd);
         PhiAgent.Tool bash = provider.GetTools().Single(c => c.Tool.Name == "bash").Tool;
         var args = new System.Text.Json.Nodes.JsonObject { ["command"] = "pwd" };

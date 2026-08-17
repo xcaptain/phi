@@ -18,4 +18,11 @@ public sealed record SystemPromptBuildContext
     public required IReadOnlyList<ProjectContextFile> ContextFiles { get; init; }
 
     public required SystemPromptOptions Options { get; init; }
+
+    /// <summary>
+    /// The shell the <c>bash</c> tool executes, so the prompt can tell the
+    /// model which syntax to emit. Defaults to <see cref="ShellKind.Bash"/>;
+    /// desktop Windows supplies <see cref="ShellKind.PowerShell"/>.
+    /// </summary>
+    public ShellKind Shell { get; init; } = ShellKind.Bash;
 }

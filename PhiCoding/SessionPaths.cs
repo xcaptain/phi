@@ -83,16 +83,19 @@ public static partial class SessionPaths
     /// <summary>
     /// Converts an absolute path to a readable slug for use in directory names.
     /// Replaces non-alphanumeric chars with <c>-</c>, lowercases, prefixes
-    /// with <c>home-</c> when under the user's home directory.
+    /// with <c>home-</c> when under the user's home directory. Splits on both
+    /// <c>/</c> and <c>\</c> and compares the home prefix case-insensitively
+    /// so Windows drive-letter paths (e.g. <c>C:\Users\…</c>) slug the same
+    /// way unix paths do.
     /// Ported from tau's <c>tau_coding.paths._slugify_path</c>.
     /// </summary>
     private static string SlugifyPath(string path)
     {
-        var parts = path.Split('/').Where(p => p.Length > 0).ToList();
+        var parts = path.Split(['/', '\\']).Where(p => p.Length > 0).ToList();
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (path.StartsWith(home, StringComparison.Ordinal))
+        if (path.StartsWith(home, StringComparison.OrdinalIgnoreCase))
         {
-            parts = ["home", .. path[home.Length..].TrimStart('/').Split('/')];
+            parts = ["home", .. path[home.Length..].TrimStart('/', '\\').Split(['/', '\\'])];
         }
 
         var slugParts = parts

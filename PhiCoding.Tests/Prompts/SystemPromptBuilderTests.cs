@@ -198,6 +198,34 @@ public class SystemPromptBuilderTests
     }
 
     [Test]
+    public async Task Environment_DefaultBash_StatesBash()
+    {
+        var builder = new SystemPromptBuilder();
+
+        var prompt = builder.Build(BuildContext());
+
+        await Assert.That(prompt).Contains("## Environment");
+        await Assert.That(prompt).Contains("Shell: bash.");
+        await Assert.That(prompt).DoesNotContain("PowerShell");
+    }
+
+    [Test]
+    public async Task Environment_PowerShell_GuidesPowerShellSyntax()
+    {
+        var builder = new SystemPromptBuilder();
+        var ctx = BuildContext() with { Shell = ShellKind.PowerShell };
+
+        var prompt = builder.Build(ctx);
+
+        await Assert.That(prompt).Contains("## Environment");
+        await Assert.That(prompt).Contains("running on Windows");
+        await Assert.That(prompt).Contains("Get-ChildItem");
+        await Assert.That(prompt).Contains("Get-Content");
+        await Assert.That(prompt).Contains("$env:");
+        await Assert.That(prompt).DoesNotContain("Shell: bash.");
+    }
+
+    [Test]
     public async Task ProjectContext_IsWrappedAndAppearsAfterBase()
     {
         var builder = new SystemPromptBuilder();

@@ -15,10 +15,20 @@ public sealed record BashArgs
 /// Creates a bash tool bound to <paramref name="cwd"/>. Commands execute
 /// with that directory as their working directory so relative paths
 /// resolve against the session root, not the process cwd.
+/// <para>
+/// On non-Windows hosts (macOS, Linux, and WSL — where the OS is Linux)
+/// commands run in <c>/bin/bash</c>. Desktop Windows has no bash, so it
+/// runs PowerShell instead: pwsh 7 is preferred when installed, with the
+/// built-in Windows PowerShell 5.1 as fallback.
+/// </para>
 /// </summary>
 public sealed partial class BashTool(string cwd) : TypedTool<BashArgs>
 {
     private readonly string? _cwd = cwd;
+
+    /// <summary>Windows shell, resolved once per process: pwsh (PowerShell 7)
+    /// when available, else the always-present Windows PowerShell 5.1.</summary>
+    private static readonly Lazy<string> WindowsShell = new(ResolveWindowsShell);
 
     public override string Name => "bash";
     public override string Description => "Run a shell command and return stdout/stderr/exit code.";
@@ -32,7 +42,8 @@ public sealed partial class BashTool(string cwd) : TypedTool<BashArgs>
 
     public override async Task<ToolResult> ExecuteTypedAsync(BashArgs args, CancellationToken cancellationToken)
     {
-        var psi = new ProcessStartInfo("/bin/bash", ["-c", args.Command])
+        var (exe, exeArgs) = BuildProcess(args.Command);
+        var psi = new ProcessStartInfo(exe, exeArgs)
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -65,5 +76,39 @@ public sealed partial class BashTool(string cwd) : TypedTool<BashArgs>
             content.Add(new TextBlock($"<no output, exit={process.ExitCode}>"));
 
         return new ToolResult(content, Details: ToolDetails.Node(details), IsError: process.ExitCode != 0);
+    }
+
+    private static (string Exe, string[] Args) BuildProcess(string command)
+    {
+        if (OperatingSystem.IsWindows())
+            return (WindowsShell.Value, ["-NoProfile", "-NonInteractive", "-Command", command]);
+        return ("/bin/bash", ["-c", command]);
+    }
+
+    private static string ResolveWindowsShell()
+    {
+        if (CanLaunch("pwsh"))
+            return "pwsh";
+        return "powershell.exe"; // built-in, always present on Windows
+    }
+
+    private static bool CanLaunch(string exe)
+    {
+        try
+        {
+            using var probe = Process.Start(new ProcessStartInfo(
+                exe, ["-NoProfile", "-NonInteractive", "-Command", "exit 0"])
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            });
+            probe?.WaitForExit(5_000);
+            return true;
+        }
+        catch (Win32Exception)
+        {
+            return false; // executable not found on PATH
+        }
     }
 }

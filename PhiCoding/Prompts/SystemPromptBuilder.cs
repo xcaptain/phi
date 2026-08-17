@@ -27,6 +27,7 @@ public sealed class SystemPromptBuilder : ISystemPromptBuilder
 
         var sb = new StringBuilder();
         AppendBase(sb, context);
+        AppendEnvironment(sb, context);
         AppendAppend(sb, context);
         AppendProjectContext(sb, context);
         AppendAvailableSkills(sb, context);
@@ -79,6 +80,31 @@ public sealed class SystemPromptBuilder : ISystemPromptBuilder
             }
         }
         sb.AppendLine("- Be concise.");
+        sb.AppendLine();
+    }
+
+    /// <summary>
+    /// Declares the runtime shell so the model emits the right syntax. The
+    /// tool is still named <c>bash</c> everywhere (stable schema), but on
+    /// desktop Windows it actually executes PowerShell — the model must be
+    /// told that explicitly or it will keep writing bash.
+    /// </summary>
+    private static void AppendEnvironment(StringBuilder sb, SystemPromptBuildContext ctx)
+    {
+        sb.AppendLine("## Environment");
+        sb.AppendLine();
+        if (ctx.Shell == ShellKind.PowerShell)
+        {
+            sb.AppendLine("You are running on Windows. The bash tool executes commands in PowerShell (pwsh 7 when installed, otherwise Windows PowerShell 5.1).");
+            sb.AppendLine("Use PowerShell syntax rather than bash:");
+            sb.AppendLine("- Get-ChildItem instead of ls, Get-Content instead of cat.");
+            sb.AppendLine("- $env:NAME reads an environment variable.");
+            sb.AppendLine("- Join commands with ';' or a new line instead of '&&'.");
+        }
+        else
+        {
+            sb.AppendLine("Shell: bash.");
+        }
         sb.AppendLine();
     }
 

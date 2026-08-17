@@ -1,11 +1,16 @@
 name: Release
 
-# 正式发布：push 一个 v* tag（如 v0.1.0）时触发，构建两个可执行产物并
-# 挂到 GitHub Release：
+# 正式发布：push 一个 v* tag（如 v0.1.0）时触发，构建各平台产物并挂到
+# GitHub Release：
 #   git tag v0.1.0 && git push origin v0.1.0
 #
 # 与 ci.yml 分工：ci.yml 负责每次 PR / push main 的 style+build+test 验证；
 # 本 workflow 只负责产出可分发二进制，tag 即版本号锚点。
+#
+# 产物矩阵：
+#   macOS   - phi (TUI, Native AOT) + Phi.app (Avalonia 桌面)
+#   Windows - Phi-avalonia (Avalonia 桌面 win-x64, self-contained)
+# TUI 在 Windows 上走 WSL（项目决策，代码不改造），因此不产原生 Windows TUI 二进制。
 on:
   push:
     tags:
@@ -15,8 +20,8 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: Publish darwin-arm64
+  macos:
+    name: Publish macOS (darwin-arm64)
     runs-on: macos-latest
 
     steps:
@@ -39,17 +44,67 @@ jobs:
 
       # Phi.app（Avalonia 桌面）：scripts/package-macos.sh 负责 self-contained
       # publish + 组装 .app bundle（Dock / Cmd-Tab 图标来自 AppIcon.icns，不是
-      # Window.Icon）+ ad-hoc 签名 + zip。sips/iconutil 均为 macOS 自带，runner
-      # 无需额外安装 ImageMagick。
+      # Window.Icon）+ ad-hoc 签名 + zip。sips/iconutil 均为 macOS 自带。
       - name: Package Phi.app (Avalonia desktop)
         run: bash scripts/package-macos.sh "${{ github.ref_name }}"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-artifacts
+          path: |
+            dist/phi-*-darwin-arm64.zip
+            dist/Phi-*-darwin-arm64.zip
+          if-no-files-found: error
+
+  windows:
+    name: Publish Windows (win-x64)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # Avalonia 桌面 win-x64：self-contained，无需装 .NET。Windows 上
+      # BashTool 会自动切到 pwsh（优先）/ powershell.exe，无需 git-bash。
+      # WinExe 保证不弹 console 窗口。
+      - name: Publish phi-avalonia (Windows desktop)
+        run: dotnet publish PhiCoding.Avalonia.Desktop/PhiCoding.Avalonia.Desktop.csproj \
+              -c Release -r win-x64 --self-contained -o dist/phi-avalonia-win
+
+      - name: Zip Windows app
+        shell: pwsh
+        run: Compress-Archive -Path dist/phi-avalonia-win -DestinationPath dist/Phi-${{ github.ref_name }}-win-x64.zip
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-artifacts
+          path: dist/Phi-*-win-x64.zip
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            dist/phi-*-darwin-arm64.zip \
-            dist/Phi-*-darwin-arm64.zip \
+          ls -la dist
+          gh release create "$GITHUB_REF_NAME" dist/*.zip \
             --title "$GITHUB_REF_NAME" \
             --generate-notes
