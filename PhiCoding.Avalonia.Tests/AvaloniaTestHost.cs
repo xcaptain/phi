@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Headless;
-using PhiCoding.Avalonia;
 
 namespace PhiCoding.Avalonia.Tests;
 

@@ -1,4 +1,3 @@
-using PhiCoding.Avalonia.Components;
 using PhiCoding.Avalonia.Tests.Helpers;
 using PhiCoding.Providers;
 

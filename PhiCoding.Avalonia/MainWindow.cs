@@ -30,7 +30,7 @@ public sealed class MainWindow : Window, IDisposable
 
     /// <summary>Releases the shell's subscriptions.</summary>
     public void Dispose() => _shell.Dispose();
-    
+
 
     /// <summary>The shell, exposed for tests.</summary>
     internal ShellView Shell => _shell;

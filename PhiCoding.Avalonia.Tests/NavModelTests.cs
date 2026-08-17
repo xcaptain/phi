@@ -1,5 +1,3 @@
-using PhiCoding.Sessions;
-
 namespace PhiCoding.Avalonia.Tests;
 
 /// <summary>

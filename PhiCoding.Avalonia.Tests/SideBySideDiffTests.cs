@@ -1,8 +1,5 @@
 using Avalonia.Controls;
-using Avalonia.Layout;
-using Avalonia.Media;
 using PhiCoding.Avalonia.Components;
-using PhiCoding.Avalonia.Tests.Helpers;
 using PhiCoding.Tools.Details;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 

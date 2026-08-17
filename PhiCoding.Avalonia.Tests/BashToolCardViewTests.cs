@@ -1,10 +1,8 @@
 using System.Text.Json.Nodes;
 using Avalonia.Controls;
-using Avalonia.Media;
 using PhiAgent;
 using PhiCoding.Avalonia.Components;
 using PhiCoding.Avalonia.Components.ToolCards;
-using PhiCoding.Avalonia.Tests.Helpers;
 using PhiCoding.Tools.Details;
 using PbTextBlock = PhiAgent.TextBlock;
 using TextBlock = global::Avalonia.Controls.TextBlock;

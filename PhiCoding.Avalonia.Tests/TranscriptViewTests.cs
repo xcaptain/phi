@@ -261,7 +261,7 @@ public class TranscriptViewTests
         await Assert.That(stdoutBlock.Text).IsEqualTo("file1\nfile2");
     }
 
-[Test]
+    [Test]
     public async Task Resume_ToolResultWithoutDetails_LegacyFallback_ShowsStdoutFromContent()
     {
         // A legacy ToolResultMessage (no `details` payload, e.g. persisted
