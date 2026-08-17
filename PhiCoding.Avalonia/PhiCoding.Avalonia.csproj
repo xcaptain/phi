@@ -21,6 +21,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- UI assets (window icon). Embedded as AvaloniaResource so they load
+         via avares:// URIs and survive NativeAOT publishing (no runtime
+         file reads). -->
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="PhiCoding.Avalonia.Tests" />
     <InternalsVisibleTo Include="PhiCoding.Avalonia.Desktop" />
   </ItemGroup>

@@ -1,0 +1,55 @@
+name: Release
+
+# 正式发布：push 一个 v* tag（如 v0.1.0）时触发，构建两个可执行产物并
+# 挂到 GitHub Release：
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# 与 ci.yml 分工：ci.yml 负责每次 PR / push main 的 style+build+test 验证；
+# 本 workflow 只负责产出可分发二进制，tag 即版本号锚点。
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish darwin-arm64
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      # phi (TUI)：PublishAot=true 已在 csproj，指定 RID 后自动 Native AOT。
+      # macOS 的 AOT 必须在 macOS runner 上编译，所以跑在 macos-latest。
+      - name: Publish phi (TUI)
+        run: |
+          dotnet publish PhiCoding.Tui/PhiCoding.Tui.csproj \
+            -c Release -r osx-arm64 -o dist/phi
+          chmod +x dist/phi/phi
+          (cd dist/phi && zip -q -r "../phi-${{ github.ref_name }}-darwin-arm64.zip" phi)
+
+      # Phi.app（Avalonia 桌面）：scripts/package-macos.sh 负责 self-contained
+      # publish + 组装 .app bundle（Dock / Cmd-Tab 图标来自 AppIcon.icns，不是
+      # Window.Icon）+ ad-hoc 签名 + zip。sips/iconutil 均为 macOS 自带，runner
+      # 无需额外安装 ImageMagick。
+      - name: Package Phi.app (Avalonia desktop)
+        run: bash scripts/package-macos.sh "${{ github.ref_name }}"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            dist/phi-*-darwin-arm64.zip \
+            dist/Phi-*-darwin-arm64.zip \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes

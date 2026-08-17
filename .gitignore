@@ -1,3 +1,4 @@
 artifacts/
 TestResults/
+dist/
 .env

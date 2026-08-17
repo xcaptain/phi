@@ -1,4 +1,6 @@
 using Avalonia.Controls;
+using Avalonia.Media.Imaging;
+using Avalonia.Platform;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
 
@@ -17,10 +19,24 @@ public sealed class MainWindow : Window, IDisposable
         ArgumentNullException.ThrowIfNull(navigator);
         ArgumentNullException.ThrowIfNull(providers);
 
-        Title = "Phi";
+        // macOS shows the app name in the menu bar (via the process name)
+        // and in the title bar of untitled windows, so the window title can
+        // stay empty there for a cleaner look. Windows / Linux rely on the
+        // window title for the title bar and taskbar, so keep it explicit.
+        Title = OperatingSystem.IsMacOS() ? "" : "Phi";
         Width = 1024;
         Height = 720;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+
+        // Window icon (titlebar / taskbar). Loaded from the embedded
+        // AvaloniaResource so it works under NativeAOT and on every
+        // platform; macOS ignores window icons in the titlebar, so this
+        // primarily affects Windows / Linux. The macOS dock icon comes
+        // from the .app bundle's AppIcon.icns instead.
+        // AssetLoader routes the avares:// URI to the embedded resource
+        // (Bitmap(string) would treat it as a filesystem path).
+        Icon = new WindowIcon(
+            new Bitmap(AssetLoader.Open(new Uri("avares://PhiCoding.Avalonia/Assets/phi.png"))));
 
         _shell = new ShellView(navigator, providers);
         Content = _shell.Root;
