@@ -273,8 +273,7 @@ public sealed partial class EditTool : TypedTool<EditArgs>
 
     /// <summary>
     /// Counts <c>\n</c> in <paramref name="text"/>[<paramref name="start"/>..
-    /// <paramref name="end"/>). Used to convert a character offset (from
-    /// <see cref="string.IndexOf"/>, i.e. a UTF-16 char index) into a
+    /// <paramref name="end"/>). Used to convert a character offset into a
     /// 1-based line number (line 1 starts at offset 0; a <c>\n</c> at
     /// position N starts line N+1).
     /// </summary>
