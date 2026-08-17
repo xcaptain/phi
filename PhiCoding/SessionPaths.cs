@@ -68,11 +68,17 @@ public static partial class SessionPaths
     public static string DefaultRoot =>
         Path.Combine(PhiHome, DefaultRootSegment);
 
-    public static string PhiHome =>
-        Environment.GetEnvironmentVariable("PHI_HOME")
-        ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".phi");
+    /// <summary>
+    /// Phi's data directory: where <see cref="DefaultRoot"/> (sessions)
+    /// and the credential / settings files live. Defaults to
+    /// <c>~/.phi</c> under the current user's profile — same convention
+    /// as the credential store. Tests can override the value to point at
+    /// a temp directory; the previous <c>PHI_HOME</c> env-var override has
+    /// been removed now that everything is file-based.
+    /// </summary>
+    public static string PhiHome { get; set; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".phi");
 
     /// <summary>
     /// Converts an absolute path to a readable slug for use in directory names.

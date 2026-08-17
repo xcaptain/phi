@@ -18,6 +18,7 @@ public class CodingSessionRuntimeTests : IDisposable
 {
     private readonly string _cwd;
     private readonly string _phiHome;
+    private readonly string _previousPhiHome;
     private readonly PhiCoding.Providers.ProviderManager _providerManager = new();
     private readonly CodingSessionFactory _factory;
 
@@ -26,14 +27,15 @@ public class CodingSessionRuntimeTests : IDisposable
         _cwd = Path.Combine(Path.GetTempPath(), "phi-runtime-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_cwd);
         _phiHome = Path.Combine(Path.GetTempPath(), "phi-home-" + Guid.NewGuid().ToString("N"));
-        Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
+        _previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = _phiHome;
         _factory = new CodingSessionFactory(_providerManager);
     }
 
     public void Dispose()
     {
         GC.SuppressFinalize(this);
-        Environment.SetEnvironmentVariable("PHI_HOME", null);
+        SessionPaths.PhiHome = _previousPhiHome;
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
         if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
     }

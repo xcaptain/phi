@@ -12,6 +12,7 @@ public class CodingSessionFactoryTests : IDisposable
 {
     private readonly string _cwd;
     private readonly string _phiHome;
+    private readonly string _previousPhiHome;
     private readonly FakeProviderResolver _resolver = new();
     private readonly CodingSessionFactory _factory;
 
@@ -19,14 +20,15 @@ public class CodingSessionFactoryTests : IDisposable
     {
         _cwd = Path.Combine(Path.GetTempPath(), $"phi-factory-{Guid.NewGuid():N}");
         _phiHome = Path.Combine(Path.GetTempPath(), $"phi-factory-home-{Guid.NewGuid():N}");
-        Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
+        _previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = _phiHome;
         Directory.CreateDirectory(_cwd);
         _factory = new CodingSessionFactory(_resolver);
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("PHI_HOME", null);
+        SessionPaths.PhiHome = _previousPhiHome;
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
         if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
         GC.SuppressFinalize(this);

@@ -11,6 +11,7 @@ namespace PhiCoding.Tests;
 public class WorkspaceSessionStoreTests : IDisposable
 {
     private readonly string _phiHome;
+    private readonly string _previousPhiHome;
     private readonly string _cwdA;
     private readonly string _cwdB;
 
@@ -19,14 +20,15 @@ public class WorkspaceSessionStoreTests : IDisposable
         _phiHome = Path.Combine(Path.GetTempPath(), $"phi-ws-store-{Guid.NewGuid():N}");
         _cwdA = Path.Combine(Path.GetTempPath(), $"phi-ws-a-{Guid.NewGuid():N}");
         _cwdB = Path.Combine(Path.GetTempPath(), $"phi-ws-b-{Guid.NewGuid():N}");
-        Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
+        _previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = _phiHome;
         Directory.CreateDirectory(_cwdA);
         Directory.CreateDirectory(_cwdB);
     }
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("PHI_HOME", null);
+        SessionPaths.PhiHome = _previousPhiHome;
         foreach (var dir in new[] { _cwdA, _cwdB, _phiHome })
             if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         GC.SuppressFinalize(this);

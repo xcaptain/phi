@@ -12,19 +12,24 @@ public class SessionManagerTests : IDisposable
 {
     private readonly string _cwd;
     private readonly string _phiHome;
+    private readonly string _previousPhiHome;
 
     public SessionManagerTests()
     {
         _cwd = Path.Combine(Path.GetTempPath(), "phi-mgr-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_cwd);
         _phiHome = Path.Combine(Path.GetTempPath(), "phi-home-" + Guid.NewGuid().ToString("N"));
-        Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
+        // Tests point SessionPaths.PhiHome at a per-test temp dir; the
+        // previous PHI_HOME env-var override is gone now that we keep all
+        // filesystem state in the file-based credential / settings files.
+        _previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = _phiHome;
     }
 
     public void Dispose()
     {
         GC.SuppressFinalize(this);
-        Environment.SetEnvironmentVariable("PHI_HOME", null);
+        SessionPaths.PhiHome = _previousPhiHome;
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
         if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
     }

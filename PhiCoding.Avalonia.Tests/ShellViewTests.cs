@@ -85,7 +85,8 @@ public class ShellViewTests
         // and throw NullReferenceException (seen when clicking "By date").
         // Seed enough sessions that the list actually realizes containers.
         var phiHome = Path.Combine(Path.GetTempPath(), $"phi-av-ws-{Guid.NewGuid():N}");
-        Environment.SetEnvironmentVariable("PHI_HOME", phiHome);
+        var previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = phiHome;
         try
         {
             for (var i = 0; i < 5; i++)
@@ -121,7 +122,7 @@ public class ShellViewTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("PHI_HOME", null);
+            SessionPaths.PhiHome = previousPhiHome;
             if (Directory.Exists(phiHome)) Directory.Delete(phiHome, recursive: true);
         }
     }
@@ -204,7 +205,8 @@ public class ShellViewTests
         // the row's ⋯ menu button remains clickable — disabling the
         // container would also disable the menu (regression).
         var phiHome = Path.Combine(Path.GetTempPath(), $"phi-av-ws-{Guid.NewGuid():N}");
-        Environment.SetEnvironmentVariable("PHI_HOME", phiHome);
+        var previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = phiHome;
         try
         {
             // Two workspaces so the ByWorkspace list has header rows.
@@ -263,7 +265,7 @@ public class ShellViewTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("PHI_HOME", null);
+            SessionPaths.PhiHome = previousPhiHome;
             if (Directory.Exists(phiHome)) Directory.Delete(phiHome, recursive: true);
         }
     }
@@ -372,7 +374,8 @@ public class ShellViewTests
     public async Task RenameSessionById_UpdatesStoreAndRebuilds()
     {
         var phiHome = Path.Combine(Path.GetTempPath(), $"phi-av-mgmt-{Guid.NewGuid():N}");
-        Environment.SetEnvironmentVariable("PHI_HOME", phiHome);
+        var previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = phiHome;
         try
         {
             var sa = CodingSession.Create(Path.GetTempPath(), "m");
@@ -392,7 +395,7 @@ public class ShellViewTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("PHI_HOME", null);
+            SessionPaths.PhiHome = previousPhiHome;
             if (Directory.Exists(phiHome)) Directory.Delete(phiHome, recursive: true);
         }
     }
@@ -401,7 +404,8 @@ public class ShellViewTests
     public async Task DeleteSessionRow_RemovesFromStore_AndRebuilds()
     {
         var phiHome = Path.Combine(Path.GetTempPath(), $"phi-av-mgmt-{Guid.NewGuid():N}");
-        Environment.SetEnvironmentVariable("PHI_HOME", phiHome);
+        var previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = phiHome;
         try
         {
             var sa = CodingSession.Create(Path.GetTempPath(), "m");
@@ -422,7 +426,7 @@ public class ShellViewTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("PHI_HOME", null);
+            SessionPaths.PhiHome = previousPhiHome;
             if (Directory.Exists(phiHome)) Directory.Delete(phiHome, recursive: true);
         }
     }
@@ -432,7 +436,8 @@ public class ShellViewTests
     {
         var phiHome = Path.Combine(Path.GetTempPath(), $"phi-av-mgmt-{Guid.NewGuid():N}");
         var cwd = Path.Combine(Path.GetTempPath(), "phi-av-ws-del");
-        Environment.SetEnvironmentVariable("PHI_HOME", phiHome);
+        var previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = phiHome;
         try
         {
             Directory.CreateDirectory(cwd);
@@ -454,7 +459,7 @@ public class ShellViewTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("PHI_HOME", null);
+            SessionPaths.PhiHome = previousPhiHome;
             if (Directory.Exists(phiHome)) Directory.Delete(phiHome, recursive: true);
         }
     }
@@ -464,7 +469,8 @@ public class ShellViewTests
     {
         var phiHome = Path.Combine(Path.GetTempPath(), $"phi-av-mgmt-{Guid.NewGuid():N}");
         var cwd = Path.Combine(Path.GetTempPath(), "phi-av-ws-new");
-        Environment.SetEnvironmentVariable("PHI_HOME", phiHome);
+        var previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = phiHome;
         try
         {
             Directory.CreateDirectory(cwd);
@@ -484,7 +490,7 @@ public class ShellViewTests
         }
         finally
         {
-            Environment.SetEnvironmentVariable("PHI_HOME", null);
+            SessionPaths.PhiHome = previousPhiHome;
             if (Directory.Exists(phiHome)) Directory.Delete(phiHome, recursive: true);
         }
     }

@@ -18,6 +18,7 @@ public class SessionNavigatorTests : IDisposable
     private readonly string _cwd;
     private readonly string _cwdB;
     private readonly string _phiHome;
+    private readonly string _previousPhiHome;
     private readonly FakeProviderResolver _resolver = new();
     private readonly CodingSessionFactory _factory;
 
@@ -26,7 +27,8 @@ public class SessionNavigatorTests : IDisposable
         _cwd = Path.Combine(Path.GetTempPath(), $"phi-nav-{Guid.NewGuid():N}");
         _cwdB = Path.Combine(Path.GetTempPath(), $"phi-nav-b-{Guid.NewGuid():N}");
         _phiHome = Path.Combine(Path.GetTempPath(), $"phi-nav-home-{Guid.NewGuid():N}");
-        Environment.SetEnvironmentVariable("PHI_HOME", _phiHome);
+        _previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = _phiHome;
         Directory.CreateDirectory(_cwd);
         Directory.CreateDirectory(_cwdB);
         _factory = new CodingSessionFactory(_resolver);
@@ -34,7 +36,7 @@ public class SessionNavigatorTests : IDisposable
 
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("PHI_HOME", null);
+        SessionPaths.PhiHome = _previousPhiHome;
         foreach (var dir in new[] { _cwd, _cwdB, _phiHome })
             if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         GC.SuppressFinalize(this);
