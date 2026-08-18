@@ -110,6 +110,24 @@ public class PromptInputViewTests
         await Assert.That(session.LastSubmittedText).IsEqualTo("enter hello");
     }
 
+    [Test]
+    public async Task EditorArrowKey_IsHandled_DoesNotBubbleToTreeView()
+    {
+        // Regression: pressing → in the editor used to bubble unhandled to
+        // the SukiSideMenu (a TreeView whose OnKeyDown does ItemsView[0] on
+        // an empty items source) → IndexOutOfRangeException crash. The editor
+        // now marks directional keys handled so they stay local.
+        var (_, _, view, _) = Create();
+        var e = new global::Avalonia.Input.KeyEventArgs
+        {
+            Key = global::Avalonia.Input.Key.Right,
+            RoutedEvent = global::Avalonia.Input.InputElement.KeyDownEvent,
+        };
+        view.Editor.RaiseEvent(e);
+
+        await Assert.That(e.Handled).IsTrue();
+    }
+
     // ──────── Submit button state ────────
 
     [Test]
@@ -140,33 +158,28 @@ public class PromptInputViewTests
     }
 
     [Test]
-    public async Task Layout_EditorIsTransparent_BlendsIntoChrome()
+    public async Task Layout_EditorIsBorderless_BlendsIntoChrome()
     {
-        // The editor must not draw its own inner box: transparent background
-        // and no border, so the whole control reads as one input box.
+        // The editor must not draw its own inner box: SukiUI's NoShadow
+        // class keeps it transparent with no border (even on focus), so the
+        // whole control reads as one input box.
         var (_, _, view, _) = Create();
 
-        await Assert.That(view.Editor.Background).IsEqualTo(global::Avalonia.Media.Brushes.Transparent);
-        await Assert.That(view.Editor.BorderThickness.Left).IsEqualTo(0);
+        await Assert.That(view.Editor.Classes.Contains("NoShadow")).IsTrue();
+        await Assert.That(view.Editor.AcceptsReturn).IsTrue();
     }
 
     [Test]
-    public async Task EditorUsesBorderlessTemplate_NoBorderElement()
+    public async Task Editor_NoShadowClass_KeepsTypingWorking()
     {
-        // Regression: the Fluent theme redraws a border on focus/pointerover
-        // via PART_BorderElement, ignoring the control's BorderThickness=0.
-        // The editor must use a custom borderless template so it stays
-        // visually inside the input box even while focused.
+        // The editor stays visually inside the input box via SukiUI's
+        // declarative NoShadow class (transparent, no border — including on
+        // focus) instead of a custom template, and typing must still flow
+        // through to the session when submitted.
         var (session, _, view, _) = Create();
 
         var editor = view.Editor;
-        await Assert.That(editor.Template).IsNotNull();
-        await Assert.That(editor.Template!.GetType().Name).IsEqualTo("FuncControlTemplate");
-
-        // Measure to force template application (apply the presenter), then
-        // typing must still flow through to the session when submitted.
-        editor.Measure(new global::Avalonia.Size(400, 300));
-        global::Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+        await Assert.That(editor.Classes.Contains("NoShadow")).IsTrue();
 
         editor.Text = "borderless works";
         view.SubmitForTest();
@@ -349,6 +362,26 @@ public class PromptInputViewTests
 
         await Assert.That(session.LastSwitchedProviderName).IsEqualTo("deepseek");
         await Assert.That(session.LastSwitchedModel).IsEqualTo("deepseek-v4-pro");
+    }
+
+    [Test]
+    public async Task ModelPicker_AfterSwitch_SelectionStaysOnChosenModel()
+    {
+        // Regression: selecting deepseek-v4-pro used to snap the combo back
+        // to flash, because the state-sync picked the provider's first model
+        // (IndexOfFirstSelectable) instead of the live model's row.
+        var (session, _, view, _) = Create();
+        session.UpdateState(s => s with
+        {
+            ProviderName = "deepseek",
+            Model = "deepseek-v4-flash",
+        });
+
+        // header(0) + flash(1) + pro(2).
+        view.ModelComboBox!.SelectedIndex = 2;
+
+        var selected = (ModelPickerItem)view.ModelComboBox.SelectedItem!;
+        await Assert.That(selected.Model).IsEqualTo("deepseek-v4-pro");
     }
 
     [Test]

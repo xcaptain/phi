@@ -66,8 +66,9 @@ public class PromptInputLayoutTests
         await Assert.That(layout.Editor.AcceptsReturn).IsTrue();
         await Assert.That(layout.Editor.TextWrapping).IsEqualTo(TextWrapping.Wrap);
         await Assert.That(layout.Editor.MinHeight).IsEqualTo(48);
-        await Assert.That(layout.Editor.Background).IsEqualTo(Brushes.Transparent);
-        await Assert.That(layout.Editor.BorderThickness).IsEqualTo(new Thickness(0));
+        // SukiUI's NoShadow class keeps it transparent / borderless (even on
+        // focus); the class is the declarative contract, applied by theme.
+        await Assert.That(layout.Editor.Classes.Contains("NoShadow")).IsTrue();
         await Assert.That(layout.Editor.PlaceholderText).IsEqualTo("Ask Phi anything…");
     }
 

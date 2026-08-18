@@ -34,9 +34,9 @@
     one box.
 
     Pure layout. The PromptInputView controller wires behaviour on the
-    named controls: the editor's borderless template + Enter/Esc keys,
-    the pickers' ItemsSource/ItemTemplate/SelectionChanged, and the
-    submit button's idle/running glyph toggle.
+    named controls: the editor's Enter/Esc keys, the pickers'
+    ItemsSource/ItemTemplate/SelectionChanged, and the submit button's
+    idle/running glyph toggle.
   -->
 
   <!-- The input sits in the same 1:8:1 reading column as the transcript so
@@ -49,14 +49,16 @@
             BorderBrush="{DynamicResource ControlBorder}"
             CornerRadius="12">
       <StackPanel Spacing="0">
+      <!-- SukiUI's NoShadow keeps the editor transparent with no border —
+           including on focus/pointerover — so it blends into the input
+           shell (previously a custom borderless template did this). -->
       <TextBox x:Name="Editor"
+               Classes="NoShadow"
                PlaceholderText="Ask Phi anything…"
                AcceptsReturn="True"
                TextWrapping="Wrap"
                MinHeight="48"
-               MaxHeight="200"
-               Background="Transparent"
-               BorderThickness="0"/>
+               MaxHeight="200"/>
       <DockPanel x:Name="Footer"
                  LastChildFill="True"
                  HorizontalSpacing="8"

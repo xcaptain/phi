@@ -1,12 +1,5 @@
-using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Presenters;
-using Avalonia.Controls.Primitives;
-using Avalonia.Controls.Templates;
-using Avalonia.Data;
 using Avalonia.Input;
-using Avalonia.Layout;
-using Avalonia.Media;
 using Avalonia.Threading;
 using Material.Icons;
 using PhiAgent;
@@ -14,7 +7,6 @@ using PhiCoding.Chat;
 using PhiCoding.Prompt;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
-using TextBlock = global::Avalonia.Controls.TextBlock;
 
 namespace PhiCoding.Avalonia.Components;
 
@@ -121,14 +113,18 @@ public sealed class PromptInputView
 
     private void WireEditor()
     {
-        // Transparent editor so it blends into the container's chrome
-        // rather than drawing its own box inside the box. The stock Fluent
-        // theme redraws a border on focus/pointerover, so swap in a fully
-        // borderless template (MakeBorderlessEditor).
-        MakeBorderlessEditor(_layout.Editor);
-
         _layout.Editor.KeyDown += (_, e) =>
         {
+            // Directional keys move the caret / selection (handled by the
+            // TextBox itself); mark them Handled so they don't bubble up to
+            // the SukiSideMenu, whose TreeView.OnKeyDown navigates its
+            // (empty) items source and crashes on arrow keys.
+            if (e.Key.ToNavigationDirection()?.IsDirectional() == true)
+            {
+                e.Handled = true;
+                return;
+            }
+
             // Enter submits; Shift+Enter inserts a newline. Marking Handled
             // suppresses the TextBox's own newline insertion.
             if (e.Key == Key.Enter && (e.KeyModifiers & KeyModifiers.Shift) == 0)
@@ -179,7 +175,12 @@ public sealed class PromptInputView
         // so no template wiring is needed here — just the data + behaviour.
         combo.ItemsSource = _modelItems;
 
-        var currentIndex = _modelItems.IndexOfFirstSelectable();
+        // Select the row for the live model, not just the provider's first
+        // model (IndexOfFirstSelectable would highlight the wrong row when
+        // the current model isn't first in the catalog).
+        var currentIndex = _modelItems.IndexOfCurrent() >= 0
+            ? _modelItems.IndexOfCurrent()
+            : _modelItems.IndexOfFirstSelectable();
         if (currentIndex >= 0)
             combo.SelectedIndex = currentIndex;
 
@@ -211,7 +212,10 @@ public sealed class PromptInputView
     {
         RebuildModelItems(state.ProviderName, state.Model);
         var combo = _layout.ModelCombo;
-        var idx = _modelItems.IndexOfFirstSelectable();
+        // Keep the selection on the live model's row (IndexOfFirstSelectable
+        // would snap back to the provider's first model).
+        var idx = _modelItems.IndexOfCurrent();
+        if (idx < 0) idx = _modelItems.IndexOfFirstSelectable();
         if (idx >= 0 && combo.SelectedIndex != idx)
         {
             _suppressModelSelection = true;
@@ -406,76 +410,6 @@ public sealed class PromptInputView
             button.Background = AvaloniaTheme.Accent;
             ToolTip.SetTip(button, "Submit (Enter)");
         }
-    }
-
-    /// <summary>
-    /// Replaces the editor's Fluent <c>ControlTheme</c> with a minimal
-    /// borderless template. The stock theme draws a border on the template's
-    /// <c>PART_BorderElement</c> via <c>:focus</c>/<c>:pointerover</c>
-    /// visual-state styles that ignore the control's own
-    /// <c>BorderThickness</c>, so the editor keeps showing a box inside the
-    /// input container no matter what we set on the control. This template
-    /// renders only the placeholder + <c>TextPresenter</c> inside a
-    /// <c>ScrollViewer</c> — no border element at all — so the editor blends
-    /// into the rounded input chrome and the footer toolbar reads as part of
-    /// the same box.
-    /// </summary>
-    private static void MakeBorderlessEditor(TextBox editor)
-    {
-        editor.Template = new FuncControlTemplate((templated, scope) =>
-        {
-            var textBox = (TextBox)templated;
-
-            var placeholder = new TextBlock
-            {
-                Foreground = textBox.PlaceholderForeground,
-                Text = textBox.PlaceholderText,
-                TextWrapping = textBox.TextWrapping,
-                VerticalAlignment = VerticalAlignment.Top,
-                IsHitTestVisible = false,
-            };
-            // Show the placeholder only while the box is empty.
-            placeholder.Bind(
-                Visual.IsVisibleProperty,
-                textBox.GetBindingObservable(TextBox.TextProperty, (string? s) => string.IsNullOrEmpty(s)));
-
-            var presenter = new TextPresenter
-            {
-                Name = "PART_TextPresenter",
-                TextWrapping = textBox.TextWrapping,
-                SelectionBrush = textBox.SelectionBrush,
-                CaretBrush = textBox.CaretBrush,
-                VerticalAlignment = VerticalAlignment.Top,
-            };
-            presenter.RegisterInNameScope(scope);
-            // The editor keeps the source-of-truth Text (TwoWay so typed text
-            // flows back); TextBox pushes caret/selection during editing, but
-            // the initial programmatic value needs the binding.
-            presenter.Bind(
-                TextPresenter.TextProperty,
-                new TemplateBinding(TextBox.TextProperty) { Mode = BindingMode.TwoWay });
-            presenter.Bind(TextPresenter.CaretIndexProperty, new TemplateBinding(TextBox.CaretIndexProperty));
-            presenter.Bind(TextPresenter.SelectionStartProperty, new TemplateBinding(TextBox.SelectionStartProperty));
-            presenter.Bind(TextPresenter.SelectionEndProperty, new TemplateBinding(TextBox.SelectionEndProperty));
-            presenter.Bind(TextPresenter.SelectionBrushProperty, new TemplateBinding(TextBox.SelectionBrushProperty));
-            presenter.Bind(TextPresenter.SelectionForegroundBrushProperty, new TemplateBinding(TextBox.SelectionForegroundBrushProperty));
-            presenter.Bind(TextPresenter.CaretBrushProperty, new TemplateBinding(TextBox.CaretBrushProperty));
-
-            var scrollViewer = new ScrollViewer
-            {
-                Name = "PART_ScrollViewer",
-                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Background = Brushes.Transparent,
-                Content = new Panel
-                {
-                    Children = { placeholder, presenter },
-                },
-            };
-            scrollViewer.RegisterInNameScope(scope);
-
-            return scrollViewer;
-        });
     }
 
     // ──────── Dispatcher helpers ────────

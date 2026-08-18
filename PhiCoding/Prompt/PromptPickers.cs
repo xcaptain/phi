@@ -149,6 +149,20 @@ public static class PromptInputPickerExtensions
         return -1;
     }
 
+    /// <summary>
+    /// Index of the currently-active model row (the one the builder marked
+    /// <see cref="ModelPickerItem.IsCurrent"/>). Used to keep the combo's
+    /// selection on the live model even when it isn't the first model of the
+    /// provider — <see cref="IndexOfFirstSelectable"/> would always snap back
+    /// to the provider's first model.
+    /// </summary>
+    public static int IndexOfCurrent(this IReadOnlyList<ModelPickerItem> items)
+    {
+        for (var i = 0; i < items.Count; i++)
+            if (items[i].IsCurrent) return i;
+        return -1;
+    }
+
     /// <summary>Index of the row whose <see cref="WorkspacePickerItem.Cwd"/> matches.</summary>
     public static int IndexOfCwd(this IReadOnlyList<WorkspacePickerItem> items, string cwd)
     {

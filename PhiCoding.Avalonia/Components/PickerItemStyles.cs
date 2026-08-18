@@ -16,14 +16,16 @@ public static class PickerItemStyles
 {
     /// <summary>
     /// Model row foreground: provider header rows are dimmed, the
-    /// currently-active model is accented, everything else uses the
-    /// default foreground (null → theme default).
+    /// currently-active model is accented, everything else uses the primary
+    /// text color. Returning null would bind the brush to "no brush" and
+    /// render the row invisible (it does not fall back to inheritance), so
+    /// every row gets an explicit brush.
     /// </summary>
     public static FuncValueConverter<ModelPickerItem, IBrush?> ModelForeground { get; } = new(
-        item => item is null ? null
+        item => item is null ? AvaloniaTheme.TextPrimary
               : item.IsHeader ? AvaloniaTheme.TextSecondary
               : item.IsCurrent ? AvaloniaTheme.Accent
-              : null);
+              : AvaloniaTheme.TextPrimary);
 
     /// <summary>Model row font weight: header bold, current semibold, else normal.</summary>
     public static FuncValueConverter<ModelPickerItem, FontWeight> ModelFontWeight { get; } = new(
@@ -32,9 +34,13 @@ public static class PickerItemStyles
               : item.IsCurrent ? FontWeight.SemiBold
               : FontWeight.Normal);
 
-    /// <summary>Workspace row foreground: the "Choose folder…" sentinel is dimmed.</summary>
+    /// <summary>
+    /// Workspace row foreground: the "Choose folder…" sentinel is dimmed,
+    /// everything else uses the primary text color (null would render it
+    /// invisible, see <see cref="ModelForeground"/>).
+    /// </summary>
     public static FuncValueConverter<WorkspacePickerItem, IBrush?> WorkspaceForeground { get; } = new(
-        item => item is null || !item.IsSentinel ? null : AvaloniaTheme.TextSecondary);
+        item => item is not null && item.IsSentinel ? AvaloniaTheme.TextSecondary : AvaloniaTheme.TextPrimary);
 
     /// <summary>Workspace row font weight: sentinel semibold, else normal.</summary>
     public static FuncValueConverter<WorkspacePickerItem, FontWeight> WorkspaceFontWeight { get; } = new(

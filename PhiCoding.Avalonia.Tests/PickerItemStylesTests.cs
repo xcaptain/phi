@@ -46,11 +46,13 @@ public class PickerItemStylesTests
     }
 
     [Test]
-    public async Task ModelForeground_Normal_IsDefault()
+    public async Task ModelForeground_Normal_IsPrimaryText()
     {
-        // null foreground → theme default text.
+        // A normal (non-header, non-current) row must be readable — an
+        // explicit primary-text brush, NOT null (a null brush renders the
+        // row invisible rather than inheriting).
         var result = PickerItemStyles.ModelForeground.Convert(Model(), null!, null!, null!);
-        await Assert.That(result).IsNull();
+        await Assert.That(result).IsEqualTo(AvaloniaTheme.TextPrimary);
     }
 
     [Test]
@@ -65,12 +67,13 @@ public class PickerItemStylesTests
     }
 
     [Test]
-    public async Task WorkspaceForeground_SentinelIsDimmed_ElseDefault()
+    public async Task WorkspaceForeground_SentinelIsDimmed_ElsePrimaryText()
     {
         await Assert.That(PickerItemStyles.WorkspaceForeground.Convert(Workspace(isSentinel: true), null!, null!, null!))
             .IsEqualTo(AvaloniaTheme.TextSecondary);
+        // Non-sentinel rows use the primary text brush (never null).
         await Assert.That(PickerItemStyles.WorkspaceForeground.Convert(Workspace(isSentinel: false), null!, null!, null!))
-            .IsNull();
+            .IsEqualTo(AvaloniaTheme.TextPrimary);
     }
 
     [Test]
