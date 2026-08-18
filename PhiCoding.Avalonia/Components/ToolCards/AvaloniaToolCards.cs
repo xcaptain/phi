@@ -167,6 +167,21 @@ public abstract class AvaloniaToolCardBase : IAvaloniaToolCard
             _section.SetBody(new ToolCardBodyFrame(body, allowHorizontalScroll));
     }
 
+    /// <summary>
+    /// Defers the detail body until the card is first expanded (see
+    /// <see cref="CollapsibleSection.SetLazyBody"/>). The body is wrapped in
+    /// the standard <see cref="ToolCardBodyFrame"/> the same way as
+    /// <see cref="SetDetailBody"/>, but the frame + content are only built on
+    /// first expand. This keeps a long transcript's initial render fast — the
+    /// expensive bodies (syntax-highlighted read content, side-by-side diffs)
+    /// are built lazily for the few cards the user actually opens.
+    /// </summary>
+    protected void SetLazyDetailBody(Func<Control> bodyFactory, bool allowHorizontalScroll = true)
+    {
+        ArgumentNullException.ThrowIfNull(bodyFactory);
+        _section.SetLazyBody(() => new ToolCardBodyFrame(bodyFactory(), allowHorizontalScroll));
+    }
+
     protected abstract void OnShowPending(ToolCall toolCall);
     protected abstract void OnComplete(ToolCall toolCall, ToolResult result);
 }
@@ -195,7 +210,7 @@ public sealed class ReadToolCardView : AvaloniaToolCardBase
 
         if (result.IsError)
         {
-            SetDetailBody(AvaloniaToolCardHelpers.BodyText(result.Text,
+            SetLazyDetailBody(() => AvaloniaToolCardHelpers.BodyText(result.Text,
                 foreground: AvaloniaTheme.Danger));
             return;
         }
@@ -215,7 +230,10 @@ public sealed class ReadToolCardView : AvaloniaToolCardBase
             ? path
             : $"{path}  ·  lines {details.Offset}-{details.Offset + details.LineCount - 1} of {details.TotalLineCount}  ·  {AvaloniaToolCardHelpers.FormatBytes(details.ByteCount)}";
 
-        SetDetailBody(new SyntaxHighlightedContent(metaHeader, content, lang));
+        // The syntax-highlighted body (MarkdownViewer over the whole file) is
+        // the single most expensive control in the transcript (~25ms/card);
+        // defer it until the user expands this card.
+        SetLazyDetailBody(() => new SyntaxHighlightedContent(metaHeader, content, lang));
     }
 
     internal static string FormatInvocation(ToolCall toolCall)
@@ -273,13 +291,13 @@ public sealed class WriteToolCardView : AvaloniaToolCardBase
 
         if (result.IsError)
         {
-            SetDetailBody(AvaloniaToolCardHelpers.BodyText(result.Text,
+            SetLazyDetailBody(() => AvaloniaToolCardHelpers.BodyText(result.Text,
                 mono: true,
                 foreground: AvaloniaTheme.Danger));
             return;
         }
 
-        SetDetailBody(BuildMetadataBody(details));
+        SetLazyDetailBody(() => BuildMetadataBody(details));
     }
 
     private static TextBlock BuildMetadataBody(WriteDetails? details)
@@ -329,9 +347,9 @@ public sealed class EditToolCardView : AvaloniaToolCardBase
             // Disable horizontal scroll so the two diff columns get a
             // bounded width: text wraps instead of overflowing, and the
             // Grid's star columns stay equal so multi-block diffs align.
-            SetDetailBody(SideBySideDiff.Build(edit), allowHorizontalScroll: false);
+            SetLazyDetailBody(() => SideBySideDiff.Build(edit), allowHorizontalScroll: false);
         else
-            SetDetailBody(AvaloniaToolCardHelpers.BodyText(
+            SetLazyDetailBody(() => AvaloniaToolCardHelpers.BodyText(
                 Truncate(result.Text),
                 foreground: result.IsError ? AvaloniaTheme.Danger : null));
     }
@@ -370,7 +388,7 @@ public sealed class BashToolCardView : AvaloniaToolCardBase
 
         var stdout = bash?.Stdout ?? ExtractText(result.Content, 0);
         var stderr = bash?.Stderr ?? ExtractText(result.Content, 1);
-        SetDetailBody(new BashOutputView(stdout, stderr));
+        SetLazyDetailBody(() => new BashOutputView(stdout, stderr));
     }
 
     /// <summary>
@@ -410,7 +428,7 @@ public sealed class GenericToolCardView : AvaloniaToolCardBase
         var status = AvaloniaToolCardHelpers.StatusGlyph(result.IsError);
         var summary = FormatArgSummary(Call!.Arguments);
         SetHeader(status, toolCall.Name, summary);
-        SetDetailBody(AvaloniaToolCardHelpers.BodyText(Truncate(result.Text)));
+        SetLazyDetailBody(() => AvaloniaToolCardHelpers.BodyText(Truncate(result.Text)));
     }
 
     /// <summary>

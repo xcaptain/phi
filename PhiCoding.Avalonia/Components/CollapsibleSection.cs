@@ -34,6 +34,7 @@ public sealed class CollapsibleSection : UserControl
     private readonly Border _headerArea;
     private readonly MaterialIcon _chevron;
     private bool _isExpanded;
+    private Func<Control>? _lazyBodyFactory;
 
     /// <summary>Builds a section with the given header / body, collapsed by default.</summary>
     /// <param name="headerContent">Always-visible header row (title text + icon, etc.).</param>
@@ -88,7 +89,10 @@ public sealed class CollapsibleSection : UserControl
         e.Handled = true;
     }
 
-    /// <summary>Expansion state. Setting flips the body visibility + chevron.</summary>
+    /// <summary>Expansion state. Setting flips the body visibility + chevron.
+    /// Expanding also builds a pending lazy body (see
+    /// <see cref="SetLazyBody"/>) so expensive detail content is deferred
+    /// until the user actually opens the section.</summary>
     public bool IsExpanded
     {
         get => _isExpanded;
@@ -96,6 +100,8 @@ public sealed class CollapsibleSection : UserControl
         {
             if (_isExpanded == value) return;
             _isExpanded = value;
+            if (value)
+                BuildLazyBody();
             _bodyHost.IsVisible = value;
             _chevron.Kind = value ? MaterialIconKind.ChevronDown : MaterialIconKind.ChevronRight;
         }
@@ -106,7 +112,31 @@ public sealed class CollapsibleSection : UserControl
     public void SetBody(Control body)
     {
         ArgumentNullException.ThrowIfNull(body);
+        _lazyBodyFactory = null;
         _bodyHost.Content = body;
+    }
+
+    /// <summary>
+    /// Defers body construction until the section is first expanded. The
+    /// factory runs once, on expand, and the result is cached — collapsing
+    /// and re-expanding reuses it. Used for expensive tool-card detail
+    /// bodies (e.g. the read card's syntax-highlighted file content) so a
+    /// long transcript doesn't build hundreds of collapsed bodies up front.
+    /// </summary>
+    public void SetLazyBody(Func<Control> bodyFactory)
+    {
+        ArgumentNullException.ThrowIfNull(bodyFactory);
+        _lazyBodyFactory = bodyFactory;
+        if (_isExpanded)
+            BuildLazyBody();
+    }
+
+    private void BuildLazyBody()
+    {
+        if (_lazyBodyFactory is null) return;
+        var factory = _lazyBodyFactory;
+        _lazyBodyFactory = null;
+        _bodyHost.Content = factory();
     }
 
     /// <summary>The header title control (tests / external updates).</summary>

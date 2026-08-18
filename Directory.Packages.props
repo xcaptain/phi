@@ -13,6 +13,7 @@
     <PackageVersion Include="MarkView.Avalonia.SyntaxHighlighting" Version="12.1.1" />
     <PackageVersion Include="Material.Icons" Version="3.0.2" />
     <PackageVersion Include="Material.Icons.Avalonia" Version="3.0.2" />
+    <PackageVersion Include="SukiUI" Version="7.0.1" />
     <PackageVersion Include="TUnit" Version="1.61.38" />
     <PackageVersion Include="XenoAtom.Terminal.UI" Version="3.8.1" />
     <PackageVersion Include="XenoAtom.Terminal.UI.Extensions.Markdown" Version="3.8.1" />

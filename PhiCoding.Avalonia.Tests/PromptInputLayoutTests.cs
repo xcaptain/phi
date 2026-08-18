@@ -19,26 +19,39 @@ public class PromptInputLayoutTests
         return new PromptInputLayout();
     }
 
+    /// <summary>Walks through the 1:8:1 reading-column Grid to the input Border.</summary>
+    private static Border ShellOf(PromptInputLayout layout)
+    {
+        var grid = (Grid)layout.Content!;
+        return (Border)grid.Children[0];
+    }
+
     [Test]
-    public async Task Root_IsUserControl_WrappingRoundedBorder()
+    public async Task Root_IsUserControl_WrappingReadingColumn()
     {
         var layout = CreateLayout();
         await Assert.That(layout).IsAssignableTo<UserControl>();
 
-        var shell = (Border)layout.Content!;
+        // Content is now a 1:8:1 reading-column Grid matching the transcript.
+        var grid = (Grid)layout.Content!;
+        await Assert.That(grid.ColumnDefinitions.Count).IsEqualTo(3);
+
+        var shell = ShellOf(layout);
         await Assert.That(shell.CornerRadius).IsEqualTo(new CornerRadius(12));
         await Assert.That(shell.BorderThickness).IsEqualTo(new Thickness(1));
-        // Side margins match the transcript's document padding so the input
-        // box aligns with the conversation content.
-        await Assert.That(shell.Margin.Left).IsEqualTo(48);
-        await Assert.That(shell.Margin.Right).IsEqualTo(48);
+        // The input sits in the center (8*) column so it aligns with the
+        // conversation content; horizontal breathing comes from the grid.
+        await Assert.That(Grid.GetColumn(shell)).IsEqualTo(1);
+        await Assert.That(shell.Margin.Left).IsEqualTo(0);
+        await Assert.That(shell.Margin.Right).IsEqualTo(0);
+        await Assert.That(shell.Margin.Bottom).IsEqualTo(12);
     }
 
     [Test]
     public async Task Stack_HasEditorOnTop_AndFooterBelow()
     {
         var layout = CreateLayout();
-        var shell = (Border)layout.Content!;
+        var shell = ShellOf(layout);
         var stack = (StackPanel)shell.Child!;
 
         await Assert.That(stack.Children.Count).IsEqualTo(2);

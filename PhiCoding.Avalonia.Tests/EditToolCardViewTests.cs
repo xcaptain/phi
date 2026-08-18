@@ -29,8 +29,12 @@ public class EditToolCardViewTests
             Details: ToolDetails.Node(details),
             IsError: isError);
 
-    private static ToolCardBodyFrame FrameOf(EditToolCardView card) =>
-        (ToolCardBodyFrame)((CollapsibleSection)card.Visual).BodyContent;
+    private static ToolCardBodyFrame FrameOf(EditToolCardView card)
+    {
+        var section = (CollapsibleSection)card.Visual;
+        section.IsExpanded = true;  // force the lazy body to build
+        return (ToolCardBodyFrame)section.BodyContent;
+    }
 
     [Test]
     public async Task Complete_Success_DiffBodyDisablesHorizontalScroll()

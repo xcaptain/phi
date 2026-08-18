@@ -18,6 +18,9 @@
     <PackageReference Include="MarkView.Avalonia.SyntaxHighlighting" />
     <PackageReference Include="Material.Icons.Avalonia" />
     <PackageReference Include="DiffPlex" />
+    <!-- SukiUI: full theme + window chrome + controls (Phase 0 spike —
+         replaces FluentTheme as the app's visual system). -->
+    <PackageReference Include="SukiUI" />
   </ItemGroup>
 
   <ItemGroup>

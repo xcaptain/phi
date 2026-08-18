@@ -39,13 +39,16 @@
     submit button's idle/running glyph toggle.
   -->
 
-  <Border x:Name="Shell"
-          Margin="48,0,48,12"
-          Padding="12,8,10,8"
-          BorderThickness="1"
-          BorderBrush="{DynamicResource ControlBorder}"
-          CornerRadius="12">
-    <StackPanel Spacing="0">
+  <!-- The input sits in the same 1:8:1 reading column as the transcript so
+       the box aligns with the conversation content at every window width. -->
+  <Grid ColumnDefinitions="*,8*,*">
+    <Border Grid.Column="1" x:Name="Shell"
+            Margin="0,0,0,12"
+            Padding="12,8,10,8"
+            BorderThickness="1"
+            BorderBrush="{DynamicResource ControlBorder}"
+            CornerRadius="12">
+      <StackPanel Spacing="0">
       <TextBox x:Name="Editor"
                PlaceholderText="Ask Phi anything…"
                AcceptsReturn="True"
@@ -90,5 +93,6 @@
         </Button>
       </DockPanel>
     </StackPanel>
-  </Border>
+    </Border>
+  </Grid>
 </UserControl>

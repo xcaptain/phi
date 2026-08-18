@@ -1,16 +1,20 @@
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using PhiCoding.Providers;
 using PhiCoding.Sessions;
+using SukiUI.Controls;
 
 namespace PhiCoding.Avalonia;
 
 /// <summary>
 /// The desktop main window: hosts the <see cref="ShellView"/> and wires
-/// the window's Closed event to disposal.
+/// the window's Closed event to disposal. Built on <see cref="SukiWindow"/>
+/// (Phase 1) so the app gets SukiUI's themed window chrome — a custom
+/// title bar with the app logo — instead of the stock OS title bar.
 /// </summary>
-public sealed class MainWindow : Window, IDisposable
+public sealed class MainWindow : SukiWindow
 {
     private readonly ShellView _shell;
 
@@ -19,11 +23,10 @@ public sealed class MainWindow : Window, IDisposable
         ArgumentNullException.ThrowIfNull(navigator);
         ArgumentNullException.ThrowIfNull(providers);
 
-        // macOS shows the app name in the menu bar (via the process name)
-        // and in the title bar of untitled windows, so the window title can
-        // stay empty there for a cleaner look. Windows / Linux rely on the
-        // window title for the title bar and taskbar, so keep it explicit.
-        Title = OperatingSystem.IsMacOS() ? "" : "Phi";
+        // SukiWindow draws its own title bar, so the title is shown on every
+        // platform (the old macOS "keep title empty" hack was for the OS
+        // title bar, which no longer renders).
+        Title = "Phi";
         Width = 1024;
         Height = 720;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -38,15 +41,25 @@ public sealed class MainWindow : Window, IDisposable
         Icon = new WindowIcon(
             new Bitmap(AssetLoader.Open(new Uri("avares://PhiCoding.Avalonia/Assets/phi.png"))));
 
+        // App logo shown in the SukiWindow title bar, next to the title.
+        LogoContent = new Image
+        {
+            Source = new Bitmap(AssetLoader.Open(
+                new Uri("avares://PhiCoding.Avalonia/Assets/phi.png"))),
+            Width = 18,
+            Height = 18,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+
+        // No app menu in the title bar (Phase 1); the shell fills the window.
+        IsMenuVisible = false;
+        IsTitleBarVisible = true;
+
         _shell = new ShellView(navigator, providers);
         Content = _shell.Root;
 
         Closed += (_, _) => _shell.Dispose();
     }
-
-    /// <summary>Releases the shell's subscriptions.</summary>
-    public void Dispose() => _shell.Dispose();
-
 
     /// <summary>The shell, exposed for tests.</summary>
     internal ShellView Shell => _shell;

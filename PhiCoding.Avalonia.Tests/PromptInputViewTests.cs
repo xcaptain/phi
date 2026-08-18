@@ -121,10 +121,11 @@ public class PromptInputViewTests
         var (_, _, view, _) = Create();
 
         // view.Root is now the PromptInputLayout UserControl; walk into its
-        // Content (the rounded Border).
+        // Content (1:8:1 reading-column Grid) to the rounded Border.
         var root = view.Root;
         await Assert.That(root).IsAssignableTo<global::Avalonia.Controls.ContentControl>();
-        var outer = (global::Avalonia.Controls.Border)((global::Avalonia.Controls.ContentControl)root).Content!;
+        var grid = (global::Avalonia.Controls.Grid)((global::Avalonia.Controls.ContentControl)root).Content!;
+        var outer = (global::Avalonia.Controls.Border)grid.Children[0];
 
         // Known structure: Border -> StackPanel { editor, DockPanel footer
         // { modelCombo, workspaceCombo, submitButton } }. Navigate it to

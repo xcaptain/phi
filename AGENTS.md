@@ -102,7 +102,7 @@ PhiCoding.Tui exe 下分：
 
 PhiCoding.Avalonia 库下分：
 
-- `PhiCoding.Avalonia/`：应用壳 `PhiAvaloniaApp`（Avalonia `Application`）+ `MainWindow` + `ShellView`（两栏 shell）+ `ChatPageView` + `NavModel`（纯导航模型）+ `AvaloniaTheme`（语义色 / FluentTheme 集成）+ 入口组件 + `DeskLog`
+- `PhiCoding.Avalonia/`：应用壳 `PhiAvaloniaApp`（Avalonia `Application`）+ `MainWindow`（基于 `SukiWindow`）+ `ShellView`（两栏 shell）+ `ChatPageView` + `NavModel`（纯导航模型）+ `AvaloniaTheme`（语义色，映射到 SukiUI 色板）+ 入口组件 + `DeskLog`
 - `PhiCoding.Avalonia/Components/`：与 TUI 镜像的积木——`TranscriptView`（订阅 projector，按 `ChatLine.Id` DIFF 渲染到 `StackPanel`）、`PromptInputView`（editor + slash 分发 + 工作区选择器 + 模型 picker）、`ProvidersPage`（provider 连接 + API key 弹窗）、`ToolCards/`（Avalonia 实现）
 - `PhiCoding.Avalonia/Controls/`：`EllipsisMenu` 等跨组件复用的小控件
 - 命名空间：`PhiCoding.Avalonia.*`（含子命名空间 `PhiCoding.Avalonia.Components.*` / `PhiCoding.Avalonia.Controls.*`）
@@ -117,17 +117,19 @@ PhiCoding.Avalonia.Desktop exe 下分：
 Avalonia shell 不是 TUI 的单页全屏聊天，而是两栏布局：
 
 `PhiCoding.Avalonia.Desktop.Program` → `PhiAvaloniaApp` → `MainWindow` → `ShellView`
-（左栏：New Chat + 会话列表 + footer 的 Providers 入口；右栏：
-`ViewHost`（`ContentControl`）切换聊天页 / ProvidersPage）。
+（两栏壳用 SukiUI 的 `SukiSideMenu`：玻璃 pane 承载左栏的 sessions 浏览器，
+右栏走 `UseCustomContent=true` 用我们的 `ViewHost`（`ContentControl`）切换聊天页 /
+ProvidersPage——不走 SukiSideMenu 的 item 导航模型）。
 
-左栏构造：
+左栏按 SukiSideMenu 的三区槽位布局：
 
-- 顶部 New Chat 按钮 → `NavigateToNewAsync()`
-- "By date" / "By workspace" 分组模式切换（icon-only，`AvaloniaTheme.Accent` 高亮）
-- 会话 `ListBox`，按 `NavModel.GroupMode` 分组；每行 session 显示标题 + ⋯ 菜单（Rename / Delete），workspace 行显示工作区名 + ⋯ 菜单（New session / Delete workspace）
-- 底部 Models / Providers footer 按钮
+- `HeaderContent`（五行 Grid，`MaxHeight` 绑定 SideMenu 高度防止溢出）：New Chat 导航行（圆角，SukiSideMenuItem 观感）→ divider → sessions header → sessions `ListBox`（`*` 行填满）→ Providers 导航行（pin 在底部，小窗口也可见）
+- Items 区：不用——sessions 是定制数据列表，不是菜单 item
+- `FooterContent`：不用
 
-选中 session 触发 `ResumeAsync`，`SessionChanged` 时重建聊天页。Models / Providers 通过
+sessions 按 `NavModel.GroupMode` 分组；每行 session 显示标题 + `EllipsisMenu`（XAML UserControl：Border 触发器 + `PointerPressed` 手动 toggle 菜单 + 顶层 `PointerPressed` 外部点击 dismiss，Rename / Delete），workspace 行显示工作区名 + ⋯ 菜单（New session / Delete workspace）
+
+选中 session 触发 `ResumeAsync`，`SessionChanged` 时重建聊天页。Providers 通过
 `ViewHost.Content` 切换。
 
 **重要**：导航（`NavigateToNewAsync` / `ResumeAsync`）不能在 `ListBox.SelectionChanged` 的
@@ -164,6 +166,6 @@ TUI 绑定进程 cwd，`/sessions` 只看当前目录；Avalonia 桌面不绑定
 
 ## 桌面 UI 差异（Avalonia vs TUI）
 
-- Avalonia 有成熟的控件体系：Markdown 通过 `Markdown.Avalonia` 渲染，图标通过 `Material.Icons.Avalonia` 渲染，主题走 `FluentTheme`（light / dark 自动跟随系统）。
-- 语义色统一在 `PhiCoding.Avalonia.AvaloniaTheme`（`TextSecondary` / `Danger` / `Success` / `Accent` / `ControlBorder` / `ContainerBackground` 等），没有 TUI ANSI 命名的色板。
+- Avalonia 有成熟的控件体系：Markdown 通过 `MarkView.Avalonia` 渲染，图标通过 `Material.Icons.Avalonia` 渲染，主题走 `SukiUI`（`SukiTheme` + `SukiWindow`，light / dark 自动跟随系统；`PhiAvaloniaApp.axaml` 用 `<suki:SukiTheme ThemeColor="Blue"/>`）。
+- 语义色统一在 `PhiCoding.Avalonia.AvaloniaTheme`（`TextSecondary` / `Danger` / `Success` / `Accent` / `ControlBorder` / `ContainerBackground` 等），明暗 hex 对映射 SukiUI 色板，light/dark 跟随 `Application.ActualThemeVariant`；没有 TUI ANSI 命名的色板。
 - 两个 UI 共用 `ChatTranscriptProjector` 投影：各自按 `ChatLine.Id` DIFF 渲染（TUI→DocumentFlow，Avalonia→StackPanel）。

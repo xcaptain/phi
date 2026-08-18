@@ -48,10 +48,13 @@ public class BashToolCardViewTests
 
     /// <summary>The bash card's body is wrapped in a
     /// <see cref="ToolCardBodyFrame"/>; unwrap the Border → ScrollViewer
-    /// → BashOutputView chain to get to the inner view.</summary>
+    /// → BashOutputView chain to get to the inner view. Expanding the
+    /// section first forces the lazy body to build.</summary>
     private static BashOutputView BodyOf(BashToolCardView card)
     {
-        var frame = (ToolCardBodyFrame)((CollapsibleSection)card.Visual).BodyContent;
+        var section = (CollapsibleSection)card.Visual;
+        section.IsExpanded = true;
+        var frame = (ToolCardBodyFrame)section.BodyContent;
         var scroll = (ScrollViewer)frame.Child!;
         return (BashOutputView)scroll.Content!;
     }
@@ -194,7 +197,9 @@ public class BashToolCardViewTests
         card.ShowPending(Call("ls"));
         card.Complete(BashResult(new BashDetails("ls", 0, 1, "ok", "")));
 
-        var frame = (ToolCardBodyFrame)((CollapsibleSection)card.Visual).BodyContent;
+        var section = (CollapsibleSection)card.Visual;
+        section.IsExpanded = true;  // force the lazy body to build
+        var frame = (ToolCardBodyFrame)section.BodyContent;
         await Assert.That(frame.MaxHeight).IsEqualTo(ToolCardBodyFrame.DefaultMaxHeight);
         await Assert.That(frame.Child).IsAssignableFrom<ScrollViewer>();
     }

@@ -85,20 +85,26 @@ public class TranscriptViewTests
     }
 
     [Test]
-    public async Task Root_HasDocumentStyleSidePadding()
+    public async Task Root_HasCenteredReadingColumn()
     {
-        // The transcript must not run lines to the window edge: generous,
-        // symmetric horizontal padding on the scroll container (document
-        // reading margins) plus vertical breathing room.
+        // The transcript must not run lines to the window edge: the lines
+        // live in a centered 1:8:1 reading column (content = 80%, side
+        // margins = 10% each, scaling with window width) plus vertical
+        // breathing room on the scroll container.
         var (_, _, view) = Create();
 
-        // view.Root is now the TranscriptLayout UserControl; walk into its
-        // Content (ScrollViewer) to read the padding.
+        // view.Root is the TranscriptLayout UserControl; walk into its
+        // Content (ScrollViewer) → reading-column Grid.
         var scroll = (global::Avalonia.Controls.ScrollViewer)((global::Avalonia.Controls.ContentControl)view.Root).Content!;
-        await Assert.That(scroll.Padding.Left).IsEqualTo(48);
-        await Assert.That(scroll.Padding.Right).IsEqualTo(48);
         await Assert.That(scroll.Padding.Top).IsGreaterThan(0);
         await Assert.That(scroll.Padding.Bottom).IsGreaterThan(0);
+
+        var grid = (global::Avalonia.Controls.Grid)scroll.Content!;
+        await Assert.That(grid.ColumnDefinitions.Count).IsEqualTo(3);
+        // The LinesPanel (the panel the transcript fills) sits in the center
+        // (8*) column, so lines never touch the window edge.
+        var panel = (global::Avalonia.Controls.StackPanel)grid.Children[0];
+        await Assert.That(global::Avalonia.Controls.Grid.GetColumn(panel)).IsEqualTo(1);
     }
 
     [Test]
@@ -256,6 +262,7 @@ public class TranscriptViewTests
         await Assert.That(view.LineCount).IsEqualTo(2);
 
         var section = (PhiCoding.Avalonia.Components.CollapsibleSection)view.LineAt(1);
+        section.IsExpanded = true;  // force the lazy tool-card body to build
         // Body is wrapped in ToolCardBodyFrame → ScrollViewer → BashOutputView.
         var frame = (PhiCoding.Avalonia.Components.ToolCards.ToolCardBodyFrame)section.BodyContent;
         var scroll = (global::Avalonia.Controls.ScrollViewer)frame.Child!;
@@ -300,6 +307,7 @@ public class TranscriptViewTests
         await Assert.That(view.LineCount).IsEqualTo(2);
 
         var section = (PhiCoding.Avalonia.Components.CollapsibleSection)view.LineAt(1);
+        section.IsExpanded = true;  // force the lazy tool-card body to build
         var frame = (PhiCoding.Avalonia.Components.ToolCards.ToolCardBodyFrame)section.BodyContent;
         var scroll = (global::Avalonia.Controls.ScrollViewer)frame.Child!;
         var body = (PhiCoding.Avalonia.Components.ToolCards.BashOutputView)scroll.Content!;
@@ -322,5 +330,68 @@ public class TranscriptViewTests
 
         await Assert.That(view.LineCount).IsEqualTo(1);
         await Assert.That(projector.Current.OfType<UserTextLine>().Single().Text).IsEqualTo("fresh");
+    }
+
+    [Test]
+    public async Task Bind_ScrollsTranscriptToBottom()
+    {
+        // When the user switches to a long session, the transcript should
+        // land at the latest line (bottom), not the top — that's where the
+        // eye expects a chat to start.
+        AvaloniaTestHost.EnsureInitialized();
+        var session = new MockSession();
+        var projector = new ChatTranscriptProjector(session);
+        projector.ClearAndLoad([
+            new PhiAgent.UserMessage { Content = "first" },
+            new PhiAgent.AssistantMessage { Content = [new PhiAgent.TextBlock("reply 1")], StopReason = "end_turn" },
+            new PhiAgent.UserMessage { Content = "second" },
+            new PhiAgent.AssistantMessage { Content = [new PhiAgent.TextBlock("reply 2")], StopReason = "end_turn" },
+            new PhiAgent.UserMessage { Content = "latest" },
+        ]);
+
+        var view = new TranscriptView(dispatchToUi: a => a());
+        var window = new Window { Width = 800, Height = 600, Content = view.Root };
+        window.Show();
+        view.Bind(projector);
+        // Bind posts the unconditional scroll-to-bottom at Background
+        // priority; let layout + the posted scroll run.
+        global::Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        var scroll = (global::Avalonia.Controls.ScrollViewer)((global::Avalonia.Controls.ContentControl)view.Root).Content!;
+        var distanceFromBottom = scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y;
+        await Assert.That(distanceFromBottom).IsLessThanOrEqualTo(0.5);
+        window.Close();
+    }
+
+    [Test]
+    public async Task StreamingLine_SticksToBottom_WhenUserAtBottom()
+    {
+        // While the model streams new lines, the scroll should follow
+        // automatically — the user is watching the conversation. If they
+        // have scrolled up to re-read history, however, a new line must
+        // NOT snap them back to the bottom.
+        AvaloniaTestHost.EnsureInitialized();
+        var session = new MockSession();
+        var projector = new ChatTranscriptProjector(session);
+        var view = new TranscriptView(dispatchToUi: a => a());
+        var window = new Window { Width = 800, Height = 600, Content = view.Root };
+        window.Show();
+        view.Bind(projector);
+        global::Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        var scroll = (global::Avalonia.Controls.ScrollViewer)((global::Avalonia.Controls.ContentControl)view.Root).Content!;
+
+        // The user scrolls up to re-read an older message.
+        scroll.Offset = new Vector(0, 0);
+        var topOffset = scroll.Offset.Y;
+        await Assert.That(topOffset).IsEqualTo(0);
+
+        // A new line arrives via the streaming path — must NOT snap back.
+        session.EmitHarnessEvent(new AssistantTextDeltaEvent("new tail"));
+        global::Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+
+        var stillAtTop = scroll.Offset.Y;
+        await Assert.That(stillAtTop).IsEqualTo(0);  // sticky-to-top preserved
+        window.Close();
     }
 }

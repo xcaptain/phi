@@ -53,19 +53,19 @@ public sealed partial class PhiAvaloniaApp : Application
 
     public override void Initialize()
     {
-        // Load the compiled PhiAvaloniaApp.axaml (FluentTheme + MarkView
+        // Load the compiled PhiAvaloniaApp.axaml (SukiTheme + MarkView
         // MarkdownTheme via a compile-time-resolved StyleInclude). This is
         // the official AOT-safe pattern — the XAML is compiled into the
         // assembly and loaded by type, with no runtime XAML compilation.
         AvaloniaXamlLoader.Load(this);
 
-        // Expose the AvaloniaTheme brushes as application resources so XAML
-        // layouts can reference them via {DynamicResource Accent} etc. The
-        // brushes are evaluated against the current theme variant here, and
-        // AvaloniaTheme itself is theme-reactive on subsequent reads; in
-        // practice the OS theme is fixed for the app lifetime so a single
-        // registration is enough.
+        // Expose the AvaloniaTheme semantic brushes as app resources so XAML
+        // chrome can reference them via {DynamicResource ControlBorder} etc.
+        // Re-registered on every theme-variant change so the XAML chrome
+        // (sidebar border, dividers, submit button) follows SukiUI's runtime
+        // light/dark switching just like the C#-built components do.
         RegisterThemeResources();
+        ActualThemeVariantChanged += (_, _) => RegisterThemeResources();
 
         // Material.Icons.Avalonia's MaterialIcon control is a templated
         // control; without its styles the icons render as empty boxes.
@@ -99,10 +99,13 @@ public sealed partial class PhiAvaloniaApp : Application
 
     /// <summary>
     /// Registers the <see cref="AvaloniaTheme"/> semantic brushes as
-    /// application-level resources so XAML styles can consume them via
-    /// <c>{DynamicResource Accent}</c> etc. without having to recreate the
-    /// brush lookup in every component. Resource keys match the C#
-    /// property names so the XAML stays readable.
+    /// application-level resources so XAML chrome can reference them via
+    /// <c>{DynamicResource ControlBorder}</c> etc. Re-run on every
+    /// <see cref="Application.ActualThemeVariant"/> change (from
+    /// <c>Initialize</c>) so the XAML chrome follows SukiUI's runtime
+    /// light/dark switching. SukiUI's own theme dictionaries aren't
+    /// reachable from <c>Application.Current</c>, so we bridge them through
+    /// <see cref="AvaloniaTheme"/>'s SukiUI-mapped hex pairs instead.
     /// </summary>
     private void RegisterThemeResources()
     {

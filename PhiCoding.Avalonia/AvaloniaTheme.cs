@@ -9,34 +9,43 @@ namespace PhiCoding.Avalonia;
 /// TUI used ANSI named colors (red/green/yellow/dim); these map to fixed
 /// hex pairs chosen per light/dark variant so component code never
 /// hardcodes a one-theme color. Brushes are cached per variant.
+/// <para>
+/// The hex pairs mirror SukiUI's palette (see
+/// <c>SukiUI/ColorTheme/Light.axaml</c> + <c>Dark.axaml</c> and the
+/// active <c>SukiColorTheme</c>), so the hand-drawn chrome (bubbles, tool
+/// cards, sidebar) visually matches the SukiUI-themed controls. Light/dark
+/// follows <see cref="Application.ActualThemeVariant"/> — SukiTheme's
+/// <c>SwitchBaseTheme()</c> flips it, and the per-variant brush cache picks
+/// the matching hex pair.
+/// </para>
 /// </summary>
 public static class AvaloniaTheme
 {
-    /// <summary>Default body text (assistant messages, command output, etc.).</summary>
-    public static IBrush TextPrimary => Pick(0xFF1F2937, 0xFFE5E7EB);
+    /// <summary>Default body text (assistant messages, command output, etc.) → SukiUI <c>SukiText</c>.</summary>
+    public static IBrush TextPrimary => Pick(0xFF222222, 0xFFEDFFFF);
 
-    /// <summary>Secondary / dimmed text (path, token counters, thinking).</summary>
-    public static IBrush TextSecondary => Pick(0xFF6B7280, 0xFF9CA3AF);
+    /// <summary>Secondary / dimmed text (path, token counters, thinking) → SukiUI <c>SukiLowText</c>.</summary>
+    public static IBrush TextSecondary => Pick(0xFF555555, 0xFFCAFFFF);
 
-    /// <summary>Error text (persistent failures).</summary>
-    public static IBrush Danger => Pick(0xFFC42B1C, 0xFFFF8A8A);
+    /// <summary>Error text (persistent failures) → SukiUI <c>SukiDangerColor</c>.</summary>
+    public static IBrush Danger => Pick(0xFFF5222D, 0xFFF5222D);
 
-    /// <summary>Error background tint.</summary>
+    /// <summary>Error background tint (SukiUI has no danger-background semantic).</summary>
     public static IBrush DangerBackground => Pick(0xFFFDECEA, 0xFF3B1F1F);
 
-    /// <summary>Success text (completed tool calls).</summary>
-    public static IBrush Success => Pick(0xFF1B7F3B, 0xFF6FCF97);
+    /// <summary>Success text (completed tool calls) → SukiUI <c>SukiSuccessColor</c>.</summary>
+    public static IBrush Success => Pick(0xFF279F27, 0xFF228B22);
 
-    /// <summary>Border color for bubbles / pickers.</summary>
-    public static IBrush ControlBorder => Pick(0xFFD1D5DB, 0xFF4B5563);
+    /// <summary>Border color for bubbles / pickers → SukiUI <c>SukiControlBorderBrush</c>.</summary>
+    public static IBrush ControlBorder => Pick(0xFFCECECE, 0xFF606060);
 
-    /// <summary>Bubble background.</summary>
-    public static IBrush ContainerBackground => Pick(0xFFF3F4F6, 0xFF1F2937);
+    /// <summary>Bubble background → SukiUI <c>SukiCardBackground</c>.</summary>
+    public static IBrush ContainerBackground => Pick(0xFFFFFFFF, 0xFF323232);
 
-    /// <summary>Accent used for the submit button.</summary>
-    public static IBrush Accent => Pick(0xFF7C3AED, 0xFFA78BFA);
+    /// <summary>Accent used for the submit button → SukiUI <c>SukiPrimaryColor</c> (Blue theme).</summary>
+    public static IBrush Accent => Pick(0xFF0A59F7, 0xFF0A59F7);
 
-    /// <summary>Text drawn on top of <see cref="Accent"/>.</summary>
+    /// <summary>Text drawn on top of <see cref="Accent"/> → SukiUI <c>HighlightForegroundColor</c>.</summary>
     public static IBrush AccentText { get; } = new SolidColorBrush(Colors.White);
 
     /// <summary>

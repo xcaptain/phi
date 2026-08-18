@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using PhiAgent;
 using PhiCoding.Avalonia.Tests.Helpers;
 using PhiCoding.Providers;
@@ -130,30 +131,26 @@ public class ShellViewTests
     [Test]
     public async Task Sidebar_IsThreeSections_WithDividersAndHeader()
     {
-        // The sidebar must be three sections separated by dividers:
-        //   0. New Chat button
-        //   1. divider
-        //   2. sessions header row ("会话" + icon-only toggle buttons)
-        //   3. sessions list (star row)
-        //   4. divider
-        //   5. footer (Models / Providers)
+        // The sidebar must be three sections (New Chat / sessions browser /
+        // Providers) using SukiSideMenu's natural slots:
+        //   HeaderContent: [New Chat, divider, sessions header, sessions list]
+        //   FooterContent: Providers
         var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
         using (shell)
         using (navigator)
         {
-            // shell.Root is now the ShellLayout UserControl; walk into the
-            // two-column Grid to reach the sidebar.
-            var outer = (global::Avalonia.Controls.Grid)((global::Avalonia.Controls.ContentControl)shell.Root).Content!;
-            var leftBorder = (global::Avalonia.Controls.Border)outer.Children[0];
-            var pane = (global::Avalonia.Controls.Grid)leftBorder.Child!;
-            await Assert.That(pane.RowDefinitions.Count).IsEqualTo(6);
+            // shell.Root is now the ShellLayout UserControl built on
+            // SukiSideMenu; the sessions browser lives in its HeaderContent
+            // (a five-row Grid: New Chat / divider / sessions header /
+            // sessions list / Providers).
+            var sideMenu = (SukiUI.Controls.SukiSideMenu)((global::Avalonia.Controls.ContentControl)shell.Root).Content!;
+            var pane = (global::Avalonia.Controls.Grid)sideMenu.HeaderContent!;
+            await Assert.That(pane.RowDefinitions.Count).IsEqualTo(5);
 
-            // Row 0 is the New Chat button.
+            // Row 0 is the New Chat button, row 1 the divider.
             await Assert.That(pane.Children[0].GetType()).IsEqualTo(typeof(global::Avalonia.Controls.Button));
-            // Rows 1 and 4 are the separators.
             await Assert.That(pane.Children[1].GetType()).IsEqualTo(typeof(global::Avalonia.Controls.Border));
-            await Assert.That(pane.Children[4].GetType()).IsEqualTo(typeof(global::Avalonia.Controls.Border));
-            // Row 3 is the sessions list.
+            // Row 3 is the sessions list (star row).
             await Assert.That(ReferenceEquals(pane.Children[3], shell.SessionsList)).IsTrue();
 
             // The sessions header (row 2) is a two-column Grid: "会话" in
@@ -172,6 +169,10 @@ public class ShellViewTests
             // (no text label), so they stay compact.
             await Assert.That(shell.ByDateButton.Content!.GetType().Name).IsEqualTo("MaterialIcon");
             await Assert.That(shell.ByWorkspaceButton.Content!.GetType().Name).IsEqualTo("MaterialIcon");
+
+            // Providers sits pinned at the bottom of the bounded browser grid,
+            // staying visible even in a short window.
+            await Assert.That(ReferenceEquals(pane.Children[4], shell.ProvidersButton)).IsTrue();
         }
     }
 
@@ -306,6 +307,73 @@ public class ShellViewTests
     }
 
     [Test]
+    public async Task SessionRow_MenuIsInSeparateAutoColumn_NotOverlappingTitle()
+    {
+        // Regression: rows used a DockPanel with a Left-docked title sized to
+        // its desired width, which overlapped the ⋯ menu on long titles. The
+        // row is now a Grid: title fills a star column (ellipsizing), the menu
+        // lives in a fixed Auto column so it's always clickable.
+        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        using (shell)
+        using (navigator)
+        {
+            var row = shell.BuildSessionRow(new NavModel.Entry(
+                NavModel.Kind.Session, "a very long session title that would overflow", "id-1"));
+            var grid = row;
+            await Assert.That(grid.ColumnDefinitions.Count).IsEqualTo(2);
+            await Assert.That(grid.ColumnDefinitions[0].Width).IsEqualTo(new GridLength(1, GridUnitType.Star));
+            await Assert.That(grid.ColumnDefinitions[1].Width).IsEqualTo(GridLength.Auto);
+
+            var title = (global::Avalonia.Controls.TextBlock)grid.Children[0];
+            var menu = (PhiCoding.Avalonia.Controls.EllipsisMenu)grid.Children[2];
+            await Assert.That(Grid.GetColumn(title)).IsEqualTo(0);
+            await Assert.That(Grid.GetColumn(menu)).IsEqualTo(1);
+        }
+    }
+
+    [Test]
+    public async Task SessionRows_DoNotShowSukiCheckIcon()
+    {
+        // SukiUI's ListBoxItem theme draws a "✓" check on the selected row;
+        // the selection background tint already marks it, so a local style
+        // hides PathIcon#CheckSelected for the sessions list on every row.
+        var phiHome = Path.Combine(Path.GetTempPath(), $"phi-av-check-{Guid.NewGuid():N}");
+        var previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = phiHome;
+        try
+        {
+            var s = CodingSession.Create(Path.GetTempPath(), "m");
+            s.AppendMessage(new PhiAgent.UserMessage { Content = "seed" });
+
+            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            using (shell)
+            using (navigator)
+            {
+                var window = new Window { Width = 800, Height = 600, Content = shell.Root };
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+
+                var container = shell.SessionsList.ContainerFromIndex(0);
+                await Assert.That(container).IsNotNull();
+
+                var check = container!
+                    .GetVisualDescendants()
+                    .OfType<global::Avalonia.Controls.PathIcon>()
+                    .FirstOrDefault(p => p.Name == "CheckSelected");
+                await Assert.That(check).IsNotNull();
+                await Assert.That(check!.IsVisible).IsFalse();
+
+                window.Close();
+            }
+        }
+        finally
+        {
+            SessionPaths.PhiHome = previousPhiHome;
+            if (Directory.Exists(phiHome)) Directory.Delete(phiHome, recursive: true);
+        }
+    }
+
+    [Test]
     public async Task WorkspaceRow_ContainsEllipsisMenu_WithNewSessionAndDelete()
     {
         var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
@@ -340,7 +408,7 @@ public class ShellViewTests
 
             // Entering rename mode hides the title + menu so the edit field
             // fills the whole row.
-            ShellView.BeginRename(entry, title, renameBox, menu);
+            shell.BeginRename(entry, title, renameBox, menu);
             await Assert.That(title.IsVisible).IsFalse();
             await Assert.That(menu.IsVisible).IsFalse();
             await Assert.That(renameBox.IsVisible).IsTrue();
@@ -352,6 +420,57 @@ public class ShellViewTests
             await Assert.That(renameBox.IsVisible).IsFalse();
             await Assert.That(title.IsVisible).IsTrue();
             await Assert.That(menu.IsVisible).IsTrue();
+        }
+    }
+
+    [Test]
+    public async Task SessionRow_OutsidePointerPress_CommitsRename()
+    {
+        // Regression: clicking anywhere outside the edit field (including on
+        // non-focusable empty space, which doesn't move keyboard focus) must
+        // commit the rename and exit edit mode.
+        var phiHome = Path.Combine(Path.GetTempPath(), $"phi-av-rename-{Guid.NewGuid():N}");
+        var previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = phiHome;
+        try
+        {
+            var s = CodingSession.Create(Path.GetTempPath(), "m");
+            s.AppendMessage(new PhiAgent.UserMessage { Content = "seed" });
+
+            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            using (shell)
+            using (navigator)
+            {
+                var entry = new NavModel.Entry(NavModel.Kind.Session, "Original", s.Id);
+                var row = shell.BuildSessionRow(entry);
+                var window = new Window { Content = row };
+                window.Show();
+                Dispatcher.UIThread.RunJobs();
+
+                var title = (global::Avalonia.Controls.TextBlock)row.Children[0];
+                var renameBox = (global::Avalonia.Controls.TextBox)row.Children[1];
+                var menu = (PhiCoding.Avalonia.Controls.EllipsisMenu)row.Children[2];
+
+                shell.BeginRename(entry, title, renameBox, menu);
+                renameBox.Text = "Renamed by outside click";
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(renameBox.IsVisible).IsTrue();
+
+                // A pointer press on the row background (outside the TextBox)
+                // must commit the rename and leave edit mode.
+                PointerInputSimulator.LeftClick(row);
+                Dispatcher.UIThread.RunJobs();
+
+                await Assert.That(renameBox.IsVisible).IsFalse();
+                await Assert.That(title.IsVisible).IsTrue();
+                await Assert.That(menu.IsVisible).IsTrue();
+                window.Close();
+            }
+        }
+        finally
+        {
+            SessionPaths.PhiHome = previousPhiHome;
+            if (Directory.Exists(phiHome)) Directory.Delete(phiHome, recursive: true);
         }
     }
 

@@ -2,10 +2,12 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Material.Icons.Avalonia;
 using PhiCoding.Avalonia.Components;
 using PhiCoding.Avalonia.Controls;
@@ -39,6 +41,14 @@ public sealed class ShellView : IDisposable
     private string? _lastTitle;
     private NavModel.GroupMode _groupMode = NavModel.GroupMode.ByWorkspace;
     private List<NavModel.Entry> _entries = [];
+
+    // The row currently in rename-edit mode, if any, plus the top level
+    // whose pointer presses commit the edit (see AttachRenameDismiss).
+    private NavModel.Entry? _renameEntry;
+    private TextBlock? _renameTitle;
+    private TextBox? _renameBox;
+    private EllipsisMenu? _renameMenu;
+    private TopLevel? _renameTopLevel;
 
     public ShellView(
         ISessionNavigator navigator,
@@ -179,7 +189,7 @@ public sealed class ShellView : IDisposable
     /// row resumes the session; the ellipsis button swallows its own
     /// pointer events so it doesn't leak into row selection.
     /// </summary>
-    internal DockPanel BuildSessionRow(NavModel.Entry entry)
+    internal Grid BuildSessionRow(NavModel.Entry entry)
     {
         var title = new TextBlock
         {
@@ -225,9 +235,19 @@ public sealed class ShellView : IDisposable
         renameBox.LostFocus += (_, _) =>
             EndRename(entry, title, renameBox, menu, commit: true);
 
-        var row = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 2) };
-        DockPanel.SetDock(title, Dock.Left);
-        DockPanel.SetDock(menu, Dock.Right);
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+            Margin = new Thickness(0, 2),
+        };
+        // Title and the rename field share column 0 (only one is visible at a
+        // time); the ⋯ menu sits in the fixed Auto column 1. A DockPanel's
+        // Left-docked title sized to its desired width and would overlap the
+        // menu on long titles — the star column keeps the title constrained
+        // so TextTrimming ellipsizes instead.
+        Grid.SetColumn(title, 0);
+        Grid.SetColumn(renameBox, 0);
+        Grid.SetColumn(menu, 1);
         row.Children.Add(title);
         row.Children.Add(renameBox);
         row.Children.Add(menu);
@@ -240,7 +260,7 @@ public sealed class ShellView : IDisposable
     /// label isn't selectable (OnSessionSelection clears any highlight), but
     /// the container stays enabled so the menu button remains clickable.
     /// </summary>
-    internal DockPanel BuildWorkspaceRow(NavModel.Entry entry)
+    internal Grid BuildWorkspaceRow(NavModel.Entry entry)
     {
         var label = new TextBlock
         {
@@ -259,9 +279,14 @@ public sealed class ShellView : IDisposable
             .AddItem("New session", () => NewSessionInWorkspace(entry.Cwd))
             .AddItem("Delete", () => DeleteWorkspaceRow(entry.Cwd));
 
-        var row = new DockPanel { LastChildFill = true };
-        DockPanel.SetDock(label, Dock.Left);
-        DockPanel.SetDock(menu, Dock.Right);
+        var row = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,Auto"),
+        };
+        // Label fills the star column (long workspace names ellipsize); the
+        // ⋯ menu sits in the fixed Auto column so it never overlaps.
+        Grid.SetColumn(label, 0);
+        Grid.SetColumn(menu, 1);
         row.Children.Add(label);
         row.Children.Add(menu);
         return row;
@@ -269,25 +294,37 @@ public sealed class ShellView : IDisposable
 
     /// <summary>
     /// Switches the row into edit mode: the whole row becomes the rename
-    /// field (title and menu hidden so the box fills the row width).
+    /// field (title and menu hidden so the box fills the row width). While
+    /// renaming, any pointer press outside the field (including on
+    /// non-focusable areas) commits the edit — focus loss alone isn't
+    /// enough because clicking empty space doesn't move keyboard focus.
     /// </summary>
-    internal static void BeginRename(NavModel.Entry entry, TextBlock title, TextBox renameBox, EllipsisMenu menu)
+    internal void BeginRename(NavModel.Entry entry, TextBlock title, TextBox renameBox, EllipsisMenu menu)
     {
+        _renameEntry = entry;
+        _renameTitle = title;
+        _renameBox = renameBox;
+        _renameMenu = menu;
         title.IsVisible = false;
         menu.IsVisible = false;
         renameBox.Text = entry.Title;
         renameBox.IsVisible = true;
         renameBox.Focus();
         renameBox.CaretIndex = renameBox.Text?.Length ?? 0;
+        AttachRenameDismiss();
     }
 
     /// <summary>
-    /// Ends edit mode. When <paramref name="commit"/> is true (Enter / blur)
-    /// the new title is persisted if it changed; Esc cancels without
-    /// writing. Either way the row returns to its normal display.
+    /// Ends edit mode. When <paramref name="commit"/> is true (Enter / blur /
+    /// outside click) the new title is persisted if it changed; Esc cancels
+    /// without writing. Either way the row returns to its normal display.
     /// </summary>
     internal void EndRename(NavModel.Entry entry, TextBlock title, TextBox renameBox, EllipsisMenu menu, bool commit)
     {
+        // Idempotent: hiding the box raises LostFocus, which calls this
+        // again — bail once the edit has already ended.
+        if (!renameBox.IsVisible) return;
+        DetachRenameDismiss();
         var text = (renameBox.Text ?? string.Empty).Trim();
         if (commit
             && text.Length > 0
@@ -299,7 +336,49 @@ public sealed class ShellView : IDisposable
         renameBox.IsVisible = false;
         title.IsVisible = true;
         menu.IsVisible = true;
+        _renameEntry = null;
+        _renameTitle = null;
+        _renameBox = null;
+        _renameMenu = null;
         _postToUi(RebuildNavigation);
+    }
+
+    // ──────── Commit rename on outside press ────────
+
+    private void AttachRenameDismiss()
+    {
+        if (_renameBox is null) return;
+        _renameTopLevel = TopLevel.GetTopLevel(_renameBox);
+        if (_renameTopLevel is null) return;
+        _renameTopLevel.AddHandler(
+            InputElement.PointerPressedEvent,
+            OnRenameOutsidePress,
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+    }
+
+    private void DetachRenameDismiss()
+    {
+        if (_renameTopLevel is null) return;
+        _renameTopLevel.RemoveHandler(InputElement.PointerPressedEvent, OnRenameOutsidePress);
+        _renameTopLevel = null;
+    }
+
+    private void OnRenameOutsidePress(object? sender, PointerPressedEventArgs e)
+    {
+        // Clicking inside the edit field keeps editing; any other press —
+        // including on non-focusable empty space — commits the rename.
+        if (_renameBox is { } box
+            && e.Source is Visual { } source
+            && box.IsVisualAncestorOf(source))
+            return;
+        if (_renameEntry is { } entry
+            && _renameTitle is { } title
+            && _renameBox is { } renameBox
+            && _renameMenu is { } menu)
+        {
+            EndRename(entry, title, renameBox, menu, commit: true);
+        }
     }
 
     /// <summary>Commits a session rename from id + new title (tests / menus).</summary>
@@ -495,6 +574,7 @@ public sealed class ShellView : IDisposable
 
     public void Dispose()
     {
+        DetachRenameDismiss();
         _navigator.SessionChanged -= OnSessionChanged;
         if (_watchedSession is not null)
             _watchedSession.StateChanged -= OnSessionStateForNav;

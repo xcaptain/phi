@@ -38,16 +38,22 @@ public class ChatPageViewTests
     }
 
     [Test]
-    public async Task PromptInput_HasSideMargins_MatchingTranscriptPadding()
+    public async Task PromptInput_IsInSameReadingColumnAsTranscript()
     {
         var (_, page) = Create();
 
-        // page.PromptInput.Root is now the PromptInputLayout UserControl;
-        // walk into its Content (the rounded Border).
+        // page.PromptInput.Root is the PromptInputLayout UserControl; its
+        // Content is now a 1:8:1 reading-column Grid with the input Border in
+        // the center column — matching the transcript, so the box always
+        // aligns with the conversation content.
         var layout = (global::Avalonia.Controls.ContentControl)page.PromptInput.Root;
-        var input = (global::Avalonia.Controls.Border)layout.Content!;
-        // Left/right margins align with the transcript's 48px document padding.
-        await Assert.That(input.Margin.Left).IsEqualTo(48);
-        await Assert.That(input.Margin.Right).IsEqualTo(48);
+        var grid = (global::Avalonia.Controls.Grid)layout.Content!;
+        await Assert.That(grid.ColumnDefinitions.Count).IsEqualTo(3);
+        var input = (global::Avalonia.Controls.Border)grid.Children[0];
+        await Assert.That(global::Avalonia.Controls.Grid.GetColumn(input)).IsEqualTo(1);
+        // Bottom margin kept; horizontal breathing comes from the grid.
+        await Assert.That(input.Margin.Left).IsEqualTo(0);
+        await Assert.That(input.Margin.Right).IsEqualTo(0);
+        await Assert.That(input.Margin.Bottom).IsEqualTo(12);
     }
 }

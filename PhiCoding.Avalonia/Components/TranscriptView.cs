@@ -59,8 +59,11 @@ public sealed class TranscriptView
     internal IReadOnlyCollection<string> LineIds => _visualsByLineId.Keys;
 
     /// <summary>
-    /// Subscribes to the projector. The initial projection is rendered
-    /// synchronously; subsequent updates arrive through
+    /// Subscribes to the projector. The initial projection is rendered in
+    /// bounded chunks on the UI thread so a large resumed transcript paints
+    /// progressively (the page shows immediately, lines stream in over a few
+    /// frames) instead of blocking for ~1s building every MarkdownViewer /
+    /// tool card up front. Subsequent updates arrive through
     /// <see cref="ChatTranscriptProjector.Changed"/> and are marshalled to
     /// the UI thread via the dispatcher.
     /// </summary>
@@ -68,7 +71,42 @@ public sealed class TranscriptView
     {
         ArgumentNullException.ThrowIfNull(projector);
         projector.Changed += lines => _dispatchToUi(() => OnProjectorChanged(lines));
-        OnProjectorChanged(projector.Current);
+        RenderInitial(projector.Current);
+        // Switched to a new (long) session — show the latest, not the
+        // oldest. The first chunk is already rendered synchronously; post at
+        // Background priority so the scroll happens after layout has
+        // computed Extent/Viewport.
+        Dispatcher.UIThread.Post(ScrollToBottom, DispatcherPriority.Background);
+    }
+
+    /// <summary>Lines rendered per initial-render chunk. Tuned so one chunk
+    /// (≈ a few ms of MarkdownViewer / tool-card construction per line) fits
+    /// comfortably inside a frame budget while still filling a long
+    /// transcript in well under a second.</summary>
+    private const int InitialRenderChunkSize = 12;
+
+    /// <summary>How close to the bottom the user must be (in pixels) for new
+    /// lines to drag the scroll along. Larger = "more sticky".</summary>
+    private const double StickToBottomThresholdPx = 32;
+
+    private void RenderInitial(IReadOnlyList<ChatLine> lines)
+    {
+        var index = 0;
+        void RenderNextChunk()
+        {
+            var end = Math.Min(index + InitialRenderChunkSize, lines.Count);
+            for (; index < end; index++)
+            {
+                var line = lines[index];
+                // A concurrent Changed update (streaming edge) may have added
+                // it already; never double-add.
+                if (!_visualsByLineId.ContainsKey(line.Id))
+                    CreateAndAdd(line);
+            }
+            if (index < lines.Count)
+                Dispatcher.UIThread.Post(RenderNextChunk);
+        }
+        RenderNextChunk();
     }
 
     private static void Dispatch(Action action)
@@ -95,6 +133,35 @@ public sealed class TranscriptView
         var handle = CreateHandle(line);
         _visualsByLineId[line.Id] = handle;
         _layout.LinesPanel.Children.Add(handle.Root);
+        StickToBottom();
+    }
+
+    private void ScrollToBottom()
+    {
+        var scroll = (Root as ContentControl)?.Content as ScrollViewer;
+        if (scroll is null) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            scroll.Offset = new Vector(0, Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height));
+        }, DispatcherPriority.Background);
+    }
+
+    /// <summary>Keeps the scroll glued to the bottom as new lines arrive, but
+    /// only if the user is already near the bottom — scrolling up to read
+    /// older messages must not be hijacked.</summary>
+    private void StickToBottom()
+    {
+        var scroll = (Root as ContentControl)?.Content as ScrollViewer;
+        if (scroll is null) return;
+        Dispatcher.UIThread.Post(() =>
+        {
+            var extent = scroll.Extent.Height;
+            var viewport = scroll.Viewport.Height;
+            if (extent <= viewport) return;  // nothing to scroll
+            var distanceFromBottom = extent - viewport - scroll.Offset.Y;
+            if (distanceFromBottom <= StickToBottomThresholdPx)
+                scroll.Offset = new Vector(0, extent - viewport);
+        }, DispatcherPriority.Background);
     }
 
     private static void UpdateLine(LineHandle handle, ChatLine line)

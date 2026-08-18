@@ -37,7 +37,11 @@ public class ReadToolCardViewTests
         => (TextBlock)((CollapsibleSection)card.Visual).HeaderContent;
 
     private static ToolCardBodyFrame BodyFrameOf(ReadToolCardView card)
-        => (ToolCardBodyFrame)((CollapsibleSection)card.Visual).BodyContent;
+    {
+        var section = (CollapsibleSection)card.Visual;
+        section.IsExpanded = true;  // force the lazy body to build
+        return (ToolCardBodyFrame)section.BodyContent;
+    }
 
     private static SyntaxHighlightedContent BodyOf(ReadToolCardView card)
         => (SyntaxHighlightedContent)((ScrollViewer)BodyFrameOf(card).Child!).Content!;
