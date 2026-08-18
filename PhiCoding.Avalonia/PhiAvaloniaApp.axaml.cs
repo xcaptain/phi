@@ -59,6 +59,14 @@ public sealed partial class PhiAvaloniaApp : Application
         // assembly and loaded by type, with no runtime XAML compilation.
         AvaloniaXamlLoader.Load(this);
 
+        // Expose the AvaloniaTheme brushes as application resources so XAML
+        // layouts can reference them via {DynamicResource Accent} etc. The
+        // brushes are evaluated against the current theme variant here, and
+        // AvaloniaTheme itself is theme-reactive on subsequent reads; in
+        // practice the OS theme is fixed for the app lifetime so a single
+        // registration is enough.
+        RegisterThemeResources();
+
         // Material.Icons.Avalonia's MaterialIcon control is a templated
         // control; without its styles the icons render as empty boxes.
         // Must be added to the app styles (see the package README for 2.0+).
@@ -87,6 +95,26 @@ public sealed partial class PhiAvaloniaApp : Application
         // can't replace. Setting it here guarantees our menu is the one used.
         if (OperatingSystem.IsMacOS())
             InstallMacAppMenu();
+    }
+
+    /// <summary>
+    /// Registers the <see cref="AvaloniaTheme"/> semantic brushes as
+    /// application-level resources so XAML styles can consume them via
+    /// <c>{DynamicResource Accent}</c> etc. without having to recreate the
+    /// brush lookup in every component. Resource keys match the C#
+    /// property names so the XAML stays readable.
+    /// </summary>
+    private void RegisterThemeResources()
+    {
+        Resources["TextPrimary"] = AvaloniaTheme.TextPrimary;
+        Resources["TextSecondary"] = AvaloniaTheme.TextSecondary;
+        Resources["Danger"] = AvaloniaTheme.Danger;
+        Resources["DangerBackground"] = AvaloniaTheme.DangerBackground;
+        Resources["Success"] = AvaloniaTheme.Success;
+        Resources["ControlBorder"] = AvaloniaTheme.ControlBorder;
+        Resources["ContainerBackground"] = AvaloniaTheme.ContainerBackground;
+        Resources["Accent"] = AvaloniaTheme.Accent;
+        Resources["AccentText"] = AvaloniaTheme.AccentText;
     }
 
     public override void OnFrameworkInitializationCompleted()

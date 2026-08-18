@@ -92,7 +92,9 @@ public class TranscriptViewTests
         // reading margins) plus vertical breathing room.
         var (_, _, view) = Create();
 
-        var scroll = (global::Avalonia.Controls.ScrollViewer)view.Root;
+        // view.Root is now the TranscriptLayout UserControl; walk into its
+        // Content (ScrollViewer) to read the padding.
+        var scroll = (global::Avalonia.Controls.ScrollViewer)((global::Avalonia.Controls.ContentControl)view.Root).Content!;
         await Assert.That(scroll.Padding.Left).IsEqualTo(48);
         await Assert.That(scroll.Padding.Right).IsEqualTo(48);
         await Assert.That(scroll.Padding.Top).IsGreaterThan(0);

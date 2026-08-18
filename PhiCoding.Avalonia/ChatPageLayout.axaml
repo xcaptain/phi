@@ -1,0 +1,20 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PhiCoding.Avalonia.ChatPageLayout">
+  <!--
+    Single chat page:
+      Row 0 (star): transcript fills the page
+      Row 1 (auto): prompt input docks at the bottom
+
+    No header row — the model/provider label was dropped from this surface
+    (it's already visible in the prompt input's picker).
+
+    The two named ContentControls are slots; ChatPageView sets their
+    Content to the live transcript and prompt input controls at runtime.
+  -->
+
+  <Grid RowDefinitions="*,Auto">
+    <ContentControl Grid.Row="0" x:Name="TranscriptHost"/>
+    <ContentControl Grid.Row="1" x:Name="PromptInputHost"/>
+  </Grid>
+</UserControl>

@@ -9,7 +9,6 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Material.Icons;
-using Material.Icons.Avalonia;
 using PhiAgent;
 using PhiCoding.Chat;
 using PhiCoding.Prompt;
@@ -20,13 +19,18 @@ using TextBlock = global::Avalonia.Controls.TextBlock;
 namespace PhiCoding.Avalonia.Components;
 
 /// <summary>
-/// The prompt input shell. A rounded <see cref="Border"/> containing a
-/// multi-line <see cref="TextBox"/> plus a footer row holding the model
-/// picker, the workspace picker (only on fresh sessions), and the submit
-/// button. Enter submits, Shift+Enter inserts a newline, Esc cancels the
-/// running turn. Slash-command completion and dispatch are intentionally
-/// not exposed: navigation, connect, models, exit, etc. are reachable via
-/// the side bar; the input only knows about plain user messages.
+/// The prompt input controller. Owns the input's behaviour — dispatching
+/// editor text to the session (or as steering when a run is in flight),
+/// the model picker (every provider's models grouped by provider with the
+/// current one marked), the workspace picker (fresh sessions only), and
+/// the submit button's idle/running glyph — and wires it onto the named
+/// controls of <see cref="PromptInputLayout"/>.
+/// <para>
+/// Enter submits, Shift+Enter inserts a newline, Esc cancels the running
+/// turn. Slash-command completion and dispatch are intentionally not
+/// exposed: navigation, connect, models, exit, etc. are reachable via the
+/// side bar; the input only knows about plain user messages.
+/// </para>
 /// </summary>
 public sealed class PromptInputView
 {
@@ -37,11 +41,10 @@ public sealed class PromptInputView
     private readonly Func<Task<string?>> _pickFolder;
     private readonly Action<Action> _postToUi;
     private readonly Action<Action> _dispatchToUi;
+    private readonly PromptInputLayout _layout;
 
-    private TextBox? _editor;
-    private Button? _submitButton;
-    private MaterialIcon? _submitIcon;
     private bool _suppressModelSelection;
+    private bool _pickingFolder;
 
     private IReadOnlyList<ModelPickerItem> _modelItems = Array.Empty<ModelPickerItem>();
     private IReadOnlyList<WorkspacePickerItem> _workspaceItems = Array.Empty<WorkspacePickerItem>();
@@ -67,24 +70,32 @@ public sealed class PromptInputView
         _pickFolder = pickFolder ?? (() => Task.FromResult<string?>(null));
         _postToUi = postToUi ?? Post;
         _dispatchToUi = dispatchToUi ?? Dispatch;
+
+        _layout = new PromptInputLayout();
+
+        WireEditor();
+        WireSubmitButton();
+        ConfigureModelCombo();
+        ConfigureWorkspaceCombo();
     }
 
-    public Control Root { get; private set; } = null!;
+    /// <summary>The prompt input layout (the rounded input shell).</summary>
+    public Control Root => _layout;
 
     /// <summary>The session this input is bound to (tests).</summary>
     internal ISession Session => _session;
 
     /// <summary>The prompt editor (tests).</summary>
-    internal TextBox Editor => _editor!;
+    internal TextBox Editor => _layout.Editor;
 
     /// <summary>Whether the workspace picker is shown (tests).</summary>
-    internal bool WorkspacePickerVisible => WorkspaceComboBox?.IsVisible ?? false;
+    internal bool WorkspacePickerVisible => _layout.WorkspaceCombo.IsVisible;
 
-    /// <summary>The workspace picker ComboBox, when built (tests).</summary>
-    internal ComboBox? WorkspaceComboBox { get; private set; }
+    /// <summary>The workspace picker ComboBox (tests).</summary>
+    internal ComboBox WorkspaceComboBox => _layout.WorkspaceCombo;
 
-    /// <summary>The model picker ComboBox, when built (tests).</summary>
-    internal ComboBox? ModelComboBox { get; private set; }
+    /// <summary>The model picker ComboBox (tests).</summary>
+    internal ComboBox ModelComboBox => _layout.ModelCombo;
 
     /// <summary>The built model picker item list (tests).</summary>
     internal IReadOnlyList<ModelPickerItem> ModelItems => _modelItems;
@@ -96,87 +107,27 @@ public sealed class PromptInputView
     /// current editor text.</summary>
     internal void SubmitForTest() => SubmitCurrent();
 
-    /// <summary>The submit button, when built (tests).</summary>
-    internal Button? SubmitButton => _submitButton;
+    /// <summary>The submit button (tests).</summary>
+    internal Button SubmitButton => _layout.SubmitButton;
 
-    /// <summary>The submit button's current glyph, when built (tests).</summary>
-    internal MaterialIconKind? SubmitIconKind => _submitIcon?.Kind;
+    /// <summary>The submit button's current glyph (tests).</summary>
+    internal MaterialIconKind? SubmitIconKind => _layout.SubmitIcon.Kind;
 
     /// <summary>Triggers a workspace switch as a picker selection would (tests).</summary>
     internal void SelectWorkspaceForTest(string cwd) => SwitchWorkspace(cwd);
 
     /// <summary>Moves keyboard focus to the prompt editor.</summary>
-    public void FocusEditor() => _editor?.Focus();
+    public void FocusEditor() => _layout.Editor.Focus();
 
-    /// <summary>
-    /// Builds the input shell: a single rounded <see cref="Border"/> that
-    /// hosts the multi-line editor on top and, docked to its bottom, a
-    /// toolbar holding the model picker, the workspace picker (fresh
-    /// sessions only) and the submit button — the classic chat-input
-    /// layout where everything lives inside one box. Enter submits,
-    /// Shift+Enter inserts a newline, Esc cancels the running turn.
-    /// Slash-command completion and dispatch are intentionally not
-    /// exposed: navigation, connect, models, exit, etc. are reachable via
-    /// the side bar; the input only knows about plain user messages.
-    /// </summary>
-    public Control Build()
+    private void WireEditor()
     {
         // Transparent editor so it blends into the container's chrome
         // rather than drawing its own box inside the box. The stock Fluent
         // theme redraws a border on focus/pointerover, so swap in a fully
         // borderless template (MakeBorderlessEditor).
-        _editor = new TextBox
-        {
-            PlaceholderText = "Ask Phi anything…",
-            AcceptsReturn = true,
-            TextWrapping = TextWrapping.Wrap,
-            MinHeight = 48,
-            MaxHeight = 200,
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-        };
-        MakeBorderlessEditor(_editor);
+        MakeBorderlessEditor(_layout.Editor);
 
-        var modelCombo = BuildModelCombo();
-        ModelComboBox = modelCombo;
-
-        var workspaceCombo = BuildWorkspaceCombo();
-        WorkspaceComboBox = workspaceCombo;
-
-        var submitButton = new Button
-        {
-            Background = AvaloniaTheme.Accent,
-            Width = 34,
-            Height = 34,
-            Padding = new Thickness(0),
-            CornerRadius = new CornerRadius(17),
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        var submitIcon = new MaterialIcon
-        {
-            Kind = MaterialIconKind.ArrowUpward,
-            Width = 18,
-            Height = 18,
-            Foreground = AvaloniaTheme.AccentText,
-        };
-        submitButton.Content = submitIcon;
-        _submitButton = submitButton;
-        _submitIcon = submitIcon;
-        submitButton.Click += (_, _) =>
-        {
-            // While a turn runs, the button becomes a stop control; once
-            // idle it submits. Esc in the editor also cancels.
-            if (_session.State.IsRunning)
-                _session.Cancel();
-            else
-                SubmitCurrent();
-        };
-        ToolTip.SetTip(submitButton, "Submit (Enter)");
-        UpdateSubmitButton(_session.State);
-        _session.StateChanged += state => _dispatchToUi(() => UpdateSubmitButton(state));
-
-        _editor.KeyDown += (_, e) =>
+        _layout.Editor.KeyDown += (_, e) =>
         {
             // Enter submits; Shift+Enter inserts a newline. Marking Handled
             // suppresses the TextBox's own newline insertion.
@@ -191,78 +142,42 @@ public sealed class PromptInputView
                 e.Handled = true;
             }
         };
+    }
 
-        DockPanel.SetDock(modelCombo, Dock.Left);
-        DockPanel.SetDock(workspaceCombo, Dock.Left);
-        DockPanel.SetDock(submitButton, Dock.Right);
-
-        // Bottom toolbar: pickers on the left, submit on the right,
-        // everything inside the input box's rounded chrome.
-        var footer = new DockPanel
+    private void WireSubmitButton()
+    {
+        _layout.SubmitButton.Click += (_, _) =>
         {
-            LastChildFill = true,
-            HorizontalSpacing = 8,
-            Margin = new Thickness(0, 6, 0, 0),
-            Children = { modelCombo, workspaceCombo, submitButton },
+            // While a turn runs, the button becomes a stop control; once
+            // idle it submits. Esc in the editor also cancels.
+            if (_session.State.IsRunning)
+                _session.Cancel();
+            else
+                SubmitCurrent();
         };
-
-        var stack = new StackPanel
-        {
-            Spacing = 0,
-            Children = { _editor, footer },
-        };
-
-        Root = new Border
-        {
-            // Side margins match the transcript's document padding so the
-            // input box aligns with the conversation content.
-            Margin = new Thickness(48, 0, 48, 12),
-            Padding = new Thickness(12, 8, 10, 8),
-            BorderThickness = new Thickness(1),
-            BorderBrush = AvaloniaTheme.ControlBorder,
-            CornerRadius = new CornerRadius(12),
-            Child = stack,
-        };
-        return Root;
+        UpdateSubmitButton(_session.State);
+        _session.StateChanged += state => _dispatchToUi(() => UpdateSubmitButton(state));
     }
 
     // ──────── Model picker ────────
 
     /// <summary>
-    /// Builds the model picker footer: a <see cref="ComboBox"/> whose popup
-    /// lists every provider's models, grouped by provider with a styled
-    /// header row above each group. The current provider + model are
-    /// listed first and marked with ✓. Selecting a row constructs the live
+    /// Configures the model picker footer combo: its popup lists every
+    /// provider's models, grouped by provider with a styled header row
+    /// above each group. The current provider + model are listed first and
+    /// marked with ✓. Selecting a row constructs the live
     /// <see cref="IPhiProvider"/> and calls
     /// <see cref="ISession.SwitchProvider"/>; header rows are ignored.
     /// </summary>
-    private ComboBox BuildModelCombo()
+    private void ConfigureModelCombo()
     {
+        var combo = _layout.ModelCombo;
         RebuildModelItems(_session.State.ProviderName, _session.State.Model);
 
-        var combo = new ComboBox
-        {
-            MinWidth = 180,
-            MaxWidth = 320,
-            PlaceholderText = "Select model",
-            ItemsSource = _modelItems,
-            ItemTemplate = new FuncDataTemplate<ModelPickerItem>((item, _) =>
-            {
-                var label = new TextBlock { Text = item.Label };
-                if (item.IsHeader)
-                {
-                    label.Foreground = AvaloniaTheme.TextSecondary;
-                    label.FontWeight = FontWeight.Bold;
-                }
-                else if (item.IsCurrent)
-                {
-                    label.Foreground = AvaloniaTheme.Accent;
-                    label.FontWeight = FontWeight.SemiBold;
-                }
-                return label;
-            }),
-        };
-        StyleAsToolbarPicker(combo);
+        // ItemTemplate comes from the implicit DataTemplate in
+        // PromptInputLayout.axaml (matched by ModelPickerItem's DataType),
+        // so no template wiring is needed here — just the data + behaviour.
+        combo.ItemsSource = _modelItems;
 
         var currentIndex = _modelItems.IndexOfFirstSelectable();
         if (currentIndex >= 0)
@@ -290,22 +205,21 @@ public sealed class PromptInputView
         };
 
         _session.StateChanged += state => _dispatchToUi(() => OnSessionStateForModel(state));
-        return combo;
     }
 
     private void OnSessionStateForModel(SessionState state)
     {
         RebuildModelItems(state.ProviderName, state.Model);
-        if (ModelComboBox is null) return;
+        var combo = _layout.ModelCombo;
         var idx = _modelItems.IndexOfFirstSelectable();
-        if (idx >= 0 && ModelComboBox.SelectedIndex != idx)
+        if (idx >= 0 && combo.SelectedIndex != idx)
         {
             _suppressModelSelection = true;
             try
             {
-                ModelComboBox.ItemsSource = null;
-                ModelComboBox.ItemsSource = _modelItems;
-                ModelComboBox.SelectedIndex = idx;
+                combo.ItemsSource = null;
+                combo.ItemsSource = _modelItems;
+                combo.SelectedIndex = idx;
             }
             finally { _suppressModelSelection = false; }
         }
@@ -342,36 +256,22 @@ public sealed class PromptInputView
     // ──────── Workspace picker ────────
 
     /// <summary>
-    /// Builds the workspace picker footer: a single <see cref="ComboBox"/>
-    /// listing the distinct workspaces derived from session records plus
-    /// the session's current cwd if it isn't already present, with a
-    /// trailing "📁 Choose folder…" sentinel row that opens the native
-    /// folder dialog. Selecting a workspace (or picking a folder)
-    /// recreates the fresh session in that directory via
-    /// <see cref="ISessionNavigator.NavigateToNewAsync(string?)"/>.
+    /// Configures the workspace picker footer combo: lists the distinct
+    /// workspaces derived from session records plus the session's current
+    /// cwd if it isn't already present, with a trailing "📁 Choose folder…"
+    /// sentinel row that opens the native folder dialog. Selecting a
+    /// workspace (or picking a folder) recreates the fresh session in that
+    /// directory via <see cref="ISessionNavigator.NavigateToNewAsync(string?)"/>.
     /// </summary>
-    private ComboBox BuildWorkspaceCombo()
+    private void ConfigureWorkspaceCombo()
     {
+        var combo = _layout.WorkspaceCombo;
         RebuildWorkspaceItems(_session.Cwd);
 
-        var combo = new ComboBox
-        {
-            MinWidth = 180,
-            MaxWidth = 320,
-            PlaceholderText = "Select workspace",
-            ItemsSource = _workspaceItems,
-            ItemTemplate = new FuncDataTemplate<WorkspacePickerItem>((item, _) =>
-            {
-                var label = new TextBlock { Text = item.Label };
-                if (item.IsSentinel)
-                {
-                    label.Foreground = AvaloniaTheme.TextSecondary;
-                    label.FontWeight = FontWeight.SemiBold;
-                }
-                return label;
-            }),
-        };
-        StyleAsToolbarPicker(combo);
+        // ItemTemplate comes from the implicit DataTemplate in
+        // PromptInputLayout.axaml (matched by WorkspacePickerItem's
+        // DataType), so no template wiring is needed here.
+        combo.ItemsSource = _workspaceItems;
 
         var currentIndex = _workspaceItems.IndexOfCwd(_session.Cwd);
         if (currentIndex >= 0)
@@ -401,7 +301,6 @@ public sealed class PromptInputView
             if (state.Messages.Count > 0 && combo.IsVisible)
                 combo.IsVisible = false;
         });
-        return combo;
     }
 
     private void RebuildWorkspaceItems(string cwd)
@@ -424,8 +323,6 @@ public sealed class PromptInputView
         // ComboBox event is still settling.
         _postToUi(() => _ = _navigator.NavigateToNewAsync(cwd));
     }
-
-    private bool _pickingFolder;
 
     private async void ChooseFolder()
     {
@@ -457,9 +354,9 @@ public sealed class PromptInputView
 
     private void SubmitCurrent()
     {
-        var text = (_editor?.Text ?? string.Empty).Trim();
+        var text = (_layout.Editor.Text ?? string.Empty).Trim();
         DeskLog.Write($"SubmitCurrent: text='{text}' len={text.Length} cwd='{_session.Cwd}' running={_session.State.IsRunning}");
-        if (_editor is not null) _editor.Text = string.Empty;
+        _layout.Editor.Text = string.Empty;
         if (text.Length == 0) return;
         HandleInput(text);
     }
@@ -495,31 +392,20 @@ public sealed class PromptInputView
     /// </summary>
     private void UpdateSubmitButton(SessionState state)
     {
-        if (_submitButton is null || _submitIcon is null) return;
+        var button = _layout.SubmitButton;
+        var icon = _layout.SubmitIcon;
         if (state.IsRunning)
         {
-            _submitIcon.Kind = MaterialIconKind.Stop;
-            _submitButton.Background = AvaloniaTheme.Danger;
-            ToolTip.SetTip(_submitButton, "Stop (Esc)");
+            icon.Kind = MaterialIconKind.Stop;
+            button.Background = AvaloniaTheme.Danger;
+            ToolTip.SetTip(button, "Stop (Esc)");
         }
         else
         {
-            _submitIcon.Kind = MaterialIconKind.ArrowUpward;
-            _submitButton.Background = AvaloniaTheme.Accent;
-            ToolTip.SetTip(_submitButton, "Submit (Enter)");
+            icon.Kind = MaterialIconKind.ArrowUpward;
+            button.Background = AvaloniaTheme.Accent;
+            ToolTip.SetTip(button, "Submit (Enter)");
         }
-    }
-
-    /// <summary>
-    /// Flattens a <see cref="ComboBox"/> so it reads as part of the input
-    /// box's toolbar instead of a standalone control: no background, no
-    /// border, just the text + drop-down arrow.
-    /// </summary>
-    private static void StyleAsToolbarPicker(ComboBox combo)
-    {
-        combo.Background = Brushes.Transparent;
-        combo.BorderThickness = new Thickness(0);
-        combo.CornerRadius = new CornerRadius(6);
     }
 
     /// <summary>

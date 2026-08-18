@@ -64,10 +64,9 @@ Avalonia 端结构镜像：
 PhiCoding.Avalonia.Desktop.Program
    └─► PhiAvaloniaApp (Avalonia Application)
           └─► MainWindow ─→ ShellView (两栏 shell)
-                              ├─ 左栏：NewChat + 会话列表（按 workspace/date 分组）+ Models / Providers
+                              ├─ 左栏：NewChat + 会话列表（按 workspace/date 分组）+ Providers
                               └─► ContentControl (ViewHost)
                                     ├─ ChatPageView ─→ (header + transcript + prompt + status)
-                                    ├─ ModelsPage
                                     └─ ProvidersPage
 ```
 
@@ -104,7 +103,7 @@ PhiCoding.Tui exe 下分：
 PhiCoding.Avalonia 库下分：
 
 - `PhiCoding.Avalonia/`：应用壳 `PhiAvaloniaApp`（Avalonia `Application`）+ `MainWindow` + `ShellView`（两栏 shell）+ `ChatPageView` + `NavModel`（纯导航模型）+ `AvaloniaTheme`（语义色 / FluentTheme 集成）+ 入口组件 + `DeskLog`
-- `PhiCoding.Avalonia/Components/`：与 TUI 镜像的积木——`TranscriptView`（订阅 projector，按 `ChatLine.Id` DIFF 渲染到 `StackPanel`）、`PromptInputView`（editor + slash 分发 + 工作区选择器）、`ModelsPage`（模型切换）、`ProvidersPage`（provider 连接 + API key 弹窗）、`ToolCards/`（Avalonia 实现）
+- `PhiCoding.Avalonia/Components/`：与 TUI 镜像的积木——`TranscriptView`（订阅 projector，按 `ChatLine.Id` DIFF 渲染到 `StackPanel`）、`PromptInputView`（editor + slash 分发 + 工作区选择器 + 模型 picker）、`ProvidersPage`（provider 连接 + API key 弹窗）、`ToolCards/`（Avalonia 实现）
 - `PhiCoding.Avalonia/Controls/`：`EllipsisMenu` 等跨组件复用的小控件
 - 命名空间：`PhiCoding.Avalonia.*`（含子命名空间 `PhiCoding.Avalonia.Components.*` / `PhiCoding.Avalonia.Controls.*`）
 
@@ -118,8 +117,8 @@ PhiCoding.Avalonia.Desktop exe 下分：
 Avalonia shell 不是 TUI 的单页全屏聊天，而是两栏布局：
 
 `PhiCoding.Avalonia.Desktop.Program` → `PhiAvaloniaApp` → `MainWindow` → `ShellView`
-（左栏：New Chat + 会话列表 + footer 的 Models / Providers 入口；右栏：
-`ViewHost`（`ContentControl`）切换聊天页 / ModelsPage / ProvidersPage）。
+（左栏：New Chat + 会话列表 + footer 的 Providers 入口；右栏：
+`ViewHost`（`ContentControl`）切换聊天页 / ProvidersPage）。
 
 左栏构造：
 

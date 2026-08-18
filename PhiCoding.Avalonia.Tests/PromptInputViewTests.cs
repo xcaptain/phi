@@ -35,7 +35,6 @@ public class PromptInputViewTests
             pickFolder: pickFolder,
             postToUi: postToUi ?? (a => a()),
             dispatchToUi: a => a());
-        view.Build();
         return (session, navigator, view, projector);
     }
 
@@ -121,20 +120,22 @@ public class PromptInputViewTests
         // They must NOT be siblings floating in a separate chrome.
         var (_, _, view, _) = Create();
 
+        // view.Root is now the PromptInputLayout UserControl; walk into its
+        // Content (the rounded Border).
         var root = view.Root;
-        await Assert.That(root.GetType()).IsEqualTo(typeof(global::Avalonia.Controls.Border));
+        await Assert.That(root).IsAssignableTo<global::Avalonia.Controls.ContentControl>();
+        var outer = (global::Avalonia.Controls.Border)((global::Avalonia.Controls.ContentControl)root).Content!;
 
         // Known structure: Border -> StackPanel { editor, DockPanel footer
         // { modelCombo, workspaceCombo, submitButton } }. Navigate it to
         // confirm everything lives inside Root's single chrome.
-        var outer = (global::Avalonia.Controls.Border)root;
         var stack = (global::Avalonia.Controls.StackPanel)outer.Child!;
         var footer = (global::Avalonia.Controls.DockPanel)stack.Children[1];
 
         await Assert.That(ReferenceEquals(stack.Children[0], view.Editor)).IsTrue();
-        await Assert.That(footer.Children.Contains(view.ModelComboBox!)).IsTrue();
-        await Assert.That(footer.Children.Contains(view.WorkspaceComboBox!)).IsTrue();
-        await Assert.That(footer.Children.Contains(view.SubmitButton!)).IsTrue();
+        await Assert.That(footer.Children.Contains(view.ModelComboBox)).IsTrue();
+        await Assert.That(footer.Children.Contains(view.WorkspaceComboBox)).IsTrue();
+        await Assert.That(footer.Children.Contains(view.SubmitButton)).IsTrue();
     }
 
     [Test]

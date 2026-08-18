@@ -6,7 +6,6 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
-using Material.Icons;
 using Material.Icons.Avalonia;
 using PhiCoding.Avalonia.Components;
 using PhiCoding.Avalonia.Controls;
@@ -16,12 +15,13 @@ using PhiCoding.Sessions;
 namespace PhiCoding.Avalonia;
 
 /// <summary>
-/// The two-pane shell: a left column (New Chat, a sessions list with a
-/// "By date / By workspace" grouping toggle, footer Models/Providers
-/// buttons) and a single <see cref="ContentControl"/> host on the right
-/// that displays whichever view is active. Selecting a session resumes
-/// it; the chat page is rebuilt when
-/// <see cref="ISessionNavigator.SessionChanged"/> fires.
+/// Controller for the desktop shell. Owns navigation state, listens to
+/// <see cref="ISessionNavigator.SessionChanged"/> and to the watched
+/// session's title/persistence transitions, and drives view switching in
+/// <see cref="ShellLayout"/>'s view host. The chrome itself (sidebar +
+/// buttons + dividers) lives in <see cref="ShellLayout"/> as XAML; this
+/// class is intentionally free of UI construction beyond the imperative
+/// row templates (which wire rename / delete events).
 /// </summary>
 public sealed class ShellView : IDisposable
 {
@@ -29,6 +29,7 @@ public sealed class ShellView : IDisposable
     private readonly ProviderManager _providers;
     private readonly Action<Action> _dispatchToUi;
     private readonly Action<Action> _postToUi;
+    private readonly ShellLayout _layout;
 
     private ChatPageView? _chatPage;
     private bool _showingChat;
@@ -38,13 +39,6 @@ public sealed class ShellView : IDisposable
     private string? _lastTitle;
     private NavModel.GroupMode _groupMode = NavModel.GroupMode.ByWorkspace;
     private List<NavModel.Entry> _entries = [];
-
-    private readonly ListBox _sessionsList;
-    private readonly Button _byDateButton;
-    private readonly Button _byWorkspaceButton;
-    private readonly Button _newChatButton;
-    private readonly Button _modelsButton;
-    private readonly Button _providersButton;
 
     public ShellView(
         ISessionNavigator navigator,
@@ -59,171 +53,40 @@ public sealed class ShellView : IDisposable
         _dispatchToUi = dispatchToUi ?? Dispatch;
         _postToUi = postToUi ?? Post;
 
-        var newChatButton = new Button
-        {
-            Content = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                Spacing = 6,
-                Children =
-                {
-                    new MaterialIcon { Kind = MaterialIconKind.Plus, Width = 16, Height = 16 },
-                    new TextBlock { Text = "New Chat", VerticalAlignment = VerticalAlignment.Center },
-                },
-            },
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-            Margin = new Thickness(8, 8, 8, 4),
-        };
-        StyleAsFlatNavButton(newChatButton);
-        _newChatButton = newChatButton;
-        newChatButton.Click += (_, _) => _postToUi(() =>
+        _layout = new ShellLayout();
+
+        // Hover background for the flat sidebar nav buttons (New Chat /
+        // Providers). The visual state on hover is dynamic — it depends on
+        // pointer state — so it stays in code rather than in the XAML's
+        // static properties. Model selection lives in PromptInputView's
+        // toolbar, so no separate Models sidebar button.
+        StyleFlatNavButtonHover(_layout.NewChatButton);
+        StyleFlatNavButtonHover(_layout.ProvidersButton);
+
+        _layout.NewChatButton.Click += (_, _) => _postToUi(() =>
         {
             ShowChat();
             _ = _navigator.NavigateToNewAsync();
         });
+        _layout.ByDateButton.Click += (_, _) => SetGroupMode(NavModel.GroupMode.ByDate);
+        _layout.ByWorkspaceButton.Click += (_, _) => SetGroupMode(NavModel.GroupMode.ByWorkspace);
+        _layout.ProvidersButton.Click += (_, _) => _postToUi(ShowProviders);
+        _layout.SessionsList.SelectionChanged += (_, _) => OnSessionSelection();
 
-        // Icon-only group-mode toggle. The active mode gets a filled accent
-        // background so the selection is unmistakable (see UpdateGroupToggle);
-        // tooltips keep the meaning discoverable without taking row width.
-        _byDateButton = new Button
+        // The row template dispatches on entry.Kind (Workspace vs Session)
+        // and each branch subscribes to events on its child controls (rename
+        // KeyDown/LostFocus, ⋯ menu clicks). Keeping it in code lets the
+        // row builders stay imperative; promoting it to XAML would require
+        // splitting Entry into a DU so each kind gets its own DataTemplate.
+        _layout.SessionsList.ItemTemplate = new FuncDataTemplate<NavModel.Entry>((entry, _) =>
         {
-            Content = new MaterialIcon { Kind = MaterialIconKind.CalendarMonth, Width = 14, Height = 14 },
-            FontSize = 12,
-            Padding = new Thickness(6, 2),
-            CornerRadius = new CornerRadius(4),
-        };
-        _byWorkspaceButton = new Button
-        {
-            Content = new MaterialIcon { Kind = MaterialIconKind.Folder, Width = 14, Height = 14 },
-            FontSize = 12,
-            Padding = new Thickness(6, 2),
-            CornerRadius = new CornerRadius(4),
-        };
-        ToolTip.SetTip(_byDateButton, "By date");
-        ToolTip.SetTip(_byWorkspaceButton, "By workspace");
-        _byDateButton.Click += (_, _) => SetGroupMode(NavModel.GroupMode.ByDate);
-        _byWorkspaceButton.Click += (_, _) => SetGroupMode(NavModel.GroupMode.ByWorkspace);
-
-        // Sessions header row: a two-column grid — "会话" on the left, the
-        // group-mode toggle buttons pinned to the right edge.
-        var sessionsHeader = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
-            Margin = new Thickness(12, 6, 8, 2),
-        };
-        var sessionsLabel = new TextBlock
-        {
-            Text = "会话",
-            FontSize = 12,
-            FontWeight = FontWeight.SemiBold,
-            Foreground = AvaloniaTheme.TextSecondary,
-            VerticalAlignment = VerticalAlignment.Center,
-        };
-        Grid.SetColumn(sessionsLabel, 0);
-        var toggleButtons = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 2,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            VerticalAlignment = VerticalAlignment.Center,
-            Children = { _byDateButton, _byWorkspaceButton },
-        };
-        Grid.SetColumn(toggleButtons, 1);
-        sessionsHeader.Children.Add(sessionsLabel);
-        sessionsHeader.Children.Add(toggleButtons);
-
-        _sessionsList = new ListBox
-        {
-            Margin = new Thickness(8, 4),
-            ItemTemplate = new FuncDataTemplate<NavModel.Entry>((entry, _) =>
-            {
-                // ItemsSource swaps on a live ListBox recycle containers and
-                // may briefly invoke the template with null data; skip it.
-                if (entry is null) return null!;
-                return entry.Kind == NavModel.Kind.Workspace
-                    ? BuildWorkspaceRow(entry)
-                    : BuildSessionRow(entry);
-            }),
-        };
-        // Workspace rows are group titles: they must stay selectable-free
-        // WITHOUT disabling the container (a disabled container also kills
-        // the row's ⋯ menu button). Selection of a workspace row is instead
-        // neutralized in HandleSelection by clearing the highlight.
-        _sessionsList.SelectionChanged += (_, _) => OnSessionSelection();
-
-        var modelsButton = new Button
-        {
-            Content = BuildToggleContent(MaterialIconKind.CubeOutline, "Models"),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        StyleAsFlatNavButton(modelsButton);
-        _modelsButton = modelsButton;
-        modelsButton.Click += (_, _) => _postToUi(ShowModels);
-        var providersButton = new Button
-        {
-            Content = BuildToggleContent(MaterialIconKind.TuneVariant, "Providers"),
-            HorizontalAlignment = HorizontalAlignment.Stretch,
-        };
-        StyleAsFlatNavButton(providersButton);
-        _providersButton = providersButton;
-        providersButton.Click += (_, _) => _postToUi(ShowProviders);
-
-        var footer = new StackPanel
-        {
-            Spacing = 4,
-            Margin = new Thickness(8, 8, 8, 8),
-            Children = { modelsButton, providersButton },
-        };
-
-        // Separators: one under the New Chat header, one above the footer.
-        // A shared factory keeps the divider height/brush consistent.
-        Border Divider() => new()
-        {
-            Height = 1,
-            Background = AvaloniaTheme.ControlBorder,
-            Margin = new Thickness(8, 0),
-        };
-        var topDivider = Divider();
-        var bottomDivider = Divider();
-
-        // Three-section left pane: header (New Chat) / sessions /
-        // footer. Auto rows for chrome and a star row for the session
-        // list, so the ListBox fills the remaining height and scrolls
-        // instead of overflowing.
-        var leftPane = new Grid
-        {
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto,Auto"),
-        };
-        Grid.SetRow(newChatButton, 0);
-        Grid.SetRow(topDivider, 1);
-        Grid.SetRow(sessionsHeader, 2);
-        Grid.SetRow(_sessionsList, 3);
-        Grid.SetRow(bottomDivider, 4);
-        Grid.SetRow(footer, 5);
-        leftPane.Children.Add(newChatButton);
-        leftPane.Children.Add(topDivider);
-        leftPane.Children.Add(sessionsHeader);
-        leftPane.Children.Add(_sessionsList);
-        leftPane.Children.Add(bottomDivider);
-        leftPane.Children.Add(footer);
-
-        var leftBorder = new Border
-        {
-            Width = 240,
-            BorderBrush = AvaloniaTheme.ControlBorder,
-            BorderThickness = new Thickness(0, 0, 1, 0),
-            Child = leftPane,
-        };
-        Grid.SetColumn(leftBorder, 0);
-
-        ViewHost = new ContentControl();
-        Grid.SetColumn(ViewHost, 1);
-
-        Root = new Grid
-        {
-            ColumnDefinitions = new ColumnDefinitions("Auto,*"),
-            Children = { leftBorder, ViewHost },
-        };
+            // ItemsSource swaps on a live ListBox recycle containers and
+            // may briefly invoke the template with null data; skip it.
+            if (entry is null) return null!;
+            return entry.Kind == NavModel.Kind.Workspace
+                ? BuildWorkspaceRow(entry)
+                : BuildSessionRow(entry);
+        });
 
         _navigator.SessionChanged += OnSessionChanged;
 
@@ -231,34 +94,31 @@ public sealed class ShellView : IDisposable
         ShowChat();
     }
 
-    /// <summary>The two-pane root.</summary>
-    public Control Root { get; }
+    /// <summary>The two-pane root (the <see cref="ShellLayout"/> itself).</summary>
+    public Control Root => _layout;
 
-    /// <summary>The right-side view host.</summary>
-    public ContentControl ViewHost { get; }
+    /// <summary>The right-side view host (used by ShowChat / ShowProviders).</summary>
+    public ContentControl ViewHost => _layout.ViewHost;
 
     /// <summary>The live chat page, when the chat view is active (tests).</summary>
     internal ChatPageView? ChatPage => _chatPage;
 
     /// <summary>The sessions list (tests).</summary>
-    internal ListBox SessionsList => _sessionsList;
+    internal ListBox SessionsList => _layout.SessionsList;
 
     /// <summary>The "By date" toggle button (tests).</summary>
-    internal Button ByDateButton => _byDateButton;
+    internal Button ByDateButton => _layout.ByDateButton;
 
     /// <summary>The "By workspace" toggle button (tests).</summary>
-    internal Button ByWorkspaceButton => _byWorkspaceButton;
+    internal Button ByWorkspaceButton => _layout.ByWorkspaceButton;
 
     /// <summary>The "New Chat" button (tests).</summary>
-    internal Button NewChatButton => _newChatButton;
-
-    /// <summary>The "Models" button (tests).</summary>
-    internal Button ModelsButton => _modelsButton;
+    internal Button NewChatButton => _layout.NewChatButton;
 
     /// <summary>The "Providers" button (tests).</summary>
-    internal Button ProvidersButton => _providersButton;
+    internal Button ProvidersButton => _layout.ProvidersButton;
 
-    /// <summary>The active group-mode button's icon tint (tests).</summary>
+    /// <summary>The active group-mode button (tests).</summary>
     internal bool ByDateActive => _groupMode == NavModel.GroupMode.ByDate;
 
     /// <summary>The current group mode; setting rebuilds the nav (tests).</summary>
@@ -272,33 +132,41 @@ public sealed class ShellView : IDisposable
     {
         if (_groupMode == mode) return;
         _groupMode = mode;
+        UpdateGroupToggle();
         RebuildNavigation();
     }
 
-    /// <summary>Builds an icon + label button content (left-aligned row).</summary>
-    private static StackPanel BuildToggleContent(MaterialIconKind kind, string label) =>
-        new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            Children =
-            {
-                new MaterialIcon { Kind = kind, Width = 14, Height = 14, VerticalAlignment = VerticalAlignment.Center },
-                new TextBlock { Text = label, VerticalAlignment = VerticalAlignment.Center },
-            },
-        };
+    /// <summary>
+    /// Applies the group-mode toggle's selected state: the active button is
+    /// filled with the accent color and its icon turns white (unmistakable),
+    /// the inactive one stays transparent with a secondary icon. Done
+    /// imperatively (rather than via pseudo-classes) so the visual maps
+    /// directly to the asserted brushes in the shell view tests.
+    /// </summary>
+    private void UpdateGroupToggle()
+    {
+        ApplyToggle(_layout.ByDateButton, _groupMode == NavModel.GroupMode.ByDate);
+        ApplyToggle(_layout.ByWorkspaceButton, _groupMode == NavModel.GroupMode.ByWorkspace);
+    }
+
+    private static void ApplyToggle(Button button, bool active)
+    {
+        if (button.Content is not MaterialIcon icon) return;
+        button.Background = active ? AvaloniaTheme.Accent : Brushes.Transparent;
+        button.BorderBrush = active ? AvaloniaTheme.Accent : AvaloniaTheme.ControlBorder;
+        button.BorderThickness = new Thickness(active ? 0 : 1);
+        icon.Foreground = active ? AvaloniaTheme.AccentText : AvaloniaTheme.TextSecondary;
+    }
 
     /// <summary>
-    /// Styles a sidebar nav button (New Chat / Models / Providers) as a flat
-    /// row: transparent by default so it reads like the session list items,
-    /// with a subtle background only while hovered.
+    /// Adds the hover background behaviour to a flat sidebar nav button.
+    /// The base chrome (transparent background, zero border, padding,
+    /// left-aligned content) is declared in <see cref="ShellLayout"/>;
+    /// only the dynamic hover fill lives here so the row reads as part
+    /// of the sidebar list.
     /// </summary>
-    private static void StyleAsFlatNavButton(Button button)
+    private static void StyleFlatNavButtonHover(Button button)
     {
-        button.Background = Brushes.Transparent;
-        button.BorderThickness = new Thickness(0);
-        button.Padding = new Thickness(6, 3);
-        button.HorizontalContentAlignment = HorizontalAlignment.Left;
         button.PointerEntered += (_, _) => button.Background = AvaloniaTheme.ContainerBackground;
         button.PointerExited += (_, _) => button.Background = Brushes.Transparent;
     }
@@ -486,8 +354,8 @@ public sealed class ShellView : IDisposable
             _entries = NavModel.BuildMainEntries(
                 WorkspaceSessionStore.ListAllSessions(7),
                 _groupMode);
-            _sessionsList.ItemsSource = _entries;
-            _sessionsList.SelectedIndex = NavModel.IndexForActive(
+            _layout.SessionsList.ItemsSource = _entries;
+            _layout.SessionsList.SelectedIndex = NavModel.IndexForActive(
                 _entries, _navigator.Current.State.SessionId);
 
             UpdateGroupToggle();
@@ -498,39 +366,17 @@ public sealed class ShellView : IDisposable
         }
     }
 
-    /// <summary>
-    /// Applies the group-mode toggle's selected state: the active button is
-    /// filled with the accent color and its icon turns white (unmistakable),
-    /// the inactive one stays transparent with a secondary icon.
-    /// </summary>
-    private void UpdateGroupToggle()
-    {
-        var dateActive = _groupMode == NavModel.GroupMode.ByDate;
-        var wsActive = _groupMode == NavModel.GroupMode.ByWorkspace;
-        ApplyToggle(_byDateButton, dateActive);
-        ApplyToggle(_byWorkspaceButton, wsActive);
-    }
-
-    private static void ApplyToggle(Button button, bool active)
-    {
-        if (button.Content is not MaterialIcon icon) return;
-        button.Background = active ? AvaloniaTheme.Accent : Brushes.Transparent;
-        button.BorderBrush = active ? AvaloniaTheme.Accent : AvaloniaTheme.ControlBorder;
-        button.BorderThickness = new Thickness(active ? 0 : 1);
-        icon.Foreground = active ? AvaloniaTheme.AccentText : AvaloniaTheme.TextSecondary;
-    }
-
     private void OnSessionSelection()
     {
         if (_rebuilding) return;
-        if (_sessionsList.SelectedItem is not NavModel.Entry entry) return;
+        if (_layout.SessionsList.SelectedItem is not NavModel.Entry entry) return;
 
         // Workspace rows are group titles, not clickable sessions. Clear the
         // highlight synchronously so it never visually sticks; the row's ⋯
         // menu stays usable because the container is not disabled.
         if (entry.Kind == NavModel.Kind.Workspace)
         {
-            _sessionsList.SelectedIndex = -1;
+            _layout.SessionsList.SelectedIndex = -1;
             return;
         }
 
@@ -549,7 +395,7 @@ public sealed class ShellView : IDisposable
             case NavModel.Kind.Workspace:
                 // Group title rows are intercepted in OnSessionSelection;
                 // be defensive and clear any stray highlight.
-                _sessionsList.SelectedIndex = -1;
+                _layout.SessionsList.SelectedIndex = -1;
                 break;
             case NavModel.Kind.Session:
                 ShowChat();
@@ -581,7 +427,7 @@ public sealed class ShellView : IDisposable
             pickFolder: PickFolderAsync,
             postToUi: _postToUi,
             dispatchToUi: _dispatchToUi);
-        ViewHost.Content = _chatPage.Root;
+        _layout.ViewHost.Content = _chatPage.Root;
         _showingChat = true;
         WatchSession(_navigator.Current);
         _postToUi(() => _chatPage?.PromptInput.FocusEditor());
@@ -594,7 +440,7 @@ public sealed class ShellView : IDisposable
     /// </summary>
     private async Task<string?> PickFolderAsync()
     {
-        var topLevel = TopLevel.GetTopLevel(Root);
+        var topLevel = TopLevel.GetTopLevel(_layout);
         if (topLevel?.StorageProvider is not { } provider) return null;
         if (!provider.CanPickFolder) return null;
         var folders = await provider.OpenFolderPickerAsync(new FolderPickerOpenOptions
@@ -641,17 +487,10 @@ public sealed class ShellView : IDisposable
         }
     }
 
-    private void ShowModels()
-    {
-        _showingChat = false;
-        ViewHost.Content = new ModelsPage(_navigator.Current, _providers).Root;
-    }
-
     private void ShowProviders()
     {
         _showingChat = false;
-        ViewHost.Content = new ProvidersPage(
-            _navigator.Current, _providers, owner: TopLevel.GetTopLevel(Root) as Window).Root;
+        _layout.ViewHost.Content = new ProvidersPage(_providers).Root;
     }
 
     public void Dispose()

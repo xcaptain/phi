@@ -141,7 +141,9 @@ public class ShellViewTests
         using (shell)
         using (navigator)
         {
-            var outer = (global::Avalonia.Controls.Grid)shell.Root;
+            // shell.Root is now the ShellLayout UserControl; walk into the
+            // two-column Grid to reach the sidebar.
+            var outer = (global::Avalonia.Controls.Grid)((global::Avalonia.Controls.ContentControl)shell.Root).Content!;
             var leftBorder = (global::Avalonia.Controls.Border)outer.Children[0];
             var pane = (global::Avalonia.Controls.Grid)leftBorder.Child!;
             await Assert.That(pane.RowDefinitions.Count).IsEqualTo(6);
@@ -508,13 +510,13 @@ public class ShellViewTests
     [Test]
     public async Task NavButtons_AreFlatByDefault_WithHoverBackground()
     {
-        // New Chat / Models / Providers must be transparent by default (matching
+        // New Chat / Providers must be transparent by default (matching
         // session list rows) and only gain a background while hovered.
         var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
         using (shell)
         using (navigator)
         {
-            foreach (var button in new[] { shell.NewChatButton, shell.ModelsButton, shell.ProvidersButton })
+            foreach (var button in new[] { shell.NewChatButton, shell.ProvidersButton })
             {
                 await Assert.That(button.Background).IsEqualTo(global::Avalonia.Media.Brushes.Transparent);
                 await Assert.That(button.BorderThickness.Left).IsEqualTo(0);

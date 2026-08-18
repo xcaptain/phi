@@ -1,0 +1,19 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="PhiCoding.Avalonia.Components.TranscriptLayout">
+  <!--
+    Transcript chrome: a scrolling view with document-style reading margins
+    around a named <LinesPanel/> slot. TranscriptView fills the slot with
+    one Control per ChatLine; the dynamic per-line factories (user bubbles,
+    markdown text, thinking sections, tool cards) stay in TranscriptView
+    because they're intrinsically imperative — each line visual is built
+    on demand and patched in place while the model streams.
+  -->
+
+  <ScrollViewer Padding="48,16"
+                VerticalScrollBarVisibility="Auto">
+    <StackPanel x:Name="LinesPanel"
+                Spacing="8"
+                Margin="0,4"/>
+  </ScrollViewer>
+</UserControl>

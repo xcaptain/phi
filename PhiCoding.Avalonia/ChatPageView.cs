@@ -7,15 +7,19 @@ using PhiCoding.Sessions;
 namespace PhiCoding.Avalonia;
 
 /// <summary>
-/// One chat page bound to a single session. Owns the projector + the
-/// header / transcript / prompt input components. Disposed when the page
-/// is torn down (navigation) so subscriptions stop firing.
+/// One chat page bound to a single session. Owns the projector that
+/// projects the session's chat state, and wires the projector into the
+/// <see cref="TranscriptView"/> + <see cref="PromptInputView"/>
+/// sub-components. The two-row layout (transcript fills, prompt input
+/// docks at the bottom) lives in <see cref="ChatPageLayout"/>; this class
+/// only owns the slots, the projector subscription, and disposal.
 /// </summary>
 public sealed class ChatPageView : IDisposable
 {
     private readonly ChatTranscriptProjector _projector;
     private readonly TranscriptView _transcript;
     private readonly PromptInputView _promptInput;
+    private readonly ChatPageLayout _layout;
 
     public ChatPageView(
         ISessionNavigator navigator,
@@ -42,23 +46,16 @@ public sealed class ChatPageView : IDisposable
             dispatchToUi: dispatchToUi);
 
         _transcript.Bind(_projector);
-        var input = _promptInput.Build();
 
-        // Transcript fills the page; the prompt input docks at the bottom.
-        // No header row — the model/provider label was dropped from this
-        // surface (it's already visible in the prompt input's picker).
-        var grid = new Grid
+        _layout = new ChatPageLayout
         {
-            RowDefinitions = new RowDefinitions("*,Auto"),
+            TranscriptHost = { Content = _transcript.Root },
+            PromptInputHost = { Content = _promptInput.Root },
         };
-        Grid.SetRow(_transcript.Root, 0);
-        Grid.SetRow(input, 1);
-        grid.Children.Add(_transcript.Root);
-        grid.Children.Add(input);
-        Root = grid;
     }
 
-    public Control Root { get; }
+    /// <summary>The chat page layout (transcript + prompt input slots).</summary>
+    public Control Root => _layout;
 
     /// <summary>The live prompt input, exposed for integration tests.</summary>
     internal PromptInputView PromptInput => _promptInput;

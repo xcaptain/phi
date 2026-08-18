@@ -1,6 +1,5 @@
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -14,9 +13,10 @@ using TextBlock = global::Avalonia.Controls.TextBlock;
 namespace PhiCoding.Avalonia.Components;
 
 /// <summary>
-/// The conversation view: a scrolling <see cref="ScrollViewer"/> around
-/// a <see cref="StackPanel"/> that DIFFs the projector's
-/// <see cref="ChatLine"/>s against its existing children. Stable
+/// The conversation view controller. Owns the per-line state
+/// (<see cref="ChatLine.Id"/> → visual handle) and the DIFF loop that
+/// projects the projector's <see cref="ChatLine"/>s into the
+/// <see cref="TranscriptLayout.LinesPanel"/> slot. Stable
 /// <see cref="ChatLine.Id"/>s drive the diff; new Ids add a fresh
 /// element, existing Ids patch the existing element in place (text stream
 /// extends, tool call completes, etc.).
@@ -26,40 +26,34 @@ namespace PhiCoding.Avalonia.Components;
 /// come out formatted instead of raw markdown source. Streaming updates
 /// re-assign the <c>Markdown</c> property in place.
 /// </para>
+/// <para>
+/// The outer chrome (ScrollViewer + reading margins + line spacing) lives
+/// in <see cref="TranscriptLayout"/> as XAML. The dynamic per-line
+/// factories below are imperative: each line visual is constructed on
+/// demand from the chat-line DU, and patched in place as the projector
+/// emits follow-up events.
+/// </para>
 /// </summary>
 public sealed class TranscriptView
 {
+    private readonly TranscriptLayout _layout;
     private readonly Dictionary<string, LineHandle> _visualsByLineId = new(StringComparer.Ordinal);
-    private readonly StackPanel _panel;
     private readonly Action<Action> _dispatchToUi;
 
-    /// <summary>The scroll container that holds the chat history.</summary>
-    public Control Root { get; }
+    /// <summary>The transcript layout (the scrolling view + lines slot).</summary>
+    public Control Root => _layout;
 
     public TranscriptView(Action<Action>? dispatchToUi = null)
     {
         _dispatchToUi = dispatchToUi ?? Dispatch;
-        _panel = new StackPanel
-        {
-            Spacing = 8,
-            Margin = new Thickness(0, 4),
-        };
-        Root = new ScrollViewer
-        {
-            // Document-style reading margins: generous horizontal padding on
-            // both sides so lines don't run to the window edge; the vertical
-            // padding keeps breathing room at top and bottom.
-            Padding = new Thickness(48, 16),
-            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-            Content = _panel,
-        };
+        _layout = new TranscriptLayout();
     }
 
     /// <summary>Number of rendered line elements (tests).</summary>
-    internal int LineCount => _panel.Children.Count;
+    internal int LineCount => _layout.LinesPanel.Children.Count;
 
     /// <summary>Rendered line element at <paramref name="index"/> (tests).</summary>
-    internal Control LineAt(int index) => _panel.Children[index];
+    internal Control LineAt(int index) => _layout.LinesPanel.Children[index];
 
     /// <summary>The projector-assigned line Ids currently rendered (tests).</summary>
     internal IReadOnlyCollection<string> LineIds => _visualsByLineId.Keys;
@@ -100,7 +94,7 @@ public sealed class TranscriptView
     {
         var handle = CreateHandle(line);
         _visualsByLineId[line.Id] = handle;
-        _panel.Children.Add(handle.Root);
+        _layout.LinesPanel.Children.Add(handle.Root);
     }
 
     private static void UpdateLine(LineHandle handle, ChatLine line)

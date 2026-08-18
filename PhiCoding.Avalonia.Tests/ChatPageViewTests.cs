@@ -25,11 +25,16 @@ public class ChatPageViewTests
     {
         var (_, page) = Create();
 
-        var grid = (global::Avalonia.Controls.Grid)page.Root;
-        // Transcript + prompt input, no header.
+        // page.Root is the ChatPageLayout UserControl; walk into the
+        // two-row Grid, then check that each named slot holds the live
+        // transcript / prompt input control.
+        var grid = (global::Avalonia.Controls.Grid)((global::Avalonia.Controls.ContentControl)page.Root).Content!;
         await Assert.That(grid.RowDefinitions.Count).IsEqualTo(2);
-        await Assert.That(ReferenceEquals(grid.Children[0], page.Transcript.Root)).IsTrue();
-        await Assert.That(ReferenceEquals(grid.Children[1], page.PromptInput.Root)).IsTrue();
+
+        var transcriptSlot = (global::Avalonia.Controls.ContentControl)grid.Children[0];
+        var promptSlot = (global::Avalonia.Controls.ContentControl)grid.Children[1];
+        await Assert.That(ReferenceEquals(transcriptSlot.Content, page.Transcript.Root)).IsTrue();
+        await Assert.That(ReferenceEquals(promptSlot.Content, page.PromptInput.Root)).IsTrue();
     }
 
     [Test]
@@ -37,7 +42,10 @@ public class ChatPageViewTests
     {
         var (_, page) = Create();
 
-        var input = (global::Avalonia.Controls.Border)page.PromptInput.Root;
+        // page.PromptInput.Root is now the PromptInputLayout UserControl;
+        // walk into its Content (the rounded Border).
+        var layout = (global::Avalonia.Controls.ContentControl)page.PromptInput.Root;
+        var input = (global::Avalonia.Controls.Border)layout.Content!;
         // Left/right margins align with the transcript's 48px document padding.
         await Assert.That(input.Margin.Left).IsEqualTo(48);
         await Assert.That(input.Margin.Right).IsEqualTo(48);
