@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- NativeAOT. Declared here (not on the command line) so the global
+         property doesn't leak into the Roslyn source-generator project
+         Phi.SchemaGen (netstandard2.0), which errors with NETSDK1207. -->
+    <PublishAot>true</PublishAot>
+    <RootNamespace>Phi.Avalonia.Desktop</RootNamespace>
+    <AssemblyName>phi-avalonia</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Phi.Avalonia\Phi.Avalonia.csproj" />
+  </ItemGroup>
+
+</Project>

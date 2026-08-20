@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <RootNamespace>Phi.Tui</RootNamespace>
+    <AssemblyName>phi</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DiffPlex" />
+    <PackageReference Include="XenoAtom.Terminal.UI" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Phi\Phi.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Phi.Tests" />
+  </ItemGroup>
+
+</Project>

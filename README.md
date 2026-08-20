@@ -10,17 +10,17 @@
 
 ## UI
 
-桌面 UI 使用 Avalonia 跨平台框架（core 代码在 `PhiCoding.Avalonia/`，平台入口在
-`PhiCoding.Avalonia.Desktop/`），终端 UI 使用 XenoAtom.Terminal.UI（`PhiCoding.Tui/`）。
-两个 UI 共用 `PhiCoding` 库提供的 UI-agnostic runtime。
+桌面 UI 使用 Avalonia 跨平台框架（core 代码在 `Phi.Avalonia/`，平台入口在
+`Phi.Avalonia.Desktop/`），终端 UI 使用 XenoAtom.Terminal.UI（`Phi.Tui/`）。
+两个 UI 共用 `Phi` 库提供的 UI-agnostic runtime。
 
 ## 依赖关系
 
 ```
-                PhiCoding.Avalonia ─┐
-                PhiCoding.Tui ──────┼─► PhiCoding ─► PhiProvider ─► PhiAgent
-PhiCoding.Avalonia.Desktop (exe) ──┘
+                Phi.Avalonia ─┐
+                Phi.Tui ──────┼─► Phi ─► Phi.Provider ─► Phi.Agent
+Phi.Avalonia.Desktop (exe) ──┘
 ```
 
-PhiAgent 是最底层的 package，依赖最少，可以注入不同的 provider 使用，可以随意分发。
+Phi.Agent 是最底层的 package，依赖最少，可以注入不同的 provider 使用，可以随意分发。
 

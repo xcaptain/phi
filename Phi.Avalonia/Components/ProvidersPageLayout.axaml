@@ -1,0 +1,19 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Phi.Avalonia.Components.ProvidersPageLayout">
+  <!--
+    Providers settings chrome: scrolling list of provider rows under a
+    "Providers" header and a one-line description. The page chrome is
+    pure layout; the providers' rows are populated at runtime by
+    ProvidersPage into the named RowsHost slot.
+  -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="12" Margin="24">
+      <TextBlock Text="Providers" FontSize="22" FontWeight="Bold"/>
+      <TextBlock Text="Save API keys to unlock each provider's models in the input box."
+                 Foreground="{DynamicResource TextSecondary}"
+                 TextWrapping="Wrap"/>
+      <StackPanel x:Name="RowsHost" Spacing="12"/>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

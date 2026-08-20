@@ -6,28 +6,28 @@ Phi 是一个 C# 版本的 基于 pi agent 架构的最小 coding agent，目标
 
 ### 整体架构和依赖关系
 
-- PhiProvider: 手写的 llm provider，对应 tau_ai 目录，我不喜欢 tau_ai 这个名字，因为看不出来是负责跟llm provider通信的
-- PhiAgent: 对应 tau_agent 目录，自己实现的一个 harness, 状态管理，循环
-- PhiCoding: Library，提供 UI-agnostic runtime（sessions / providers / tools / prompts / status router / slash commands / tool descriptors / chat projector）。无 UI 框架依赖。
-- PhiCoding.Tui: 基于 XenoAtom.Terminal.UI 的终端界面 exe，引用 PhiCoding。
-- PhiCoding.Avalonia: 基于 Avalonia 跨平台框架的桌面 UI 库，引用 PhiCoding。所有 UI（桌面 / 移动 / browser）共享同一份控件代码。
-- PhiCoding.Avalonia.Desktop: Avalonia 的桌面平台入口 exe（classic desktop lifetime），引用 PhiCoding.Avalonia。
+- Phi.Provider: 手写的 llm provider，对应 tau_ai 目录，我不喜欢 tau_ai 这个名字，因为看不出来是负责跟llm provider通信的
+- Phi.Agent: 对应 tau_agent 目录，自己实现的一个 harness, 状态管理，循环
+- Phi: Library，提供 UI-agnostic runtime（sessions / providers / tools / prompts / status router / slash commands / tool descriptors / chat projector）。无 UI 框架依赖。
+- Phi.Tui: 基于 XenoAtom.Terminal.UI 的终端界面 exe，引用 Phi。
+- Phi.Avalonia: 基于 Avalonia 跨平台框架的桌面 UI 库，引用 Phi。所有 UI（桌面 / 移动 / browser）共享同一份控件代码。
+- Phi.Avalonia.Desktop: Avalonia 的桌面平台入口 exe（classic desktop lifetime），引用 Phi.Avalonia。
 
 UI 框架选择：**Avalonia**（跨平台，支持 Windows / macOS / Linux / 移动 / browser），后续的桌面 UI
-开发统一在 `PhiCoding.Avalonia/` 推进。`PhiCoding.Avalonia/` 输出的控件树通过不同的 platform
-host 复用（`PhiCoding.Avalonia.Desktop` 是 Windows / macOS / Linux 桌面入口）。
+开发统一在 `Phi.Avalonia/` 推进。`Phi.Avalonia/` 输出的控件树通过不同的 platform
+host 复用（`Phi.Avalonia.Desktop` 是 Windows / macOS / Linux 桌面入口）。
 
 依赖关系：
 
 ```
-                PhiCoding.Tui ───┐
-                                  ├─► PhiCoding ─► PhiProvider ─► PhiAgent
-PhiCoding.Avalonia ──────────────┘
+                Phi.Tui ───┐
+                                  ├─► Phi ─► Phi.Provider ─► Phi.Agent
+Phi.Avalonia ──────────────┘
         ▲
-PhiCoding.Avalonia.Desktop (exe)
+Phi.Avalonia.Desktop (exe)
 ```
 
-`PhiAgent` 是最底层的 package，依赖最少，可以注入不同的 provider 使用，可以随意分发。
+`Phi.Agent` 是最底层的 package，依赖最少，可以注入不同的 provider 使用，可以随意分发。
 
 ### 应用层依赖关系
 
@@ -35,7 +35,7 @@ PhiCoding.Avalonia.Desktop (exe)
 PhiTuiApp ─→ PromptInput ─┐
    (TUI 壳：     (输入组件：    │
     nav 触发     editor +      │
-    整体换页)    slash 分发/   ├─→ ISession ─→ CodingSession ─→ Harness ─→ Provider
+    整体换页)    slash 分发/   ├─→ ISession ─→ Session ─→ Harness ─→ Provider
                 对话框/        │    (接口，    (session +   (dispatch)  (LLM)
                 skill 补全)    │    已水合的    harness +
               ↓                │    model)     provider + queue)
@@ -48,9 +48,9 @@ PhiTuiApp ─→ PromptInput ─┐
             (错误/上下文/模型)
               ↑
             SessionStatusRouter + ISessionStatusSink
-            (UI-agnostic 错误分类 + 路由；TUI 在 PhiCoding.Tui.Components.StatusBarBinder 适配)
+            (UI-agnostic 错误分类 + 路由；TUI 在 Phi.Tui.Components.StatusBarBinder 适配)
 
-└─→ SessionNavigator ─→ CodingSessionFactory ─→ CodingSession
+└─→ SessionNavigator ─→ SessionFactory ─→ Session
     (拥有当前 session     (组装 runtime:
      生命周期：cancel +    资源/tools/prompt/
      await + dispose；      harness)
@@ -61,7 +61,7 @@ PhiTuiApp ─→ PromptInput ─┐
 Avalonia 端结构镜像：
 
 ```
-PhiCoding.Avalonia.Desktop.Program
+Phi.Avalonia.Desktop.Program
    └─► PhiAvaloniaApp (Avalonia Application)
           └─► MainWindow ─→ ShellView (两栏 shell)
                               ├─ 左栏：NewChat + 会话列表（按 workspace/date 分组）+ Providers
@@ -82,41 +82,41 @@ PhiTuiApp 持有一个 `State<ISession>`，由 SessionNavigator 的 SessionChang
 
 ### 目录约定
 
-PhiCoding 库下面分：
+Phi 库下面分：
 
-- `PhiCoding/Sessions/`：ISession、ISessionNavigator、SessionNavigator、CodingSessionFactory — 拥有 session 生命周期
-- `PhiCoding/Providers/`：ProviderManager、ProviderCatalog、ICredentialStore、PhiSettings
-- `PhiCoding/Tools/`、`PhiCoding/Prompts/`、`PhiCoding/Resources/`：runtime + skill/prompt 加载
-- `PhiCoding/Slash/`：UI-agnostic slash 命令（SlashCommands、SlashCommandCatalog）
-- `PhiCoding/Status/`：session → 状态条目的 routing（ISessionStatusSink、SessionStatusRouter、ErrorClassifier）
-- `PhiCoding/Prompt/`：UI-agnostic 输入建议提供器（ISuggestionProvider、SuggestionItem、SlashCommandProvider、SkillSuggestionProvider）
-- `PhiCoding/ToolCards/`：跨 UI 的 tool 元数据（ToolDescriptor、ToolDescriptors）
-- `PhiCoding/Chat/`：UI-agnostic chat 投影（ChatLine DU、ChatTranscriptProjector）——两个 UI 都订阅 projector 的 `Changed`，按稳定 `ChatLine.Id` DIFF 渲染
-- `PhiCoding/` 根：`ISession`、`SessionState`、`CodingSession`、`WorkspaceSessionStore`（扫 `{PHI_HOME}/sessions/*/index.jsonl` 合并所有工作区的会话）、compaction 等
+- `Phi/Sessions/`：ISession、ISessionNavigator、SessionNavigator、SessionFactory — 拥有 session 生命周期
+- `Phi/Providers/`：ProviderManager、ProviderCatalog、ICredentialStore、PhiSettings
+- `Phi/Tools/`、`Phi/Prompts/`、`Phi/Resources/`：runtime + skill/prompt 加载
+- `Phi/Slash/`：UI-agnostic slash 命令（SlashCommands、SlashCommandCatalog）
+- `Phi/Status/`：session → 状态条目的 routing（ISessionStatusSink、SessionStatusRouter、ErrorClassifier）
+- `Phi/Prompt/`：UI-agnostic 输入建议提供器（ISuggestionProvider、SuggestionItem、SlashCommandProvider、SkillSuggestionProvider）
+- `Phi/ToolCards/`：跨 UI 的 tool 元数据（ToolDescriptor、ToolDescriptors）
+- `Phi/Chat/`：UI-agnostic chat 投影（ChatLine DU、ChatTranscriptProjector）——两个 UI 都订阅 projector 的 `Changed`，按稳定 `ChatLine.Id` DIFF 渲染
+- `Phi/` 根：`ISession`、`SessionState`、`Session`、`WorkspaceSessionStore`（扫 `{PHI_HOME}/sessions/*/index.jsonl` 合并所有工作区的会话）、compaction 等
 
-PhiCoding.Tui exe 下分：
+Phi.Tui exe 下分：
 
-- `PhiCoding.Tui/`：应用壳 `PhiTuiApp`、基础设施（`SelectionCopyHost`、`SystemClipboard`、`ToastHostSentinel`）+ 入口 `Program.cs`
-- `PhiCoding.Tui/Components/`：可复用积木——`PromptInput`（输入壳：editor + slash 分发 + 对话框 + skill 补全）、`ChatHeader`、`ChatTranscript`（订阅 projector 并按 `ChatLine.Id` DIFF 到 `DocumentFlow`）、`PhiStatusBar`、`SuggestionStrip`、`StatusBarBinder`（薄壳，调 `SessionStatusRouter` + 实现 `ISessionStatusSink`）、`SideBySideDiff`、`ToolCards/`（XenoAtom 实现）
-- 命名空间：`PhiCoding.Tui.*`
+- `Phi.Tui/`：应用壳 `PhiTuiApp`、基础设施（`SelectionCopyHost`、`SystemClipboard`、`ToastHostSentinel`）+ 入口 `Program.cs`
+- `Phi.Tui/Components/`：可复用积木——`PromptInput`（输入壳：editor + slash 分发 + 对话框 + skill 补全）、`ChatHeader`、`ChatTranscript`（订阅 projector 并按 `ChatLine.Id` DIFF 到 `DocumentFlow`）、`PhiStatusBar`、`SuggestionStrip`、`StatusBarBinder`（薄壳，调 `SessionStatusRouter` + 实现 `ISessionStatusSink`）、`SideBySideDiff`、`ToolCards/`（XenoAtom 实现）
+- 命名空间：`Phi.Tui.*`
 
-PhiCoding.Avalonia 库下分：
+Phi.Avalonia 库下分：
 
-- `PhiCoding.Avalonia/`：应用壳 `PhiAvaloniaApp`（Avalonia `Application`）+ `MainWindow`（基于 `SukiWindow`）+ `ShellView`（两栏 shell）+ `ChatPageView` + `NavModel`（纯导航模型）+ `AvaloniaTheme`（语义色，映射到 SukiUI 色板）+ 入口组件 + `DeskLog`
-- `PhiCoding.Avalonia/Components/`：与 TUI 镜像的积木——`TranscriptView`（订阅 projector，按 `ChatLine.Id` DIFF 渲染到 `StackPanel`）、`PromptInputView`（editor + slash 分发 + 工作区选择器 + 模型 picker）、`ProvidersPage`（provider 连接 + API key 弹窗）、`ToolCards/`（Avalonia 实现）
-- `PhiCoding.Avalonia/Controls/`：`EllipsisMenu` 等跨组件复用的小控件
-- 命名空间：`PhiCoding.Avalonia.*`（含子命名空间 `PhiCoding.Avalonia.Components.*` / `PhiCoding.Avalonia.Controls.*`）
+- `Phi.Avalonia/`：应用壳 `PhiAvaloniaApp`（Avalonia `Application`）+ `MainWindow`（基于 `SukiWindow`）+ `ShellView`（两栏 shell）+ `ChatPageView` + `NavModel`（纯导航模型）+ `AvaloniaTheme`（语义色，映射到 SukiUI 色板）+ 入口组件 + `DeskLog`
+- `Phi.Avalonia/Components/`：与 TUI 镜像的积木——`TranscriptView`（订阅 projector，按 `ChatLine.Id` DIFF 渲染到 `StackPanel`）、`PromptInputView`（editor + slash 分发 + 工作区选择器 + 模型 picker）、`ProvidersPage`（provider 连接 + API key 弹窗）、`ToolCards/`（Avalonia 实现）
+- `Phi.Avalonia/Controls/`：`EllipsisMenu` 等跨组件复用的小控件
+- 命名空间：`Phi.Avalonia.*`（含子命名空间 `Phi.Avalonia.Components.*` / `Phi.Avalonia.Controls.*`）
 
-PhiCoding.Avalonia.Desktop exe 下分：
+Phi.Avalonia.Desktop exe 下分：
 
-- `PhiCoding.Avalonia.Desktop/`：`Program.cs`（组合 provider manager / session factory / navigator，挂到 `PhiAvaloniaApp`，启动 classic desktop lifetime）
-- 命名空间：`PhiCoding.Avalonia.Desktop.*`
+- `Phi.Avalonia.Desktop/`：`Program.cs`（组合 provider manager / session factory / navigator，挂到 `PhiAvaloniaApp`，启动 classic desktop lifetime）
+- 命名空间：`Phi.Avalonia.Desktop.*`
 
 ### Avalonia Shell 布局
 
 Avalonia shell 不是 TUI 的单页全屏聊天，而是两栏布局：
 
-`PhiCoding.Avalonia.Desktop.Program` → `PhiAvaloniaApp` → `MainWindow` → `ShellView`
+`Phi.Avalonia.Desktop.Program` → `PhiAvaloniaApp` → `MainWindow` → `ShellView`
 （两栏壳用 SukiUI 的 `SukiSideMenu`：玻璃 pane 承载左栏的 sessions 浏览器，
 右栏走 `UseCustomContent=true` 用我们的 `ViewHost`（`ContentControl`）切换聊天页 /
 ProvidersPage——不走 SukiSideMenu 的 item 导航模型）。
@@ -167,5 +167,5 @@ TUI 绑定进程 cwd，`/sessions` 只看当前目录；Avalonia 桌面不绑定
 ## 桌面 UI 差异（Avalonia vs TUI）
 
 - Avalonia 有成熟的控件体系：Markdown 通过 `MarkView.Avalonia` 渲染，图标通过 `Material.Icons.Avalonia` 渲染，主题走 `SukiUI`（`SukiTheme` + `SukiWindow`，light / dark 自动跟随系统；`PhiAvaloniaApp.axaml` 用 `<suki:SukiTheme ThemeColor="Blue"/>`）。
-- 语义色统一在 `PhiCoding.Avalonia.AvaloniaTheme`（`TextSecondary` / `Danger` / `Success` / `Accent` / `ControlBorder` / `ContainerBackground` 等），明暗 hex 对映射 SukiUI 色板，light/dark 跟随 `Application.ActualThemeVariant`；没有 TUI ANSI 命名的色板。
+- 语义色统一在 `Phi.Avalonia.AvaloniaTheme`（`TextSecondary` / `Danger` / `Success` / `Accent` / `ControlBorder` / `ContainerBackground` 等），明暗 hex 对映射 SukiUI 色板，light/dark 跟随 `Application.ActualThemeVariant`；没有 TUI ANSI 命名的色板。
 - 两个 UI 共用 `ChatTranscriptProjector` 投影：各自按 `ChatLine.Id` DIFF 渲染（TUI→DocumentFlow，Avalonia→StackPanel）。

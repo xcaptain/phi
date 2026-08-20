@@ -1,0 +1,31 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishAot>true</PublishAot>
+    <!-- IDE0130 derives the expected namespace from the csproj filename.
+         Phi/Phi.Runtime.csproj would suggest Phi.Runtime.*; the runtime's
+         public namespace stays at Phi.* so the directory-vs-csproj mismatch
+         is intentional. Suppress the warning project-wide. -->
+    <NoWarn>$(NoWarn);IDE0130</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DiffPlex" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Phi.Agent\Phi.Agent.csproj" />
+    <ProjectReference Include="..\Phi.Provider\Phi.Provider.csproj" />
+    <ProjectReference Include="..\Phi.SchemaGen\Phi.SchemaGen.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Phi.Tests" />
+  </ItemGroup>
+
+</Project>

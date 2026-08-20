@@ -1,0 +1,123 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:material="using:Material.Icons.Avalonia"
+             xmlns:suki="clr-namespace:SukiUI.Controls;assembly=SukiUI"
+             x:Class="Phi.Avalonia.ShellLayout">
+  <!--
+    Two-pane shell built on SukiUI's SukiSideMenu, laid out in its natural
+    three regions:
+      - HeaderContent: New Chat (top nav row) + divider + sessions browser
+      - (Items: unused — the sessions list is a custom data list, not a
+        menu; SukiSideMenu's item/nav model isn't the right fit for it)
+      - FooterContent: Providers (bottom nav row)
+      - Content: our ViewHost, driven by UseCustomContent=true so ShellView
+        keeps swapping it imperatively (chat page / Providers).
+
+    New Chat / Providers are styled as compact SukiSideMenuItem-like nav
+    rows (rounded, icon + label; hover background applied in ShellView via
+    StyleFlatNavButtonHover using the resolvable ContainerBackground).
+
+    SukiSideMenu's search is disabled: it filters menu-item headers, which
+    we don't use — the sessions list already scrolls on its own. The
+    sidebar collapse toggle is disabled because with no menu items a
+    collapsed pane is just an empty strip.
+  -->
+
+  <suki:SukiSideMenu x:Name="SideMenu"
+                     OpenPaneLength="240"
+                     IsSearchEnabled="False"
+                     SidebarToggleEnabled="False"
+                     IsContentVisible="True"
+                     UseCustomContent="True">
+    <suki:SukiSideMenu.HeaderContent>
+      <!-- MaxHeight is bound to the side menu's own height so the grid can
+           never overflow the pane: in a short window the star row (sessions
+           list) shrinks and scrolls internally instead of pushing the pinned
+           New Chat / Providers rows off-screen. -->
+      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto"
+            MaxHeight="{Binding Bounds.Height, ElementName=SideMenu}">
+
+        <!-- Row 0: New Chat — a nav-row styled like a SukiSideMenuItem. -->
+        <Button Grid.Row="0" x:Name="NewChatButton"
+                Background="Transparent"
+                BorderThickness="0"
+                Padding="10,8"
+                CornerRadius="12"
+                HorizontalContentAlignment="Left"
+                HorizontalAlignment="Stretch"
+                Margin="8,8,8,4">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <material:MaterialIcon Kind="Plus" Width="16" Height="16"/>
+            <TextBlock Text="New Chat" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+
+        <!-- Row 1: divider -->
+        <Border Grid.Row="1" Height="1"
+                Background="{DynamicResource ControlBorder}"
+                Margin="8,0"/>
+
+        <!-- Row 2: sessions header — "会话" label + icon-only toggle pair -->
+        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" Margin="12,6,8,2">
+          <TextBlock Grid.Column="0" Text="会话"
+                     FontSize="12" FontWeight="SemiBold"
+                     Foreground="{DynamicResource TextSecondary}"
+                     VerticalAlignment="Center"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"
+                      HorizontalAlignment="Right" VerticalAlignment="Center">
+            <Button x:Name="ByDateButton"
+                    FontSize="12" Padding="6,2" CornerRadius="4"
+                    Background="Transparent"
+                    BorderThickness="1"
+                    ToolTip.Tip="By date">
+              <material:MaterialIcon Kind="CalendarMonth" Width="14" Height="14"/>
+            </Button>
+            <Button x:Name="ByWorkspaceButton"
+                    FontSize="12" Padding="6,2" CornerRadius="4"
+                    Background="Transparent"
+                    BorderThickness="1"
+                    ToolTip.Tip="By workspace">
+              <material:MaterialIcon Kind="Folder" Width="14" Height="14"/>
+            </Button>
+          </StackPanel>
+        </Grid>
+
+        <!-- Row 3: sessions list. The ItemTemplate (which dispatches on
+             entry.Kind between session and workspace rows) is wired in
+             ShellView because the rows imperatively subscribe to events
+             (rename KeyDown/LostFocus, ⋯ menu clicks). SukiUI's default
+             ListBoxItem theme draws a "✓" check icon on the selected row;
+             the selection background tint already marks it, so the check is
+             hidden for this list. -->
+        <ListBox Grid.Row="3" x:Name="SessionsList" Margin="8,4">
+          <ListBox.Styles>
+            <Style Selector="ListBoxItem /template/ PathIcon#CheckSelected">
+              <Setter Property="IsVisible" Value="False"/>
+            </Style>
+          </ListBox.Styles>
+        </ListBox>
+
+        <!-- Row 4: Providers — a nav-row styled like a SukiSideMenuItem,
+             pinned at the bottom of the bounded grid so it stays visible
+             even in a short window. -->
+        <Button Grid.Row="4" x:Name="ProvidersButton"
+                Background="Transparent"
+                BorderThickness="0"
+                Padding="10,8"
+                CornerRadius="12"
+                HorizontalContentAlignment="Left"
+                HorizontalAlignment="Stretch"
+                Margin="8,8,8,12">
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <material:MaterialIcon Kind="TuneVariant" Width="16" Height="16"/>
+            <TextBlock Text="Providers" VerticalAlignment="Center"/>
+          </StackPanel>
+        </Button>
+      </Grid>
+    </suki:SukiSideMenu.HeaderContent>
+
+    <suki:SukiSideMenu.Content>
+      <ContentControl x:Name="ViewHost"/>
+    </suki:SukiSideMenu.Content>
+  </suki:SukiSideMenu>
+</UserControl>

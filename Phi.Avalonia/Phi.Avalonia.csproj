@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Phi.Avalonia</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <!-- MarkView.Avalonia (Markdig-based) replaces Markdown.Avalonia:
+         pure-parser rendering that is IsAotCompatible=true, so the
+         desktop app NativeAOT-publishes without trim/AOT warnings from
+         AvaloniaEdit / ColorTextBlock. -->
+    <PackageReference Include="MarkView.Avalonia" />
+    <PackageReference Include="MarkView.Avalonia.SyntaxHighlighting" />
+    <PackageReference Include="Material.Icons.Avalonia" />
+    <PackageReference Include="DiffPlex" />
+    <!-- SukiUI: full theme + window chrome + controls (Phase 0 spike —
+         replaces FluentTheme as the app's visual system). -->
+    <PackageReference Include="SukiUI" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Phi\Phi.Runtime.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- UI assets (window icon). Embedded as AvaloniaResource so they load
+         via avares:// URIs and survive NativeAOT publishing (no runtime
+         file reads). -->
+    <AvaloniaResource Include="Assets/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Phi.Avalonia.Tests" />
+    <InternalsVisibleTo Include="Phi.Avalonia.Desktop" />
+  </ItemGroup>
+
+</Project>

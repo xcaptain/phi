@@ -1,0 +1,27 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Phi.Avalonia.Components.ProviderRowView">
+  <!--
+    One provider row: name + state, then a 3-column input grid with a
+    masked TextBox for the API key, a Reveal toggle, and a Save button.
+    Pure layout — the ProviderRowView code-behind wires the row's state
+    and Save handler from its constructor args.
+  -->
+  <Border Padding="12" CornerRadius="6"
+          Background="{DynamicResource ContainerBackground}"
+          BorderBrush="{DynamicResource ControlBorder}"
+          BorderThickness="1">
+    <StackPanel Spacing="2">
+      <TextBlock x:Name="NameLabel" FontWeight="SemiBold"/>
+      <TextBlock x:Name="StateLabel"/>
+      <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6" Margin="0,6,0,0">
+        <TextBox Grid.Column="0" x:Name="KeyInput"
+                 PasswordChar="•"
+                 RevealPassword="False"
+                 PlaceholderText="Paste API key…"/>
+        <ToggleButton Grid.Column="1" x:Name="RevealToggle" Content="Reveal"/>
+        <Button Grid.Column="2" x:Name="SaveButton" Content="Save" Width="80"/>
+      </Grid>
+    </StackPanel>
+  </Border>
+</UserControl>

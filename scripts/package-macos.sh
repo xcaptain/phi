@@ -39,8 +39,8 @@ SELF_CONTAINED=""
 # and fail to locate the runtime.
 rm -rf "$STAGE"
 
-echo "==> Publish PhiCoding.Avalonia.Desktop ($RID, $CONFIG${SELF_CONTAINED:+ self-contained})"
-dotnet publish "$REPO_ROOT/PhiCoding.Avalonia.Desktop/PhiCoding.Avalonia.Desktop.csproj" \
+echo "==> Publish Phi.Avalonia.Desktop ($RID, $CONFIG${SELF_CONTAINED:+ self-contained})"
+dotnet publish "$REPO_ROOT/Phi.Avalonia.Desktop/Phi.Avalonia.Desktop.csproj" \
   -c "$CONFIG" -r "$RID" $SELF_CONTAINED -o "$STAGE/phi-avalonia"
 
 echo "==> Assemble $APP"
@@ -56,7 +56,7 @@ mkdir -p "$ICONSET"
 # sips (macOS built-in) keeps the script dependency-free for CI runners,
 # which don't ship ImageMagick.
 while read -r name px; do
-  sips -z "$px" "$px" "$REPO_ROOT/PhiCoding.Avalonia/Assets/phi.png" \
+  sips -z "$px" "$px" "$REPO_ROOT/Phi.Avalonia/Assets/phi.png" \
     --out "$ICONSET/$name" >/dev/null
 done <<'ICONS'
 icon_16x16.png 16
