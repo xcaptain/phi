@@ -13,13 +13,17 @@
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
-    <PackageReference Include="XenoAtom.Terminal.UI" />
-    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Phi\Phi.Runtime.csproj" />
-    <ProjectReference Include="..\Phi.Tui\Phi.Tui.csproj" />
+    <ProjectReference Include="..\..\src\Phi.Provider\Phi.Provider.csproj" />
+    <ProjectReference Include="..\..\src\Phi.Agent\Phi.Agent.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="Fixtures\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

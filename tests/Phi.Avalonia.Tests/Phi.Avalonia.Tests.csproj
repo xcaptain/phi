@@ -18,8 +18,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Phi\Phi.Runtime.csproj" />
-    <ProjectReference Include="..\Phi.Avalonia\Phi.Avalonia.csproj" />
+    <ProjectReference Include="..\..\src\Phi\Phi.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\Phi.Avalonia\Phi.Avalonia.csproj" />
   </ItemGroup>
 
 </Project>

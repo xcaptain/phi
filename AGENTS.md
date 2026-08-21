@@ -84,32 +84,32 @@ PhiTuiApp 持有一个 `State<ISession>`，由 SessionNavigator 的 SessionChang
 
 Phi 库下面分：
 
-- `Phi/Sessions/`：ISession、ISessionNavigator、SessionNavigator、SessionFactory — 拥有 session 生命周期
-- `Phi/Providers/`：ProviderManager、ProviderCatalog、ICredentialStore、PhiSettings
-- `Phi/Tools/`、`Phi/Prompts/`、`Phi/Resources/`：runtime + skill/prompt 加载
-- `Phi/Slash/`：UI-agnostic slash 命令（SlashCommands、SlashCommandCatalog）
-- `Phi/Status/`：session → 状态条目的 routing（ISessionStatusSink、SessionStatusRouter、ErrorClassifier）
-- `Phi/Prompt/`：UI-agnostic 输入建议提供器（ISuggestionProvider、SuggestionItem、SlashCommandProvider、SkillSuggestionProvider）
-- `Phi/ToolCards/`：跨 UI 的 tool 元数据（ToolDescriptor、ToolDescriptors）
-- `Phi/Chat/`：UI-agnostic chat 投影（ChatLine DU、ChatTranscriptProjector）——两个 UI 都订阅 projector 的 `Changed`，按稳定 `ChatLine.Id` DIFF 渲染
-- `Phi/` 根：`ISession`、`SessionState`、`Session`、`WorkspaceSessionStore`（扫 `{PHI_HOME}/sessions/*/index.jsonl` 合并所有工作区的会话）、compaction 等
+- `src/Phi/Sessions/`：ISession、ISessionNavigator、SessionNavigator、SessionFactory — 拥有 session 生命周期
+- `src/Phi/Providers/`：ProviderManager、ProviderCatalog、ICredentialStore、PhiSettings
+- `src/Phi/Tools/`、`src/Phi/Prompts/`、`src/Phi/Resources/`：runtime + skill/prompt 加载
+- `src/Phi/Slash/`：UI-agnostic slash 命令（SlashCommands、SlashCommandCatalog）
+- `src/Phi/Status/`：session → 状态条目的 routing（ISessionStatusSink、SessionStatusRouter、ErrorClassifier）
+- `src/Phi/Prompt/`：UI-agnostic 输入建议提供器（ISuggestionProvider、SuggestionItem、SlashCommandProvider、SkillSuggestionProvider）
+- `src/Phi/ToolCards/`：跨 UI 的 tool 元数据（ToolDescriptor、ToolDescriptors）
+- `src/Phi/Chat/`：UI-agnostic chat 投影（ChatLine DU、ChatTranscriptProjector）——两个 UI 都订阅 projector 的 `Changed`，按稳定 `ChatLine.Id` DIFF 渲染
+- `src/Phi/` 根：`ISession`、`SessionState`、`Session`、`WorkspaceSessionStore`（扫 `{PHI_HOME}/sessions/*/index.jsonl` 合并所有工作区的会话）、compaction 等
 
 Phi.Tui exe 下分：
 
-- `Phi.Tui/`：应用壳 `PhiTuiApp`、基础设施（`SelectionCopyHost`、`SystemClipboard`、`ToastHostSentinel`）+ 入口 `Program.cs`
-- `Phi.Tui/Components/`：可复用积木——`PromptInput`（输入壳：editor + slash 分发 + 对话框 + skill 补全）、`ChatHeader`、`ChatTranscript`（订阅 projector 并按 `ChatLine.Id` DIFF 到 `DocumentFlow`）、`PhiStatusBar`、`SuggestionStrip`、`StatusBarBinder`（薄壳，调 `SessionStatusRouter` + 实现 `ISessionStatusSink`）、`SideBySideDiff`、`ToolCards/`（XenoAtom 实现）
+- `src/Phi.Tui/`：应用壳 `PhiTuiApp`、基础设施（`SelectionCopyHost`、`SystemClipboard`、`ToastHostSentinel`）+ 入口 `Program.cs`
+- `src/Phi.Tui/Components/`：可复用积木——`PromptInput`（输入壳：editor + slash 分发 + 对话框 + skill 补全）、`ChatHeader`、`ChatTranscript`（订阅 projector 并按 `ChatLine.Id` DIFF 到 `DocumentFlow`）、`PhiStatusBar`、`SuggestionStrip`、`StatusBarBinder`（薄壳，调 `SessionStatusRouter` + 实现 `ISessionStatusSink`）、`SideBySideDiff`、`ToolCards/`（XenoAtom 实现）
 - 命名空间：`Phi.Tui.*`
 
 Phi.Avalonia 库下分：
 
-- `Phi.Avalonia/`：应用壳 `PhiAvaloniaApp`（Avalonia `Application`）+ `MainWindow`（基于 `SukiWindow`）+ `ShellView`（两栏 shell）+ `ChatPageView` + `NavModel`（纯导航模型）+ `AvaloniaTheme`（语义色，映射到 SukiUI 色板）+ 入口组件 + `DeskLog`
-- `Phi.Avalonia/Components/`：与 TUI 镜像的积木——`TranscriptView`（订阅 projector，按 `ChatLine.Id` DIFF 渲染到 `StackPanel`）、`PromptInputView`（editor + slash 分发 + 工作区选择器 + 模型 picker）、`ProvidersPage`（provider 连接 + API key 弹窗）、`ToolCards/`（Avalonia 实现）
-- `Phi.Avalonia/Controls/`：`EllipsisMenu` 等跨组件复用的小控件
+- `src/Phi.Avalonia/`：应用壳 `PhiAvaloniaApp`（Avalonia `Application`）+ `MainWindow`（基于 `SukiWindow`）+ `ShellView`（两栏 shell）+ `ChatPageView` + `NavModel`（纯导航模型）+ `AvaloniaTheme`（语义色，映射 SukiUI 色板）+ 入口组件 + `DeskLog`
+- `src/Phi.Avalonia/Components/`：与 TUI 镜像的积木——`TranscriptView`（订阅 projector，按 `ChatLine.Id` DIFF 渲染到 `StackPanel`）、`PromptInputView`（editor + slash 分发 + 工作区选择器 + 模型 picker）、`ProvidersPage`（provider 连接 + API key 弹窗）、`ToolCards/`（Avalonia 实现）
+- `src/Phi.Avalonia/Controls/`：`EllipsisMenu` 等跨组件复用的小控件
 - 命名空间：`Phi.Avalonia.*`（含子命名空间 `Phi.Avalonia.Components.*` / `Phi.Avalonia.Controls.*`）
 
 Phi.Avalonia.Desktop exe 下分：
 
-- `Phi.Avalonia.Desktop/`：`Program.cs`（组合 provider manager / session factory / navigator，挂到 `PhiAvaloniaApp`，启动 classic desktop lifetime）
+- `src/Phi.Avalonia.Desktop/`：`Program.cs`（组合 provider manager / session factory / navigator，挂到 `PhiAvaloniaApp`，启动 classic desktop lifetime）
 - 命名空间：`Phi.Avalonia.Desktop.*`
 
 ### Avalonia Shell 布局

@@ -1,13 +1,17 @@
 <Solution>
-<Project Path="Phi.Agent/Phi.Agent.csproj" />
-<Project Path="Phi.Agent.Tests/Phi.Agent.Tests.csproj" />
-<Project Path="Phi/Phi.Runtime.csproj" />
-<Project Path="Phi.SchemaGen/Phi.SchemaGen.csproj" />
-<Project Path="Phi.Tests/Phi.Tests.csproj" />
-<Project Path="Phi.Tui/Phi.Tui.csproj" />
-<Project Path="Phi.Avalonia/Phi.Avalonia.csproj" />
-<Project Path="Phi.Avalonia.Desktop/Phi.Avalonia.Desktop.csproj" />
-<Project Path="Phi.Avalonia.Tests/Phi.Avalonia.Tests.csproj" />
-<Project Path="Phi.Provider/Phi.Provider.csproj" />
-<Project Path="Phi.Provider.Tests/Phi.Provider.Tests.csproj" />
+  <Folder Name="/src/">
+    <Project Path="src/Phi.Agent/Phi.Agent.csproj" />
+    <Project Path="src/Phi/Phi.Runtime.csproj" />
+    <Project Path="src/Phi.Provider/Phi.Provider.csproj" />
+    <Project Path="src/Phi.SchemaGen/Phi.SchemaGen.csproj" />
+    <Project Path="src/Phi.Tui/Phi.Tui.csproj" />
+    <Project Path="src/Phi.Avalonia/Phi.Avalonia.csproj" />
+    <Project Path="src/Phi.Avalonia.Desktop/Phi.Avalonia.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Phi.Agent.Tests/Phi.Agent.Tests.csproj" />
+    <Project Path="tests/Phi.Provider.Tests/Phi.Provider.Tests.csproj" />
+    <Project Path="tests/Phi.Tests/Phi.Tests.csproj" />
+    <Project Path="tests/Phi.Avalonia.Tests/Phi.Avalonia.Tests.csproj" />
+  </Folder>
 </Solution>

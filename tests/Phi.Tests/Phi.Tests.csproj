@@ -13,10 +13,13 @@
 
   <ItemGroup>
     <PackageReference Include="TUnit" />
+    <PackageReference Include="XenoAtom.Terminal.UI" />
+    <PackageReference Include="XenoAtom.Terminal.UI.Extensions.Markdown" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Phi.Agent\Phi.Agent.csproj" />
+    <ProjectReference Include="..\..\src\Phi\Phi.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\Phi.Tui\Phi.Tui.csproj" />
   </ItemGroup>
 
 </Project>

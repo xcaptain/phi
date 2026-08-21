@@ -37,7 +37,7 @@ jobs:
       # macOS 的 AOT 必须在 macOS runner 上编译，所以跑在 macos-latest。
       - name: Publish phi (TUI)
         run: |
-          dotnet publish Phi.Tui/Phi.Tui.csproj \
+          dotnet publish src/Phi.Tui/Phi.Tui.csproj \
             -c Release -r osx-arm64 -o dist/phi
           chmod +x dist/phi/phi
           (cd dist/phi && zip -q -r "../phi-${{ github.ref_name }}-darwin-arm64.zip" phi)
@@ -74,7 +74,7 @@ jobs:
       # BashTool 会自动切到 pwsh（优先）/ powershell.exe，无需 git-bash。
       # WinExe 保证不弹 console 窗口。
       - name: Publish phi-avalonia (Windows desktop)
-        run: dotnet publish Phi.Avalonia.Desktop/Phi.Avalonia.Desktop.csproj \
+        run: dotnet publish src/Phi.Avalonia.Desktop/Phi.Avalonia.Desktop.csproj \
               -c Release -r win-x64 --self-contained -o dist/phi-avalonia-win
 
       - name: Zip Windows app
