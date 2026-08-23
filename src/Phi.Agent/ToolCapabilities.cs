@@ -1,4 +1,4 @@
-namespace Phi.Prompts;
+namespace Phi.Agent;
 
 /// <summary>
 /// Capability flags advertised by a <see cref="ToolContribution"/>. The

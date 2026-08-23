@@ -1,3 +1,5 @@
+using Phi.Agent;
+
 namespace Phi.Prompts;
 
 /// <summary>

@@ -1,4 +1,4 @@
-namespace Phi.ToolCards;
+namespace Phi.Agent;
 
 /// <summary>
 /// Built-in tool metadata registry. The single source of truth for

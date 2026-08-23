@@ -1,6 +1,4 @@
-using Phi.Agent;
-
-namespace Phi.Prompts;
+namespace Phi.Agent;
 
 /// <summary>
 /// Wraps an executable <see cref="Tool"/> with prompt-facing metadata. The

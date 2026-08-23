@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+    <!-- IDE0005 has false positives on tests where shape tests reference
+         types via reflection (`typeof(IPhiApi)`) or where the analyzer
+         mis-detects sub-namespace usings. Tests pass either way; the
+         warning is noise here. -->
+    <NoWarn>$(NoWarn);IDE0005</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
+  </ItemGroup>
+
+</Project>

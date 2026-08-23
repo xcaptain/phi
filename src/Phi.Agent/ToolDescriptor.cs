@@ -1,4 +1,4 @@
-namespace Phi.ToolCards;
+namespace Phi.Agent;
 
 /// <summary>
 /// Per-tool display metadata shared between the TUI and the desktop UI. Each

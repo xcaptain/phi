@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Phi.Extensions is a PUBLIC package. Extensions ship their own dlls
+         that reference this lib, then put them under ~/.phi/extensions/.
+         Phi.Extensions must stay UI-framework-free and Phi-runtime-free:
+         only Phi.Agent (which is also Phi-runtime-free) is allowed as a dep. -->
+    <IsPackable>true</IsPackable>
+    <PackageId>Phi.Extensions</PackageId>
+    <Description>Public contract for Phi extensions: IPhiApi, IPhiContext, IPhiUiBridge, event payloads, attribute, enums.</Description>
+    <!-- The following CA rules conflict with names chosen in docs/extensions.md:
+         CA1710 — ExtensionError (doc name) vs Exception suffix convention
+         CA1715 — PhiEvent (doc name) vs I-prefix interface convention
+         CA1716 — On(...) (doc name) vs VB.NET reserved keyword
+       All three are stylistic; the doc is the source of truth. -->
+    <NoWarn>$(NoWarn);CA1710;CA1715;CA1716</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Phi.Agent\Phi.Agent.csproj" />
+  </ItemGroup>
+
+</Project>

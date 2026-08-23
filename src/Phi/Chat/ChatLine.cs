@@ -1,4 +1,4 @@
-using Phi.ToolCards;
+using Phi.Agent;
 
 namespace Phi.Chat;
 
@@ -71,7 +71,7 @@ public enum ToolResultState
 /// One tool call. <see cref="ArgumentsJson"/> and <see cref="DetailsJson"/>
 /// are JSON serializations of the arguments blob and the result details
 /// blob respectively; renderers that want a typed view re-deserialize.
-/// <see cref="Phi.ToolCards.ToolDescriptors.For"/> maps the tool name
+/// <see cref="Phi.Agent.ToolDescriptors.For"/> maps the tool name
 /// to display metadata (title + icon key).
 /// </summary>
 public sealed record ToolCallLine(

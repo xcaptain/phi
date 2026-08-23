@@ -1,3 +1,4 @@
+using Phi.Agent;
 using Phi.Prompts;
 
 namespace Phi.Tests.Prompts;

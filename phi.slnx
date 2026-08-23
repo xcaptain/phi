@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Phi.Agent/Phi.Agent.csproj" />
+    <Project Path="src/Phi.Extensions/Phi.Extensions.csproj" />
     <Project Path="src/Phi/Phi.Runtime.csproj" />
     <Project Path="src/Phi.Provider/Phi.Provider.csproj" />
     <Project Path="src/Phi.SchemaGen/Phi.SchemaGen.csproj" />
@@ -10,6 +11,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Phi.Agent.Tests/Phi.Agent.Tests.csproj" />
+    <Project Path="tests/Phi.Extensions.Tests/Phi.Extensions.Tests.csproj" />
     <Project Path="tests/Phi.Provider.Tests/Phi.Provider.Tests.csproj" />
     <Project Path="tests/Phi.Tests/Phi.Tests.csproj" />
     <Project Path="tests/Phi.Avalonia.Tests/Phi.Avalonia.Tests.csproj" />
