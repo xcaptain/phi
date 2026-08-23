@@ -1,7 +1,7 @@
 using Phi.Agent;
 using Phi.Prompts;
+using Phi.Providers;
 using Phi.Resources;
-using Phi.Sessions;
 
 namespace Phi;
 
@@ -14,12 +14,16 @@ namespace Phi;
 /// <see cref="StateChanged"/> so frontends can react. Implements
 /// <see cref="ISession"/> for UI binding.
 /// <para>
-/// One instance is exactly one conversation: a fresh session or a resumed
-/// session. Switching sessions is navigation — owned by
-/// <see cref="Sessions.SessionNavigator"/>, which disposes the outgoing
-/// session. Index bookkeeping is delegated to <see cref="SessionManager"/>.
-/// Persistence is lazy: a fresh session holds an allocated id but writes
-/// nothing until the first message (or explicit rename/touch) — see
+/// One instance is exactly one conversation. Switching sessions is a
+/// method on the session itself: <see cref="NewSessionAsync"/> creates a
+/// fresh one (inheriting provider + model) and
+/// <see cref="ResumeAsync"/> opens an indexed one by id. Both return the
+/// new session and dispose this one before returning — frontends just
+/// reassign their reactive binding (<c>State&lt;ISession&gt;.Value</c>
+/// in the TUI, the equivalent event in the Avalonia shell). Index
+/// bookkeeping is delegated to <see cref="SessionManager"/>. Persistence
+/// is lazy: a fresh session holds an allocated id but writes nothing
+/// until the first message (or explicit rename/touch) — see
 /// <see cref="IsPersisted"/>.
 /// </para>
 /// </summary>
@@ -29,17 +33,26 @@ public sealed class Session : ISession
     private readonly Lock _lock = new();
 
     // Mutable: resume adopts the target session's storage and record.
-    private SessionStorage _storage;
+    private readonly SessionStorage _storage;
     private bool _persisted;
+
+    // The cross-session environment (provider resolver, system-prompt options,
+    // tool registry, compaction knobs). Null for persistence-only sessions
+    // created via the test-facing static factories; non-null for sessions
+    // built by the full-composition path (Session.LoadAsync), which is the
+    // only kind that can answer ISession navigation requests.
+    private readonly SessionEnvironment? _env;
 
     private Session(
         SessionRecord record, SessionStorage storage,
-        SessionManager manager, bool persisted)
+        SessionManager manager, bool persisted,
+        SessionEnvironment? env = null)
     {
         Record = record;
         _storage = storage;
         _manager = manager;
         _persisted = persisted;
+        _env = env;
     }
 
     public string Id => Record.Id;
@@ -50,6 +63,15 @@ public sealed class Session : ISession
 
     /// <summary>Skills available to this session, for <c>/skill:NAME</c> autocomplete.</summary>
     public IReadOnlyList<SkillDescriptor> Skills => _skills;
+
+    /// <summary>
+    /// Names of the providers available in the catalog, in display order.
+    /// Reads the static <see cref="Providers.ProviderCatalog"/> so it works
+    /// even on a persistence-only session (no <see cref="SessionEnvironment"/>
+    /// required).
+    /// </summary>
+    public IReadOnlyList<string> AvailableProviders { get; } =
+        [.. ProviderCatalog.All.Select(p => p.Name)];
 
     /// <summary>
     /// Whether this session has been written to disk yet. Fresh sessions
@@ -74,29 +96,142 @@ public sealed class Session : ISession
     /// <summary>
     /// Creates a fresh session without writing anything to disk. The id is
     /// allocated eagerly; the transcript file and index record appear on
-    /// the first persisted message.
+    /// the first persisted message. <paramref name="env"/> is the
+    /// cross-session context (provider resolver, system-prompt options,
+    /// compaction knobs); null for persistence-only test sessions that
+    /// don't need to navigate.
     /// </summary>
-    public static Session Create(string cwd, string model, string? title = null, string providerName = "")
+    public static Session Create(string cwd, string model, string? title = null, string providerName = "", SessionEnvironment? env = null)
     {
         var manager = new SessionManager(cwd);
         var record = manager.PrepareSession(model, title, providerName);
-        return new(record, OpenStorage(manager, record.Id), manager, persisted: false);
+        return new(record, OpenStorage(manager, record.Id), manager, persisted: false, env: env);
     }
 
     /// <summary>
-    /// Opens an already-indexed session (persistence only — bind a runtime
-    /// via <see cref="SessionFactory"/> before submitting prompts).
-    /// Throws when the id is unknown.
+    /// Opens an already-indexed session. <paramref name="env"/> is the
+    /// cross-session context (provider resolver, system-prompt options,
+    /// compaction knobs); null for persistence-only test sessions that
+    /// don't need to navigate. Throws when the id is unknown.
     /// </summary>
-    public static Session Resume(string id, string cwd)
+    public static Session Resume(string id, string cwd, SessionEnvironment? env = null)
     {
         var manager = new SessionManager(cwd);
         var record = manager.GetSession(id);
-        return new(record, OpenStorage(manager, id), manager, persisted: true);
+        return new(record, OpenStorage(manager, id), manager, persisted: true, env: env);
     }
 
     private static SessionStorage OpenStorage(SessionManager manager, string id) =>
         new(manager.SessionFileFor(id));
+
+    /// <summary>
+    /// Full-composition entry point. Builds a fresh or resumed
+    /// <see cref="Session"/> with a runtime (harness + provider + system
+    /// prompt + tools) wired up — the path the composition root
+    /// (<c>Program.cs</c>) takes for both UIs, and the path
+    /// <see cref="NewSessionAsync"/> / <see cref="ResumeAsync"/> re-enter
+    /// when the user navigates inside the chat. Replaces the old
+    /// <c>SessionFactory</c>.
+    /// <para>
+    /// On a fresh <paramref name="resumeId"/>-less call the new session
+    /// is unpersisted (id allocated eagerly, nothing on disk until the
+    /// first message) and uses <paramref name="providerName"/> /
+    /// <paramref name="model"/>. On a non-null <paramref name="resumeId"/>
+    /// the session is rebuilt from its on-disk record; the record's
+    /// <c>ProviderName</c> and <c>Model</c> always win, and
+    /// <paramref name="providerName"/> / <paramref name="model"/> are
+    /// ignored — the environment only supplies the cwd, tools, prompt
+    /// options, and compaction knobs.
+    /// </para>
+    /// </summary>
+    public static async Task<Session> LoadAsync(
+        string cwd,
+        SessionEnvironment env,
+        string providerName,
+        string model,
+        string? resumeId = null)
+    {
+        ArgumentNullException.ThrowIfNull(env);
+
+        if (resumeId is { Length: > 0 } id)
+        {
+            var session = Resume(id, cwd, env);
+            var provider = env.ProviderResolver.Resolve(session.Record.ProviderName);
+            var runtime = BuildRuntime(env, provider, session.Record.Model, session.Record.ProviderName, cwd);
+            runtime.Harness.ReplaceMessages(session.LoadMessages());
+            session.ApplyRuntime(runtime);
+            return session;
+        }
+        else
+        {
+            var session = Create(cwd, model, providerName: providerName, env: env);
+            var provider = env.ProviderResolver.Resolve(providerName);
+            var runtime = BuildRuntime(env, provider, model, providerName, cwd);
+            session.ApplyRuntime(runtime);
+            return session;
+        }
+    }
+
+    /// <summary>
+    /// Loads project context, skills, tool contributions; builds the system
+    /// prompt; constructs the harness and packages everything as a
+    /// <see cref="SessionRuntime"/>. Shared by the fresh and resume paths in
+    /// <see cref="LoadAsync"/>.
+    /// </summary>
+    private static SessionRuntime BuildRuntime(
+        SessionEnvironment env, IPhiProvider provider,
+        string model, string providerName, string cwd)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        var contextResources = ProjectContextLoader.Load(
+            new SessionResourceOptions { Cwd = cwd });
+        var skillResult = SkillLoader.Load(
+            new SkillLoadOptions { Cwd = cwd });
+
+        var skills = skillResult.Skills;
+        var contributions = env.Tools is null or { Count: 0 }
+            ? new BuiltInToolProvider(cwd).GetTools()
+            : env.Tools.Select(WrapCustomTool).ToArray();
+        var tools = contributions.Select(c => c.Tool).ToArray();
+
+        var systemPrompt = env.SystemPrompt.ResolvedSystemPrompt
+            ?? new SystemPromptBuilder().Build(new SystemPromptBuildContext
+            {
+                Cwd = cwd,
+                CurrentDate = DateOnly.FromDateTime(DateTime.UtcNow),
+                Tools = contributions,
+                Skills = skills,
+                ContextFiles = contextResources.ContextFiles,
+                Options = env.SystemPrompt,
+                Shell = OperatingSystem.IsWindows()
+                    ? ShellKind.PowerShell
+                    : ShellKind.Bash,
+            });
+
+        var harness = new Harness(
+            provider, tools, model: model,
+            system: systemPrompt, maxTurns: env.MaxTurns);
+
+        return new SessionRuntime
+        {
+            Harness = harness,
+            Provider = provider,
+            ProviderName = providerName,
+            Model = model,
+            SystemPrompt = systemPrompt,
+            Tools = tools,
+            Skills = skills,
+            Environment = env,
+        };
+    }
+
+    private static ToolContribution WrapCustomTool(Tool tool) =>
+        new()
+        {
+            Tool = tool,
+            PromptSnippet = tool.Description,
+            Source = "custom",
+        };
 
     // ──────── Persistence ────────
 
@@ -216,10 +351,10 @@ public sealed class Session : ISession
         _systemPrompt = runtime.SystemPrompt;
         _tools = runtime.Tools;
         _skills = runtime.Skills;
-        _contextWindowTokens = runtime.Config.ContextWindowTokens;
-        _autoCompactEnabled = runtime.Config.AutoCompactEnabled;
-        _compactionKeepRecentTokens = runtime.Config.CompactionKeepRecentTokens;
-        _autoCompactThreshold = runtime.Config.AutoCompactTokenThreshold
+        _contextWindowTokens = runtime.Environment.ContextWindowTokens;
+        _autoCompactEnabled = runtime.Environment.AutoCompactEnabled;
+        _compactionKeepRecentTokens = runtime.Environment.CompactionKeepRecentTokens;
+        _autoCompactThreshold = runtime.Environment.AutoCompactTokenThreshold
             ?? ContextWindow.AutoCompactionThresholdForContextWindow(_contextWindowTokens);
         _lastMessageCount = runtime.Harness.Messages.Count;
         _runtimeStarted = true;
@@ -368,10 +503,10 @@ public sealed class Session : ISession
 
     /// <summary>
     /// Waits for any in-flight run to fully settle (cancel + finish). Used
-    /// by <see cref="Sessions.SessionNavigator"/> before disposing this
-    /// session on navigation, so the run's finally block (flush, state
-    /// reset) completes before the provider is released. Awaiting a
-    /// completed or absent task is a no-op.
+    /// by <see cref="NewSessionAsync"/> / <see cref="ResumeAsync"/> before
+    /// disposing this session on navigation, so the run's finally block
+    /// (flush, state reset) completes before the provider is released.
+    /// Awaiting a completed or absent task is a no-op.
     /// </summary>
     internal async Task WaitUntilIdleAsync()
     {
@@ -428,6 +563,70 @@ public sealed class Session : ISession
         ThrowIfNoRuntime();
         lock (_lock) _followUpQueue.Enqueue(message);
         UpdateQueueCount();
+    }
+
+    // ──────── Navigation ────────
+
+    /// <summary>
+    /// Creates a fresh session in <paramref name="cwd"/> (or the current
+    /// session's cwd when null) inheriting the current session's provider
+    /// and model. The new session is returned; this session is disposed
+    /// before returning. Frontends just reassign their reactive binding
+    /// (the TUI's <c>State&lt;ISession&gt;.Value = next</c>, the Avalonia
+    /// shell's equivalent).
+    /// </summary>
+    public async Task<ISession> NewSessionAsync(string? cwd = null)
+    {
+        ThrowIfNoEnv();
+        var newCwd = cwd ?? Cwd;
+        // Cancel + await any in-flight run so its messages flush to the
+        // outgoing session's file before we hand back the new one.
+        await WaitUntilIdleAsync();
+        var next = await LoadAsync(newCwd, _env!, _providerName, _runtimeModel);
+        Dispose();
+        return next;
+    }
+
+    /// <summary>
+    /// Resumes the indexed session identified by <paramref name="sessionId"/>.
+    /// Resolves the session's own cwd from its record so cross-workspace
+    /// resume works (the desktop shell lists sessions across every project;
+    /// the record's cwd is the source of truth). The new session is
+    /// returned; this session is disposed before returning. Throws
+    /// <see cref="InvalidOperationException"/> when the id is unknown.
+    /// </summary>
+    public async Task<ISession> ResumeAsync(string sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId))
+            throw new InvalidOperationException("Cannot resume an empty session id.");
+        ThrowIfNoEnv();
+        var record = WorkspaceSessionStore.FindSession(sessionId)
+            ?? throw new InvalidOperationException($"Session '{sessionId}' not found");
+        await WaitUntilIdleAsync();
+        var next = await LoadAsync(
+            record.Cwd, _env!, record.ProviderName, record.Model,
+            resumeId: sessionId);
+        Dispose();
+        return next;
+    }
+
+    /// <summary>
+    /// Indexed sessions of this session's project, last touched within
+    /// <paramref name="days"/> days, newest first. Backed by the same
+    /// <see cref="SessionManager"/> the session itself uses, so a freshly
+    /// persisted session appears on the next call. No <see cref="SessionEnvironment"/>
+    /// required.
+    /// </summary>
+    public IReadOnlyList<SessionRecord> ListRecent(int days = 7) =>
+        new SessionManager(Cwd).ListSessions(days);
+
+    private void ThrowIfNoEnv()
+    {
+        if (_env is null)
+            throw new InvalidOperationException(
+                "This session has no SessionEnvironment — it was created by the persistence-only factory " +
+                "(Session.Create / Session.Resume) and cannot navigate. Use Session.LoadAsync to build a " +
+                "fully composed session.");
     }
 
     // ──────── Internal engine loop ────────
@@ -722,7 +921,8 @@ public sealed class Session : ISession
     /// provider (releasing its HTTP transport). The provider is released
     /// even when no run ever started. Idempotent and thread-safe; intended
     /// for the end of the session's lifetime (TUI exit, session switch via
-    /// <see cref="Sessions.SessionNavigator"/>, fixture teardown).
+    /// <see cref="NewSessionAsync"/> / <see cref="ResumeAsync"/>, fixture
+    /// teardown).
     /// </summary>
     public void Dispose()
     {

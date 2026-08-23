@@ -18,7 +18,7 @@ public class PhiTuiAppTests
     public async Task BuildRoot_ReturnsHost_ForCurrentRoute()
     {
         var session = new MockSession();
-        var app = new PhiTuiApp(new FakeSessionNavigator(session), new ProviderManager());
+        var app = new PhiTuiApp(session, new ProviderManager());
 
         var root = app.BuildRoot();
 

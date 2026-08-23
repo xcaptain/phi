@@ -18,7 +18,7 @@ public sealed class ProvidersPage
     {
         ArgumentNullException.ThrowIfNull(providers);
         _layout = new ProvidersPageLayout();
-        foreach (var entry in providers.Providers)
+        foreach (var entry in ProviderCatalog.All)
             _layout.RowsHost.Children.Add(new ProviderRowView(entry, providers));
     }
 

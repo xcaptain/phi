@@ -8,10 +8,13 @@ namespace Phi;
 /// changes via <see cref="StateChanged"/> and <see cref="HarnessEvent"/>, and
 /// dispatch user actions through the action methods.
 /// <para>
-/// Session <em>switching</em> is not part of this contract — navigating
-/// between sessions (new / resume) is owned by
-/// <see cref="Sessions.ISessionNavigator"/>, which disposes the outgoing
-/// session.
+/// Session <em>switching</em> is part of this contract: <see cref="NewSessionAsync"/>
+/// creates a fresh session in the same (or a chosen) workspace, and
+/// <see cref="ResumeAsync"/> opens an indexed session by id. Both return the
+/// new session and dispose this one before returning — frontends just
+/// reassign their reactive binding (<c>State&lt;ISession&gt;.Value = next</c>
+/// in the TUI, or an equivalent event in the Avalonia shell). No separate
+/// "navigator" entity is involved.
 /// </para>
 /// <para>
 /// Implementing <see cref="IDisposable"/> signals the session owns scoped
@@ -26,6 +29,9 @@ public interface ISession : IDisposable
     event Action<HarnessEvent>? HarnessEvent;
     SessionState State { get; }
 
+    /// <summary>Stable session id (matches the persisted <see cref="SessionRecord.Id"/>).</summary>
+    string Id { get; }
+
     /// <summary>Working directory this session is bound to (its workspace).</summary>
     string Cwd { get; }
 
@@ -35,11 +41,19 @@ public interface ISession : IDisposable
     /// </summary>
     IReadOnlyList<SkillDescriptor> Skills { get; }
 
+    /// <summary>
+    /// Names of the providers available in the catalog, in display order.
+    /// Used by the <c>/connect</c> / <c>/models</c> dialogs and the
+    /// desktop model picker.
+    /// </summary>
+    IReadOnlyList<string> AvailableProviders { get; }
+
     void SubmitPrompt(string text);
     void Cancel();
     void EnqueueSteering(UserMessage message);
     void EnqueueFollowUp(UserMessage message);
     void RenameSession(string? title);
+
     /// <summary>
     /// Loads a skill's <c>SKILL.md</c> into the conversation and starts a run
     /// so the model acts on it immediately (bare <c>/skill:NAME</c> runs the
@@ -60,4 +74,34 @@ public interface ISession : IDisposable
     /// Applies to the next run only.
     /// </summary>
     void SwitchProvider(IPhiProvider provider, string providerName, string model);
+
+    /// <summary>
+    /// Creates a fresh session in <paramref name="cwd"/> (or the current
+    /// session's cwd when null) inheriting the current session's provider
+    /// and model. The new session is returned; this session is disposed
+    /// before returning.
+    /// <para>
+    /// Frontend binding pattern (TUI):
+    /// <c>_currentSession.Value = await _currentSession.Value.NewSessionAsync(cwd);</c>
+    /// </para>
+    /// </summary>
+    Task<ISession> NewSessionAsync(string? cwd = null);
+
+    /// <summary>
+    /// Resumes the indexed session identified by <paramref name="sessionId"/>.
+    /// Resolves the session's own cwd from its record so cross-workspace
+    /// resume works (the desktop shell lists sessions across every project;
+    /// the record's cwd is the source of truth). The new session is
+    /// returned; this session is disposed before returning. Throws
+    /// <see cref="InvalidOperationException"/> when the id is unknown.
+    /// </summary>
+    Task<ISession> ResumeAsync(string sessionId);
+
+    /// <summary>
+    /// Indexed sessions of this session's project, last touched within
+    /// <paramref name="days"/> days, newest first. Backed by the same
+    /// <see cref="SessionManager"/> the session itself uses, so a freshly
+    /// persisted session appears on the next call.
+    /// </summary>
+    IReadOnlyList<SessionRecord> ListRecent(int days = 7);
 }

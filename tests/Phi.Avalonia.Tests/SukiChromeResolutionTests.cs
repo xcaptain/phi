@@ -84,7 +84,7 @@ public class SukiChromeResolutionTests
         Application.Current!.RequestedThemeVariant = ThemeVariant.Light;
 
         var providers = new ProviderManager(credentials: new EmptyStore());
-        var row = new ProviderRowView(providers.Providers[0], providers);
+        var row = new ProviderRowView(ProviderCatalog.All[0], providers);
         var w = Show(row);
         try
         {

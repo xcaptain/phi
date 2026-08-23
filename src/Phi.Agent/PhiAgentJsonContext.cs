@@ -34,4 +34,4 @@ namespace Phi.Agent;
 [JsonSerializable(typeof(UsageCost))]
 [JsonSerializable(typeof(JsonNode))]
 [JsonSerializable(typeof(JsonObject))]
-public partial class PhiJsonContext : JsonSerializerContext;
+internal sealed partial class PhiAgentJsonContext : JsonSerializerContext;

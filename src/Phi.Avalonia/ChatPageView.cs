@@ -2,7 +2,6 @@ using Avalonia.Controls;
 using Phi.Avalonia.Components;
 using Phi.Chat;
 using Phi.Providers;
-using Phi.Sessions;
 
 namespace Phi.Avalonia;
 
@@ -22,14 +21,14 @@ public sealed class ChatPageView : IDisposable
     private readonly ChatPageLayout _layout;
 
     public ChatPageView(
-        ISessionNavigator navigator,
+        ActiveSession active,
         ProviderManager providers,
         ISession session,
         Func<Task<string?>>? pickFolder = null,
         Action<Action>? postToUi = null,
         Action<Action>? dispatchToUi = null)
     {
-        ArgumentNullException.ThrowIfNull(navigator);
+        ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(session);
 
@@ -38,7 +37,7 @@ public sealed class ChatPageView : IDisposable
         _transcript = new TranscriptView(dispatchToUi);
         _promptInput = new PromptInputView(
             session,
-            navigator,
+            active,
             providers,
             _projector,
             pickFolder: pickFolder,

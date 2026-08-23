@@ -12,14 +12,13 @@ using Material.Icons.Avalonia;
 using Phi.Avalonia.Components;
 using Phi.Avalonia.Controls;
 using Phi.Providers;
-using Phi.Sessions;
 
 namespace Phi.Avalonia;
 
 /// <summary>
-/// Controller for the desktop shell. Owns navigation state, listens to
-/// <see cref="ISessionNavigator.SessionChanged"/> and to the watched
-/// session's title/persistence transitions, and drives view switching in
+/// Controller for the desktop shell. Owns navigation state by listening
+/// to <see cref="ActiveSession.Changed"/> and to the watched session's
+/// title/persistence transitions, and drives view switching in
 /// <see cref="ShellLayout"/>'s view host. The chrome itself (sidebar +
 /// buttons + dividers) lives in <see cref="ShellLayout"/> as XAML; this
 /// class is intentionally free of UI construction beyond the imperative
@@ -27,7 +26,7 @@ namespace Phi.Avalonia;
 /// </summary>
 public sealed class ShellView : IDisposable
 {
-    private readonly ISessionNavigator _navigator;
+    private readonly ActiveSession _active;
     private readonly ProviderManager _providers;
     private readonly Action<Action> _dispatchToUi;
     private readonly Action<Action> _postToUi;
@@ -51,14 +50,14 @@ public sealed class ShellView : IDisposable
     private TopLevel? _renameTopLevel;
 
     public ShellView(
-        ISessionNavigator navigator,
+        ActiveSession active,
         ProviderManager providers,
         Action<Action>? dispatchToUi = null,
         Action<Action>? postToUi = null)
     {
-        ArgumentNullException.ThrowIfNull(navigator);
+        ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
-        _navigator = navigator;
+        _active = active;
         _providers = providers;
         _dispatchToUi = dispatchToUi ?? Dispatch;
         _postToUi = postToUi ?? Post;
@@ -76,7 +75,7 @@ public sealed class ShellView : IDisposable
         _layout.NewChatButton.Click += (_, _) => _postToUi(() =>
         {
             ShowChat();
-            _ = _navigator.NavigateToNewAsync();
+            _ = NavigateToNewAsync();
         });
         _layout.ByDateButton.Click += (_, _) => SetGroupMode(NavModel.GroupMode.ByDate);
         _layout.ByWorkspaceButton.Click += (_, _) => SetGroupMode(NavModel.GroupMode.ByWorkspace);
@@ -98,7 +97,7 @@ public sealed class ShellView : IDisposable
                 : BuildSessionRow(entry);
         });
 
-        _navigator.SessionChanged += OnSessionChanged;
+        _active.Changed += OnActiveSessionChanged;
 
         RebuildNavigation();
         ShowChat();
@@ -397,10 +396,10 @@ public sealed class ShellView : IDisposable
     internal void DeleteSessionRow(NavModel.Entry entry)
     {
         if (entry.SessionId is not { } id) return;
-        var wasActive = _navigator.Current.State.SessionId == id;
+        var wasActive = _active.Current.State.SessionId == id;
         WorkspaceSessionStore.DeleteSession(id);
         if (wasActive)
-            _postToUi(() => _ = _navigator.NavigateToNewAsync());
+            _postToUi(() => _ = NavigateToNewAsync());
         else
             _postToUi(RebuildNavigation);
     }
@@ -408,17 +407,17 @@ public sealed class ShellView : IDisposable
     internal void NewSessionInWorkspace(string? cwd)
     {
         if (string.IsNullOrEmpty(cwd)) return;
-        _postToUi(() => _ = _navigator.NavigateToNewAsync(cwd));
+        _postToUi(() => _ = NavigateToNewAsync(cwd));
     }
 
     internal void DeleteWorkspaceRow(string? cwd)
     {
         if (string.IsNullOrEmpty(cwd)) return;
-        var wasActive = Path.GetFullPath(_navigator.Current.Cwd)
+        var wasActive = Path.GetFullPath(_active.Current.Cwd)
             .Equals(Path.GetFullPath(cwd), StringComparison.OrdinalIgnoreCase);
         WorkspaceSessionStore.DeleteWorkspace(cwd);
         if (wasActive)
-            _postToUi(() => _ = _navigator.NavigateToNewAsync());
+            _postToUi(() => _ = NavigateToNewAsync());
         else
             _postToUi(RebuildNavigation);
     }
@@ -435,7 +434,7 @@ public sealed class ShellView : IDisposable
                 _groupMode);
             _layout.SessionsList.ItemsSource = _entries;
             _layout.SessionsList.SelectedIndex = NavModel.IndexForActive(
-                _entries, _navigator.Current.State.SessionId);
+                _entries, _active.Current.State.SessionId);
 
             UpdateGroupToggle();
         }
@@ -460,7 +459,7 @@ public sealed class ShellView : IDisposable
         }
 
         // Defer the session-resume dispatch out of the ListBox's
-        // SelectionChanged dispatch. Navigating (→ SessionChanged →
+        // SelectionChanged dispatch. Navigating (→ Active.Changed →
         // RebuildNavigation) mutates the list items; running that
         // synchronously inside the very dispatch that is handling the
         // click re-enters the ListBox and corrupts its state.
@@ -479,12 +478,12 @@ public sealed class ShellView : IDisposable
             case NavModel.Kind.Session:
                 ShowChat();
                 if (entry.SessionId is { } id)
-                    _ = _navigator.ResumeAsync(id);
+                    _ = ResumeAsync(id);
                 break;
         }
     }
 
-    private void OnSessionChanged()
+    private void OnActiveSessionChanged()
     {
         _dispatchToUi(() =>
         {
@@ -494,21 +493,49 @@ public sealed class ShellView : IDisposable
         });
     }
 
+    // ──────── Navigation (delegated to ISession) ────────
+
+    private async Task NavigateToNewAsync(string? cwd = null)
+    {
+        try
+        {
+            var next = await _active.Current.NewSessionAsync(cwd);
+            _active.Replace(next);
+        }
+        catch (Exception ex)
+        {
+            DeskLog.Write($"ShellView.NavigateToNewAsync({cwd}): threw: {ex}");
+        }
+    }
+
+    private async Task ResumeAsync(string id)
+    {
+        try
+        {
+            var next = await _active.Current.ResumeAsync(id);
+            _active.Replace(next);
+        }
+        catch (Exception ex)
+        {
+            DeskLog.Write($"ShellView.ResumeAsync({id}): threw: {ex}");
+        }
+    }
+
     // ──────── View builders ────────
 
     private void ShowChat()
     {
         _chatPage?.Dispose();
         _chatPage = new ChatPageView(
-            _navigator,
+            _active,
             _providers,
-            _navigator.Current,
+            _active.Current,
             pickFolder: PickFolderAsync,
             postToUi: _postToUi,
             dispatchToUi: _dispatchToUi);
         _layout.ViewHost.Content = _chatPage.Root;
         _showingChat = true;
-        WatchSession(_navigator.Current);
+        WatchSession(_active.Current);
         _postToUi(() => _chatPage?.PromptInput.FocusEditor());
     }
 
@@ -575,7 +602,7 @@ public sealed class ShellView : IDisposable
     public void Dispose()
     {
         DetachRenameDismiss();
-        _navigator.SessionChanged -= OnSessionChanged;
+        _active.Changed -= OnActiveSessionChanged;
         if (_watchedSession is not null)
             _watchedSession.StateChanged -= OnSessionStateForNav;
         _chatPage?.Dispose();

@@ -10,7 +10,6 @@ using Avalonia.Styling;
 using MarkView.Avalonia;
 using Material.Icons.Avalonia;
 using Phi.Providers;
-using Phi.Sessions;
 
 namespace Phi.Avalonia;
 
@@ -21,33 +20,42 @@ namespace Phi.Avalonia;
 /// built in C# to mirror the repo's code-only style. The desktop head
 /// installs a classic lifetime with a single main window; single-view
 /// platforms (Android, browser) host the same shell control directly.
+/// <para>
+/// The active <see cref="ISession"/> is owned by the composition root
+/// (<c>Phi.Avalonia.Desktop.Program</c>) and surfaced to the shell via
+/// <see cref="ActiveSession"/> — a small UI-only holder that exposes a
+/// <c>Changed</c> event for re-binding on navigation. The session itself
+/// owns navigation (<c>NewSessionAsync</c> / <c>ResumeAsync</c>); the
+/// holder just stores the reference and notifies.
+/// </para>
 /// </summary>
 public sealed partial class PhiAvaloniaApp : Application
 {
-    private readonly ISessionNavigator _navigator;
-    private readonly ProviderManager _providers;
+    private readonly ActiveSession? _active;
+    private readonly ProviderManager? _providers;
 
     /// <summary>
     /// Parameterless ctor for the headless test host and design-time
-    /// tooling. The real app is constructed with a navigator + provider
-    /// manager via <see cref="PhiAvaloniaApp(ISessionNavigator, ProviderManager)"/>.
+    /// tooling. The real app is constructed with an <see cref="ActiveSession"/>
+    /// + <see cref="ProviderManager"/> via the main
+    /// <see cref="PhiAvaloniaApp(ActiveSession, ProviderManager)"/> ctor.
     /// </summary>
     public PhiAvaloniaApp()
     {
         Name = "Phi";
-        _navigator = null!;
-        _providers = null!;
+        _active = null;
+        _providers = null;
     }
 
-    public PhiAvaloniaApp(ISessionNavigator navigator, ProviderManager providers)
+    public PhiAvaloniaApp(ActiveSession active, ProviderManager providers)
     {
-        ArgumentNullException.ThrowIfNull(navigator);
+        ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
         // Drives the macOS process name, which is what AppKit shows as the
         // first menu title (next to the Apple logo) in the menu bar. The
         // base default is "Avalonia Application".
         Name = "Phi";
-        _navigator = navigator;
+        _active = active;
         _providers = providers;
     }
 
@@ -122,7 +130,7 @@ public sealed partial class PhiAvaloniaApp : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
-        if (_navigator is null)
+        if (_active is null || _providers is null)
         {
             base.OnFrameworkInitializationCompleted();
             return;
@@ -131,10 +139,10 @@ public sealed partial class PhiAvaloniaApp : Application
         switch (ApplicationLifetime)
         {
             case IClassicDesktopStyleApplicationLifetime desktop:
-                desktop.MainWindow = new MainWindow(_navigator, _providers);
+                desktop.MainWindow = new MainWindow(_active, _providers);
                 break;
             case ISingleViewApplicationLifetime singleView:
-                singleView.MainView = new ShellView(_navigator, _providers).Root;
+                singleView.MainView = new ShellView(_active, _providers).Root;
                 break;
         }
 

@@ -51,7 +51,7 @@ public class ProvidersPageTests
     public async Task ListsARowPerBuiltInProvider()
     {
         var (providers, rowsHost) = CreatePage();
-        await Assert.That(rowsHost.Children.Count).IsEqualTo(providers.Providers.Count);
+        await Assert.That(rowsHost.Children.Count).IsEqualTo(ProviderCatalog.All.Count);
     }
 
     [Test]
@@ -68,7 +68,7 @@ public class ProvidersPageTests
     public async Task NewRow_StartsAsNotConfigured()
     {
         var (providers, panel) = CreatePage();
-        var firstEntry = providers.Providers[0];
+        var firstEntry = ProviderCatalog.All[0];
 
         var parts = FirstRow(panel);
         await Assert.That(parts.StateLabel.Text).IsEqualTo("not configured");
@@ -79,8 +79,8 @@ public class ProvidersPageTests
     [Test]
     public async Task ExistingKey_ShowsAsKeySavedAndIsMasked()
     {
-        var (providers, panel) = CreatePage(p => p.SetApiKey(p.Providers[0], "saved-key-for-test"));
-        var firstEntry = providers.Providers[0];
+        var (providers, panel) = CreatePage(p => p.SetApiKey(ProviderCatalog.All[0], "saved-key-for-test"));
+        var firstEntry = ProviderCatalog.All[0];
 
         var parts = FirstRow(panel);
         await Assert.That(parts.StateLabel.Text).IsEqualTo("✓ key saved");
@@ -95,7 +95,7 @@ public class ProvidersPageTests
     public async Task ClickingSave_PersistsKeyToProviderManager()
     {
         var (providers, panel) = CreatePage();
-        var firstEntry = providers.Providers[0];
+        var firstEntry = ProviderCatalog.All[0];
 
         var parts = FirstRow(panel);
         parts.KeyInput.Text = "fresh-api-key-12345";
@@ -109,7 +109,7 @@ public class ProvidersPageTests
     public async Task ClickingSave_UpdatesRowStateToKeySaved()
     {
         var (providers, panel) = CreatePage();
-        var firstEntry = providers.Providers[0];
+        var firstEntry = ProviderCatalog.All[0];
 
         var parts = FirstRow(panel);
         parts.KeyInput.Text = "another-key";
@@ -123,7 +123,7 @@ public class ProvidersPageTests
     public async Task EnterOnKeyInput_PersistsAndUpdatesState()
     {
         var (providers, panel) = CreatePage();
-        var firstEntry = providers.Providers[0];
+        var firstEntry = ProviderCatalog.All[0];
 
         var parts = FirstRow(panel);
         parts.KeyInput.Text = "via-enter";
@@ -141,7 +141,7 @@ public class ProvidersPageTests
     public async Task SaveWithEmptyKey_DoesNotPersist()
     {
         var (providers, panel) = CreatePage();
-        var firstEntry = providers.Providers[0];
+        var firstEntry = ProviderCatalog.All[0];
 
         var parts = FirstRow(panel);
         // Don't change KeyInput.Text — leave it empty.
@@ -155,7 +155,7 @@ public class ProvidersPageTests
     public async Task Save_TrimsWhitespace()
     {
         var (providers, panel) = CreatePage();
-        var firstEntry = providers.Providers[0];
+        var firstEntry = ProviderCatalog.All[0];
 
         var parts = FirstRow(panel);
         parts.KeyInput.Text = "   key-with-spaces   ";

@@ -4,7 +4,6 @@ using Avalonia.VisualTree;
 using Phi.Agent;
 using Phi.Avalonia.Tests.Helpers;
 using Phi.Providers;
-using Phi.Sessions;
 
 namespace Phi.Avalonia.Tests;
 
@@ -15,22 +14,32 @@ namespace Phi.Avalonia.Tests;
 [NotInParallel("Avalonia-UI")]
 public class ShellViewTests
 {
-    private static (SessionNavigator navigator, ShellView shell) CreateNavigatorShell(string cwd)
+    private static (ActiveSession active, ShellView shell) CreateShell(string cwd)
     {
         AvaloniaTestHost.EnsureInitialized();
 
         var stub = new StubProvider((_, _) => Empty());
         var resolver = new MapResolver(stub);
         var providers = new ProviderManager();
-        var factory = new SessionFactory(resolver);
-        var env = new SessionConfig { Cwd = cwd, ProviderName = "stub", Model = "m", Tools = [] };
-        var navigator = new SessionNavigator(factory, env, resumeSessionId: null);
+        var env = new SessionEnvironment
+        {
+            ProviderResolver = resolver,
+            SystemPrompt = new Phi.Prompts.SystemPromptOptions { ResolvedSystemPrompt = "test" },
+            MaxTurns = 5,
+            ContextWindowTokens = ContextWindow.DefaultContextWindowTokens,
+            AutoCompactTokenThreshold = null,
+            AutoCompactEnabled = true,
+            CompactionKeepRecentTokens = ContextWindow.DefaultCompactionKeepRecentTokens,
+            Tools = [],
+        };
+        var initial = Session.LoadAsync(cwd, env, providerName: "stub", model: "m").GetAwaiter().GetResult();
+        var active = new ActiveSession(initial);
         var shell = new ShellView(
-            navigator,
+            active,
             providers,
             dispatchToUi: a => a(),
             postToUi: a => a());
-        return (navigator, shell);
+        return (active, shell);
     }
 
     private static async IAsyncEnumerable<ProviderEvent> Empty()
@@ -42,9 +51,8 @@ public class ShellViewTests
     [Test]
     public async Task InitialState_ShowsChat()
     {
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             await Assert.That(shell.ChatPage).IsNotNull();
             await Assert.That(shell.ViewHost.Content).IsEqualTo(shell.ChatPage!.Root);
@@ -54,11 +62,10 @@ public class ShellViewTests
     [Test]
     public async Task NavModel_Rebuild_AfterSessionPersists()
     {
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
-            var session = navigator.Current;
+            var session = active.Current;
             await Assert.That(session.State.IsPersisted).IsFalse();
 
             session.SubmitPrompt("hello");
@@ -96,9 +103,8 @@ public class ShellViewTests
                 s.AppendMessage(new Phi.Agent.UserMessage { Content = $"seeded {i}" });
             }
 
-            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            var (active, shell) = CreateShell(Path.GetTempPath());
             using (shell)
-            using (navigator)
             {
                 var window = new Window
                 {
@@ -135,9 +141,8 @@ public class ShellViewTests
         // Providers) using SukiSideMenu's natural slots:
         //   HeaderContent: [New Chat, divider, sessions header, sessions list]
         //   FooterContent: Providers
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             // shell.Root is now the ShellLayout UserControl built on
             // SukiSideMenu; the sessions browser lives in its HeaderContent
@@ -179,9 +184,8 @@ public class ShellViewTests
     [Test]
     public async Task GroupToggle_DefaultIsWorkspace_AndSwitchesSelectionVisual()
     {
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             // Default group mode is ByWorkspace; the workspace toggle is the
             // active one.
@@ -222,9 +226,8 @@ public class ShellViewTests
             var sb = Session.Create(cwdB, "m");
             sb.AppendMessage(new Phi.Agent.UserMessage { Content = "b" });
 
-            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            var (active, shell) = CreateShell(Path.GetTempPath());
             using (shell)
-            using (navigator)
             {
                 var window = new Window
                 {
@@ -276,9 +279,8 @@ public class ShellViewTests
     [Test]
     public async Task SessionsList_HasNoNewChatRow()
     {
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             var entries = (System.Collections.IList)shell.SessionsList.ItemsSource!;
             // No "New Chat" entry — the New Chat affordance lives only in the
@@ -293,9 +295,8 @@ public class ShellViewTests
     [Test]
     public async Task SessionRow_ContainsEllipsisMenu_WithRenameAndDelete()
     {
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             // Build the row directly (no window/container realization needed):
             // it must carry a "⋮" menu with Rename + Delete.
@@ -313,9 +314,8 @@ public class ShellViewTests
         // its desired width, which overlapped the ⋯ menu on long titles. The
         // row is now a Grid: title fills a star column (ellipsizing), the menu
         // lives in a fixed Auto column so it's always clickable.
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             var row = shell.BuildSessionRow(new NavModel.Entry(
                 NavModel.Kind.Session, "a very long session title that would overflow", "id-1"));
@@ -345,9 +345,8 @@ public class ShellViewTests
             var s = Session.Create(Path.GetTempPath(), "m");
             s.AppendMessage(new Phi.Agent.UserMessage { Content = "seed" });
 
-            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            var (active, shell) = CreateShell(Path.GetTempPath());
             using (shell)
-            using (navigator)
             {
                 var window = new Window { Width = 800, Height = 600, Content = shell.Root };
                 window.Show();
@@ -376,9 +375,8 @@ public class ShellViewTests
     [Test]
     public async Task WorkspaceRow_ContainsEllipsisMenu_WithNewSessionAndDelete()
     {
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             var row = shell.BuildWorkspaceRow(new NavModel.Entry(NavModel.Kind.Workspace, "~/proj"));
             var menu = FindEllipsisMenu(row);
@@ -390,9 +388,8 @@ public class ShellViewTests
     [Test]
     public async Task SessionRow_RenameTogglesWholeRow_BlurEndsEdit()
     {
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             var entry = new NavModel.Entry(NavModel.Kind.Session, "Original", "id-1");
             var row = shell.BuildSessionRow(entry);
@@ -437,9 +434,8 @@ public class ShellViewTests
             var s = Session.Create(Path.GetTempPath(), "m");
             s.AppendMessage(new Phi.Agent.UserMessage { Content = "seed" });
 
-            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            var (active, shell) = CreateShell(Path.GetTempPath());
             using (shell)
-            using (navigator)
             {
                 var entry = new NavModel.Entry(NavModel.Kind.Session, "Original", s.Id);
                 var row = shell.BuildSessionRow(entry);
@@ -477,9 +473,8 @@ public class ShellViewTests
     [Test]
     public async Task SessionRow_EditFieldIsFlush_FillsWholeRow()
     {
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             var row = shell.BuildSessionRow(new NavModel.Entry(NavModel.Kind.Session, "T", "id-1"));
             var renameBox = (global::Avalonia.Controls.TextBox)row.Children[1];
@@ -503,9 +498,8 @@ public class ShellViewTests
             sa.AppendMessage(new Phi.Agent.UserMessage { Content = "hello" });
             var id = sa.Id;
 
-            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            var (active, shell) = CreateShell(Path.GetTempPath());
             using (shell)
-            using (navigator)
             {
                 shell.RenameSessionById(id, "Renamed title");
 
@@ -533,9 +527,8 @@ public class ShellViewTests
             sa.AppendMessage(new Phi.Agent.UserMessage { Content = "hello" });
             var id = sa.Id;
 
-            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            var (active, shell) = CreateShell(Path.GetTempPath());
             using (shell)
-            using (navigator)
             {
                 await Assert.That(WorkspaceSessionStore.FindSession(id)).IsNotNull();
 
@@ -567,9 +560,8 @@ public class ShellViewTests
             var sb = Session.Create(cwd, "m");
             sb.AppendMessage(new Phi.Agent.UserMessage { Content = "b" });
 
-            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            var (active, shell) = CreateShell(Path.GetTempPath());
             using (shell)
-            using (navigator)
             {
                 shell.DeleteWorkspaceRow(cwd);
 
@@ -598,14 +590,13 @@ public class ShellViewTests
             var sa = Session.Create(cwd, "m");
             sa.AppendMessage(new Phi.Agent.UserMessage { Content = "a" });
 
-            var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+            var (active, shell) = CreateShell(Path.GetTempPath());
             using (shell)
-            using (navigator)
             {
                 shell.NewSessionInWorkspace(cwd);
 
-                await WaitForAsync(() => navigator.Current.State.SessionId != sa.Id);
-                await Assert.That(Path.GetFullPath(navigator.Current.Cwd))
+                await WaitForAsync(() => active.Current.State.SessionId != sa.Id);
+                await Assert.That(Path.GetFullPath(active.Current.Cwd))
                     .IsEqualTo(Path.GetFullPath(cwd));
             }
         }
@@ -631,9 +622,8 @@ public class ShellViewTests
     {
         // New Chat / Providers must be transparent by default (matching
         // session list rows) and only gain a background while hovered.
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             foreach (var button in new[] { shell.NewChatButton, shell.ProvidersButton })
             {
@@ -648,9 +638,8 @@ public class ShellViewTests
     {
         // Display-only shortening: the row shows the last folder segment, but
         // the menu actions still resolve the full path.
-        var (navigator, shell) = CreateNavigatorShell(Path.GetTempPath());
+        var (active, shell) = CreateShell(Path.GetTempPath());
         using (shell)
-        using (navigator)
         {
             var row = shell.BuildWorkspaceRow(new NavModel.Entry(
                 NavModel.Kind.Workspace, "phi", Cwd: "/Users/me/github/phi"));

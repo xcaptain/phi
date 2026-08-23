@@ -16,13 +16,13 @@ namespace Phi.Avalonia.Tests;
 [NotInParallel("Avalonia-UI")]
 public class PromptInputViewTests
 {
-    private static (MockSession session, FakeSessionNavigator navigator, PromptInputView view, ChatTranscriptProjector projector) Create(
+    private static (MockSession session, ActiveSession active, PromptInputView view, ChatTranscriptProjector projector) Create(
         Action<Action>? postToUi = null,
         Func<Task<string?>>? pickFolder = null)
     {
         AvaloniaTestHost.EnsureInitialized();
         var session = new MockSession();
-        var navigator = new FakeSessionNavigator(session);
+        var active = new ActiveSession(session);
         var projector = new ChatTranscriptProjector(session);
         // ProviderManager reads API keys from the credential store, not
         // from env vars — inject a fake credential store so HasApiKey
@@ -31,11 +31,11 @@ public class PromptInputViewTests
         // ApplyModelSelection should fire SwitchProvider.
         var providers = new ProviderManager(
             credentials: new AllKeysCredentialStore());
-        var view = new PromptInputView(session, navigator, providers, projector,
+        var view = new PromptInputView(session, active, providers, projector,
             pickFolder: pickFolder,
             postToUi: postToUi ?? (a => a()),
             dispatchToUi: a => a());
-        return (session, navigator, view, projector);
+        return (session, active, view, projector);
     }
 
     private static async Task WaitForAsync(Func<bool> condition, int timeoutMs = 5000)
@@ -264,39 +264,44 @@ public class PromptInputViewTests
     [Test]
     public async Task SelectDifferentWorkspace_NavigatesToNewSessionInThatCwd()
     {
-        var (session, navigator, view, _) = Create();
+        var (session, active, view, _) = Create();
         session.Cwd = "/current";
+        // When the session's NewSessionAsync is called, hand the active a
+        // new MockSession so the swap succeeds and we can count the call.
+        session.OnNewSession = _ => new MockSession { Cwd = "/other" };
 
         view.SelectWorkspaceForTest("/other");
 
-        await Assert.That(navigator.NavigateToNewCalls).IsEqualTo(1);
-        await Assert.That(navigator.LastNewCwd).IsEqualTo("/other");
+        await Assert.That(session.NewSessionCalls).IsEqualTo(1);
+        await Assert.That(active.Current.Cwd).IsEqualTo("/other");
     }
 
     [Test]
     public async Task SelectSameWorkspace_DoesNotNavigate()
     {
-        var (session, navigator, view, _) = Create();
+        var (session, active, view, _) = Create();
         session.Cwd = "/current";
+        session.OnNewSession = _ => new MockSession { Cwd = "/other" };
 
         view.SelectWorkspaceForTest("/current");
 
-        await Assert.That(navigator.NavigateToNewCalls).IsEqualTo(0);
+        await Assert.That(session.NewSessionCalls).IsEqualTo(0);
     }
 
     [Test]
     public async Task SelectWorkspaceSentinel_InvokesPickFolderAndNavigates()
     {
-        var (_, navigator, view, _) = Create(
+        var (session, active, view, _) = Create(
             pickFolder: () => Task.FromResult<string?>("/picked"));
+        session.OnNewSession = cwd => new MockSession { Cwd = cwd };
 
         var sentinelIdx = view.WorkspaceItems.Count - 1;
         await Assert.That(view.WorkspaceItems[sentinelIdx].IsSentinel).IsTrue();
 
         view.WorkspaceComboBox!.SelectedIndex = sentinelIdx;
 
-        await WaitForAsync(() => navigator.NavigateToNewCalls == 1);
-        await Assert.That(navigator.LastNewCwd).IsEqualTo("/picked");
+        await WaitForAsync(() => session.NewSessionCalls == 1);
+        await Assert.That(active.Current.Cwd).IsEqualTo("/picked");
     }
 
     // ──────── Model picker ────────

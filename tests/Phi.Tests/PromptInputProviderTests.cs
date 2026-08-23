@@ -43,7 +43,7 @@ public class PromptInputProviderTests : IDisposable
         MockSession session, ProviderManager manager)
     {
         var transcript = new ChatTranscript();
-        var input = new PromptInput(session, new FakeSessionNavigator(session), manager, transcript);
+        var input = new PromptInput(session, manager, transcript);
         return (input, transcript);
     }
 

@@ -19,7 +19,7 @@ namespace Phi;
 [JsonSerializable(typeof(EditDetails))]
 [JsonSerializable(typeof(EditOpDetails))]
 [JsonSerializable(typeof(BashDetails))]
-public partial class PhiJsonContext : JsonSerializerContext;
+internal sealed partial class PhiJsonContext : JsonSerializerContext;
 
 /// <summary>
 /// Strict options for deserializing LLM-supplied tool arguments: camelCase

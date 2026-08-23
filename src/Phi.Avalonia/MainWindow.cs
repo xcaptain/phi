@@ -3,7 +3,6 @@ using Avalonia.Layout;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Phi.Providers;
-using Phi.Sessions;
 using SukiUI.Controls;
 
 namespace Phi.Avalonia;
@@ -18,9 +17,9 @@ public sealed class MainWindow : SukiWindow
 {
     private readonly ShellView _shell;
 
-    public MainWindow(ISessionNavigator navigator, ProviderManager providers)
+    public MainWindow(ActiveSession active, ProviderManager providers)
     {
-        ArgumentNullException.ThrowIfNull(navigator);
+        ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
 
         // SukiWindow draws its own title bar, so the title is shown on every
@@ -55,7 +54,7 @@ public sealed class MainWindow : SukiWindow
         IsMenuVisible = false;
         IsTitleBarVisible = true;
 
-        _shell = new ShellView(navigator, providers);
+        _shell = new ShellView(active, providers);
         Content = _shell.Root;
 
         Closed += (_, _) => _shell.Dispose();

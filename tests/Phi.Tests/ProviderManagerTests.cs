@@ -30,18 +30,17 @@ public class ProviderManagerTests : IDisposable
         Path.Combine(Path.GetTempPath(), "phi-manager-" + Guid.NewGuid().ToString("N") + "-" + fileName);
 
     [Test]
-    public async Task GetProvider_Known_ReturnsEntry()
+    public async Task ProviderCatalog_Find_Known_ReturnsEntry()
     {
-        var manager = CreateManager();
-        await Assert.That(manager.GetProvider("deepseek").Name).IsEqualTo("deepseek");
-        await Assert.That(manager.GetProvider("DEEPSEEK").Name).IsEqualTo("deepseek");
+        // Catalog lookups moved to ProviderCatalog (no instance state).
+        await Assert.That(ProviderCatalog.Find("deepseek")!.Name).IsEqualTo("deepseek");
+        await Assert.That(ProviderCatalog.Find("DEEPSEEK")!.Name).IsEqualTo("deepseek");
     }
 
     [Test]
-    public async Task GetProvider_Unknown_Throws()
+    public async Task ProviderCatalog_Find_Unknown_ReturnsNull()
     {
-        var manager = CreateManager();
-        await Assert.That(() => manager.GetProvider("nope")).Throws<ArgumentException>();
+        await Assert.That(ProviderCatalog.Find("nope")).IsNull();
     }
 
     [Test]
@@ -102,16 +101,15 @@ public class ProviderManagerTests : IDisposable
     [Test]
     public async Task CreateProvider_AnthropicKind_BuildsAnthropicProvider()
     {
-        var manager = CreateManager();
-        using var provider = manager.CreateProvider(ProviderCatalog.DeepSeek, "k");
+        // CreateProvider is now static — no instance needed.
+        using var provider = ProviderManager.CreateProvider(ProviderCatalog.DeepSeek, "k");
         await Assert.That(provider).IsTypeOf<AnthropicProvider>();
     }
 
     [Test]
     public async Task CreateProvider_OpenAIKind_BuildsOpenAICompatibleProvider()
     {
-        var manager = CreateManager();
-        using var provider = manager.CreateProvider(ProviderCatalog.Glm, "k");
+        using var provider = ProviderManager.CreateProvider(ProviderCatalog.Glm, "k");
         await Assert.That(provider).IsTypeOf<OpenAICompatibleProvider>();
     }
 

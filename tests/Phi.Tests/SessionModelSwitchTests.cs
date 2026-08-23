@@ -1,7 +1,6 @@
 using System.Runtime.CompilerServices;
 using Phi.Agent;
-using Phi.Prompts;
-using Phi.Sessions;
+using Phi.Tests.Helpers;
 
 namespace Phi.Tests;
 
@@ -17,8 +16,6 @@ public class SessionModelSwitchTests : IDisposable
     private readonly string _cwd;
     private readonly string _phiHome;
     private readonly string _previousPhiHome;
-    private readonly Phi.Providers.ProviderManager _providerManager = new();
-    private readonly SessionFactory _factory;
 
     public SessionModelSwitchTests()
     {
@@ -27,7 +24,6 @@ public class SessionModelSwitchTests : IDisposable
         _phiHome = Path.Combine(Path.GetTempPath(), "phi-switch-home-" + Guid.NewGuid().ToString("N"));
         _previousPhiHome = SessionPaths.PhiHome;
         SessionPaths.PhiHome = _phiHome;
-        _factory = new SessionFactory(_providerManager);
     }
 
     public void Dispose()
@@ -38,19 +34,8 @@ public class SessionModelSwitchTests : IDisposable
         if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
     }
 
-    private SessionConfig ConfigWith(
-        IPhiProvider provider,
-        string providerName = "deepseek",
-        string model = "model-a") => new()
-        {
-            Cwd = _cwd,
-            Provider = provider,
-            ProviderName = providerName,
-            Model = model,
-            SystemPrompt = new SystemPromptOptions { ResolvedSystemPrompt = "test" },
-            MaxTurns = 5,
-            Tools = [],
-        };
+    private Task<Session> Create(IPhiProvider provider, string providerName = "deepseek", string model = "model-a") =>
+        TestSessionFactory.CreateAsync(_cwd, provider, model, providerName);
 
     private static async Task WaitForAsync(Func<bool> condition, int timeoutMs = 5000)
     {
@@ -67,7 +52,7 @@ public class SessionModelSwitchTests : IDisposable
     public async Task SwitchModel_UpdatesStateAndRecord_WithoutDisposingProvider()
     {
         var provider = new RecordingProvider();
-        var session = _factory.Create(ConfigWith(provider));
+        var session = await Create(provider);
 
         session.SwitchModel("model-b");
 
@@ -83,7 +68,7 @@ public class SessionModelSwitchTests : IDisposable
     public async Task SwitchModel_NextRun_UsesNewModel_OnSameProvider()
     {
         var provider = new RecordingProvider();
-        var session = _factory.Create(ConfigWith(provider));
+        var session = await Create(provider);
 
         session.SubmitPrompt("first");
         await WaitForAsync(() =>
@@ -102,7 +87,7 @@ public class SessionModelSwitchTests : IDisposable
     public async Task SwitchProvider_DisposesPrevious_UpdatesStateAndRecord()
     {
         var providerA = new RecordingProvider();
-        var session = _factory.Create(ConfigWith(providerA, providerName: "deepseek"));
+        var session = await Create(providerA, providerName: "deepseek");
 
         var providerB = new RecordingProvider();
         session.SwitchProvider(providerB, "glm", "glm-5.1");
@@ -122,7 +107,7 @@ public class SessionModelSwitchTests : IDisposable
     public async Task SwitchProvider_NextRun_UsesNewProvider()
     {
         var providerA = new RecordingProvider();
-        var session = _factory.Create(ConfigWith(providerA, providerName: "deepseek"));
+        var session = await Create(providerA, providerName: "deepseek");
         var providerB = new RecordingProvider();
         session.SwitchProvider(providerB, "glm", "glm-5.1");
 
@@ -138,7 +123,7 @@ public class SessionModelSwitchTests : IDisposable
     public async Task SwitchProvider_SameInstance_DoesNotDispose()
     {
         var provider = new RecordingProvider();
-        var session = _factory.Create(ConfigWith(provider, providerName: "deepseek"));
+        var session = await Create(provider, providerName: "deepseek");
 
         session.SwitchProvider(provider, "deepseek", "deepseek-v4-pro");
 
@@ -153,7 +138,7 @@ public class SessionModelSwitchTests : IDisposable
         var gate = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var provider = new RecordingProvider(gate, gateOnCall: 2);
-        var session = _factory.Create(ConfigWith(provider, model: "model-a"));
+        var session = await Create(provider, model: "model-a");
 
         // Run 1 (auto-name + run consume calls 0 and 1), then a blocked run 2.
         session.SubmitPrompt("first");

@@ -15,8 +15,8 @@ public class ChatPageViewTests
     {
         AvaloniaTestHost.EnsureInitialized();
         var session = new MockSession();
-        var navigator = new FakeSessionNavigator(session);
-        var page = new ChatPageView(navigator, new ProviderManager(), session);
+        var active = new ActiveSession(session);
+        var page = new ChatPageView(active, new ProviderManager(), session);
         return (session, page);
     }
 

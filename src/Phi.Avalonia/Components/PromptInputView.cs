@@ -6,7 +6,6 @@ using Phi.Agent;
 using Phi.Chat;
 using Phi.Prompt;
 using Phi.Providers;
-using Phi.Sessions;
 
 namespace Phi.Avalonia.Components;
 
@@ -23,11 +22,18 @@ namespace Phi.Avalonia.Components;
 /// exposed: navigation, connect, models, exit, etc. are reachable via the
 /// side bar; the input only knows about plain user messages.
 /// </para>
+/// <para>
+/// Workspace switches (the picker) drive <see cref="ISession.NewSessionAsync"/>
+/// directly: the new session is handed to the shared
+/// <see cref="ActiveSession"/>, which atomically swaps and notifies the
+/// shell to rebuild the chat page. Old session is disposed inside
+/// <c>NewSessionAsync</c>.
+/// </para>
 /// </summary>
 public sealed class PromptInputView
 {
     private readonly ISession _session;
-    private readonly ISessionNavigator _navigator;
+    private readonly ActiveSession _active;
     private readonly ProviderManager _providers;
     private readonly ChatTranscriptProjector _projector;
     private readonly Func<Task<string?>> _pickFolder;
@@ -43,7 +49,7 @@ public sealed class PromptInputView
 
     public PromptInputView(
         ISession session,
-        ISessionNavigator navigator,
+        ActiveSession active,
         ProviderManager providers,
         ChatTranscriptProjector projector,
         Func<Task<string?>>? pickFolder = null,
@@ -51,12 +57,12 @@ public sealed class PromptInputView
         Action<Action>? dispatchToUi = null)
     {
         ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(navigator);
+        ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(projector);
 
         _session = session;
-        _navigator = navigator;
+        _active = active;
         _providers = providers;
         _projector = projector;
         _pickFolder = pickFolder ?? (() => Task.FromResult<string?>(null));
@@ -232,7 +238,7 @@ public sealed class PromptInputView
     private void RebuildModelItems(string currentProviderName, string currentModel)
     {
         _modelItems = PromptInputPickerBuilder.BuildModelPickerItems(
-            _providers.Providers,
+            ProviderCatalog.All,
             currentProviderName,
             currentModel,
             _providers.HasApiKey);
@@ -248,7 +254,7 @@ public sealed class PromptInputView
                 return;
             }
             var apiKey = _providers.GetApiKey(entry);
-            var provider = _providers.CreateProvider(entry, apiKey);
+            var provider = ProviderManager.CreateProvider(entry, apiKey);
             _session.SwitchProvider(provider, entry.Name, model);
         }
         catch (Exception ex)
@@ -265,7 +271,7 @@ public sealed class PromptInputView
     /// cwd if it isn't already present, with a trailing "📁 Choose folder…"
     /// sentinel row that opens the native folder dialog. Selecting a
     /// workspace (or picking a folder) recreates the fresh session in that
-    /// directory via <see cref="ISessionNavigator.NavigateToNewAsync(string?)"/>.
+    /// directory via <c>ISession.NewSessionAsync</c>.
     /// </summary>
     private void ConfigureWorkspaceCombo()
     {
@@ -325,7 +331,20 @@ public sealed class PromptInputView
         // Defer the navigation out of the picker's SelectionChanged dispatch.
         // Navigating synchronously rebuilds the whole chat page while the
         // ComboBox event is still settling.
-        _postToUi(() => _ = _navigator.NavigateToNewAsync(cwd));
+        _postToUi(() => _ = NavigateToNewAsync(cwd));
+    }
+
+    private async Task NavigateToNewAsync(string? cwd)
+    {
+        try
+        {
+            var next = await _session.NewSessionAsync(cwd);
+            _active.Replace(next);
+        }
+        catch (Exception ex)
+        {
+            DeskLog.Write($"NavigateToNewAsync({cwd}): threw: {ex}");
+        }
     }
 
     private async void ChooseFolder()
@@ -344,7 +363,7 @@ public sealed class PromptInputView
             // input responsive without leaving the UI thread.
             var picked = await _pickFolder();
             if (string.IsNullOrEmpty(picked)) return;
-            _postToUi(() => _ = _navigator.NavigateToNewAsync(picked));
+            _postToUi(() => _ = NavigateToNewAsync(picked));
         }
         catch (Exception ex)
         {

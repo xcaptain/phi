@@ -58,7 +58,7 @@ public class ProviderRowViewTests
     {
         AvaloniaTestHost.EnsureInitialized();
         var providers = new ProviderManager(credentials: new FakeCredentialStore());
-        var row = new ProviderRowView(providers.Providers[0], providers);
+        var row = new ProviderRowView(ProviderCatalog.All[0], providers);
         await Assert.That(row).IsAssignableTo<UserControl>();
         await Assert.That(row.Content).IsAssignableTo<Border>();
     }
@@ -68,7 +68,7 @@ public class ProviderRowViewTests
     {
         AvaloniaTestHost.EnsureInitialized();
         var providers = new ProviderManager(credentials: new FakeCredentialStore());
-        var row = new ProviderRowView(providers.Providers[0], providers);
+        var row = new ProviderRowView(ProviderCatalog.All[0], providers);
         var border = (Border)row.Content!;
         await Assert.That(border.CornerRadius).IsEqualTo(new CornerRadius(6));
         await Assert.That(border.Padding).IsEqualTo(new Thickness(12));
@@ -79,7 +79,7 @@ public class ProviderRowViewTests
     {
         AvaloniaTestHost.EnsureInitialized();
         var providers = new ProviderManager(credentials: new FakeCredentialStore());
-        var row = new ProviderRowView(providers.Providers[0], providers);
+        var row = new ProviderRowView(ProviderCatalog.All[0], providers);
         var border = (Border)row.Content!;
         var stack = (StackPanel)border.Child!;
         // StackPanel children: [NameLabel, StateLabel, inputGrid].
@@ -92,7 +92,7 @@ public class ProviderRowViewTests
     {
         AvaloniaTestHost.EnsureInitialized();
         var providers = new ProviderManager(credentials: new FakeCredentialStore());
-        var row = new ProviderRowView(providers.Providers[0], providers);
+        var row = new ProviderRowView(ProviderCatalog.All[0], providers);
         await Assert.That(row.KeyInput.PasswordChar).IsEqualTo('•');
         await Assert.That(row.KeyInput.RevealPassword).IsFalse();
         await Assert.That(row.KeyInput.PlaceholderText).IsEqualTo("Paste API key…");
@@ -104,7 +104,7 @@ public class ProviderRowViewTests
     {
         AvaloniaTestHost.EnsureInitialized();
         var providers = new ProviderManager(credentials: new FakeCredentialStore());
-        var row = new ProviderRowView(providers.Providers[0], providers);
+        var row = new ProviderRowView(ProviderCatalog.All[0], providers);
         // Fixed width keeps the layout stable when the input changes width.
         await Assert.That(row.SaveButton.Width).IsEqualTo(80);
         await Assert.That(((string?)row.SaveButton.Content)).IsEqualTo("Save");
@@ -115,7 +115,7 @@ public class ProviderRowViewTests
     {
         AvaloniaTestHost.EnsureInitialized();
         var providers = new ProviderManager(credentials: new FakeCredentialStore());
-        var row = new ProviderRowView(providers.Providers[0], providers);
+        var row = new ProviderRowView(ProviderCatalog.All[0], providers);
         await Assert.That(row.RevealToggle).IsAssignableTo<ToggleButton>();
         await Assert.That(((string?)row.RevealToggle.Content)).IsEqualTo("Reveal");
         await Assert.That(row.RevealToggle.IsChecked).IsFalse();

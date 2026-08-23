@@ -1,7 +1,6 @@
 using Phi.Agent;
 using Phi.Providers;
 using Phi.Prompt;
-using Phi.Sessions;
 using Phi.Slash;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
@@ -20,20 +19,31 @@ namespace Phi.Tui.Components;
 /// submitted user prompts are written to the shared <see cref="ChatTranscript"/>.
 /// The input owns all of its visible feedback.
 /// </para>
+/// <para>
+/// <c>/new</c> and <c>/sessions</c> navigate via
+/// <see cref="ISession.NewSessionAsync"/> / <see cref="ISession.ResumeAsync"/>:
+/// the new session is returned, the old one disposes itself, and
+/// <see cref="SessionReplaced"/> fires so the shell can re-bind its
+/// <c>State&lt;ISession&gt;</c> and the chat page rebuilds against the
+/// replacement.
+/// </para>
 /// </summary>
 public sealed partial class PromptInput
 {
     private readonly ISession _session;
-    private readonly ISessionNavigator _navigator;
     private readonly ProviderManager _providers;
     private readonly ChatTranscript _transcript;
 
     /// <summary>The session this input is bound to.</summary>
     public ISession Session => _session;
 
-    /// <summary>The navigator this input is bound to (exposed for tests
-    /// that need to drive navigation).</summary>
-    public ISessionNavigator Navigator => _navigator;
+    /// <summary>
+    /// Fired after a successful <c>/new</c> or <c>/sessions</c> navigation:
+    /// the new session is the argument; the old one has already disposed
+    /// itself. The shell listens and flips its <c>State&lt;ISession&gt;</c>
+    /// so the chat page rebuilds.
+    /// </summary>
+    public event Action<ISession>? SessionReplaced;
 
     /// <summary>The prompt editor constructed by <see cref="Build"/>.</summary>
     public PromptEditor Editor { get; private set; } = null!;
@@ -45,16 +55,13 @@ public sealed partial class PromptInput
 
     public PromptInput(
         ISession session,
-        ISessionNavigator navigator,
         ProviderManager providers,
         ChatTranscript transcript)
     {
         ArgumentNullException.ThrowIfNull(session);
-        ArgumentNullException.ThrowIfNull(navigator);
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(transcript);
         _session = session;
-        _navigator = navigator;
         _providers = providers;
         _transcript = transcript;
     }
@@ -178,12 +185,20 @@ public sealed partial class PromptInput
 
     // ──────── Navigation ────────
 
-    /// <summary>Navigates to a fresh session.</summary>
+    /// <summary>
+    /// Navigates to a fresh session via the active session itself
+    /// (<see cref="ISession.NewSessionAsync"/>); the new session inherits
+    /// the current session's provider and model. The old session disposes
+    /// itself; <see cref="SessionReplaced"/> fires for the shell to
+    /// re-bind. A failure surfaces as a transient message and leaves the
+    /// current session intact.
+    /// </summary>
     private async Task NavigateToNewAsync()
     {
         try
         {
-            await _navigator.NavigateToNewAsync();
+            var next = await _session.NewSessionAsync();
+            SessionReplaced?.Invoke(next);
         }
         catch (Exception ex)
         {
@@ -191,12 +206,20 @@ public sealed partial class PromptInput
         }
     }
 
-    /// <summary>Resumes an indexed session.</summary>
+    /// <summary>
+    /// Resumes an indexed session by id via the active session itself
+    /// (<see cref="ISession.ResumeAsync"/>); the session's own cwd is
+    /// resolved from the record so cross-workspace resume works. The old
+    /// session disposes itself; <see cref="SessionReplaced"/> fires.
+    /// Unknown ids surface as a transient and leave the current session
+    /// intact.
+    /// </summary>
     private async Task ResumeAsync(string sessionId)
     {
         try
         {
-            await _navigator.ResumeAsync(sessionId);
+            var next = await _session.ResumeAsync(sessionId);
+            SessionReplaced?.Invoke(next);
         }
         catch (InvalidOperationException ex)
         {

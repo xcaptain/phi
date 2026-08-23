@@ -1,6 +1,5 @@
 using Phi;
 using Phi.Providers;
-using Phi.Sessions;
 using Phi.Tui;
 
 // ──────── CLI args ────────
@@ -21,30 +20,26 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-// Composition root: wire the provider manager (catalog + credentials +
-// settings) into a session factory and a navigator, pick the startup route
-// from the CLI, and hand the navigator to the TUI. Provider construction is
-// entirely the factory's job — it resolves the provider from the config name
-// via the manager and falls back to a no-op provider when no API key exists
-// (so the TUI can open and prompt for /connect).
+// Composition root: wire the provider manager into a SessionEnvironment
+// (the cross-session context shared by every Session the TUI will ever
+// create) and use it to build the initial Session. Subsequent /new and
+// /sessions are handled by ISession.NewSessionAsync / ResumeAsync — no
+// separate navigator. Provider construction lives inside Session.LoadAsync,
+// which resolves via SessionEnvironment.ProviderResolver and falls back to
+// a no-op provider when no API key exists (so the TUI can open and prompt
+// for /connect).
 var providerManager = new ProviderManager();
-var factory = new SessionFactory(providerManager);
 var defaultProvider = providerManager.ResolveDefaultProvider();
+var env = SessionEnvironment.Default(providerManager);
 
-// Environment for any session: cwd, prompt, tools, compaction knobs. On a
-// fresh session the default provider/model apply; on resume the session
-// record's provider/model win (the config only supplies the environment).
-var env = new SessionConfig
-{
-    Cwd = Environment.CurrentDirectory,
-    ProviderName = defaultProvider.Name,
-    Model = providerManager.ResolveDefaultModel(defaultProvider),
-};
-
-Phi.Sessions.SessionNavigator navigator;
+Session session;
 try
 {
-    navigator = new SessionNavigator(factory, env, resumeSessionId);
+    session = await Session.LoadAsync(
+        Environment.CurrentDirectory, env,
+        providerName: defaultProvider.Name,
+        model: providerManager.ResolveDefaultModel(defaultProvider),
+        resumeId: resumeSessionId);
 }
 catch (InvalidOperationException ex)
 {
@@ -52,9 +47,9 @@ catch (InvalidOperationException ex)
     return 1;
 }
 
-using (navigator)
+using (session)
 {
-    var app = new PhiTuiApp(navigator, providerManager);
+    var app = new PhiTuiApp(session, providerManager);
     app.Run();
 }
 return 0;

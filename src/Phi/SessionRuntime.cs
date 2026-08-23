@@ -1,22 +1,18 @@
 using Phi.Agent;
 using Phi.Prompts;
 
-namespace Phi.Sessions;
+namespace Phi;
 
 /// <summary>
 /// The fully-built runtime a <see cref="Session"/> needs to operate:
 /// the harness (with its resolved system prompt and tool set), the injected
-/// provider, the available skills, and the config knobs that feed the
-/// state machine.
-/// <para>
-/// Built once by <see cref="SessionFactory"/> from a
-/// <see cref="SessionConfig"/> via the shared resources, tools, prompt,
-/// harness pipeline. A session that only needs persistence (no LLM) is
-/// created without a <see cref="SessionRuntime"/> and binds one later via
-/// <c>Session.ApplyRuntime</c>.
-/// </para>
+/// provider, the available skills, and the cross-session environment that
+/// carries the compaction knobs. Built once by the composition pipeline
+/// (previously <c>SessionFactory</c>, now an internal path on
+/// <see cref="Session"/>) and applied to a fresh or resumed
+/// <see cref="Session"/> via <c>Session.ApplyRuntime</c>.
 /// </summary>
-public sealed record SessionRuntime
+internal sealed record SessionRuntime
 {
     public required Harness Harness { get; init; }
 
@@ -36,5 +32,11 @@ public sealed record SessionRuntime
     /// </summary>
     public required IReadOnlyList<SkillDescriptor> Skills { get; init; }
 
-    public required SessionConfig Config { get; init; }
+    /// <summary>
+    /// Cross-session environment (compaction knobs, system-prompt options,
+    /// tool registry). Carried by reference so <see cref="Session"/> can
+    /// read the same knobs for any later <see cref="Session.NewSessionAsync"/>
+    /// / <see cref="Session.ResumeAsync"/> call.
+    /// </summary>
+    public required SessionEnvironment Environment { get; init; }
 }

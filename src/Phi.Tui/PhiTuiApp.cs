@@ -1,5 +1,4 @@
 using Phi.Providers;
-using Phi.Sessions;
 using Phi.Tui.Components;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
@@ -10,34 +9,30 @@ using XenoAtom.Terminal.UI.Styling;
 namespace Phi.Tui;
 
 /// <summary>
-/// TUI shell over <see cref="ISessionNavigator"/>. The chat screen is built
-/// from components in <see cref="Components"/> (header, transcript, status
-/// bar, input); navigating to a new session tears the page down and mounts
-/// a fresh one against the new session so every closure captures exactly
-/// that session. The layout skeleton (header on top, transcript in the
-/// middle, editor + suggestion strip + status bar at the bottom) is fixed.
-/// <para>
-/// Session teardown is owned by the navigator, not the TUI: the navigator
-/// cancels + awaits + disposes the outgoing session before the TUI rebuilds.
-/// </para>
+/// TUI shell. The chat screen is built from components in
+/// <see cref="Components"/> (header, transcript, status bar, input);
+/// <c>/new</c> and <c>/sessions</c> are answered by the
+/// <see cref="ISession"/> itself (<see cref="ISession.NewSessionAsync"/> /
+/// <see cref="ISession.ResumeAsync"/>) — the new session is returned, the
+/// old one disposes itself, and the page host rebuilds on the next render
+/// (its <c>State&lt;ISession&gt;</c> read was the only reactive dependency).
+/// <see cref="PromptInput"/> raises a navigation event when it swaps the
+/// session; the shell listens and flips the State so the
+/// <c>ComputedVisual</c> re-runs the page builder. The layout skeleton
+/// (header on top, transcript in the middle, editor + suggestion strip +
+/// status bar at the bottom) is fixed.
 /// </summary>
 public sealed class PhiTuiApp
 {
-    private readonly ISessionNavigator _navigator;
     private readonly ProviderManager _providers;
     private readonly State<ISession> _currentSession;
 
-    public PhiTuiApp(ISessionNavigator navigator, ProviderManager providers)
+    public PhiTuiApp(ISession initialSession, ProviderManager providers)
     {
-        ArgumentNullException.ThrowIfNull(navigator);
+        ArgumentNullException.ThrowIfNull(initialSession);
         ArgumentNullException.ThrowIfNull(providers);
-        _navigator = navigator;
         _providers = providers;
-        _currentSession = new State<ISession>(navigator.Current);
-
-        // The navigator has already swapped the session; flip the state and
-        // the page host rebuilds the chat page on the next render.
-        _navigator.SessionChanged += () => _currentSession.Value = _navigator.Current;
+        _currentSession = new State<ISession>(initialSession);
     }
 
     /// <summary>
@@ -82,7 +77,8 @@ public sealed class PhiTuiApp
         var transcript = new ChatTranscript();
         var statusBar = new PhiStatusBar(session.State.Model);
 
-        var input = new PromptInput(session, _navigator, _providers, transcript);
+        var input = new PromptInput(session, _providers, transcript);
+        input.SessionReplaced += OnSessionReplaced;
         input.Build();
 
         transcript.Bind(session);
@@ -104,5 +100,17 @@ public sealed class PhiTuiApp
             .VerticalAlignment(Align.Stretch);
         root.SetStyle(Theme.Key, Theme.Default);
         return root;
+    }
+
+    /// <summary>
+    /// Flips the current-session <see cref="State{T}"/> when the input
+    /// answers a <c>/new</c> or <c>/sessions</c> slash command. The
+    /// <c>ComputedVisual</c> reads the State at build time, so assigning a
+    /// new value invalidates the page and the next render rebuilds it
+    /// against the replacement session.
+    /// </summary>
+    private void OnSessionReplaced(ISession next)
+    {
+        _currentSession.Value = next;
     }
 }

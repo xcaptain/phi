@@ -1,6 +1,4 @@
 using Phi.Agent;
-using Phi.Prompts;
-using Phi.Sessions;
 using Phi.Tests.Helpers;
 
 namespace Phi.Tests;
@@ -11,8 +9,6 @@ public class SessionCompactionTests : IDisposable
     private readonly string _cwd;
     private readonly string _phiHome;
     private readonly string _previousPhiHome;
-    private readonly Phi.Providers.ProviderManager _providerManager = new();
-    private readonly SessionFactory _factory;
 
     public SessionCompactionTests()
     {
@@ -21,7 +17,6 @@ public class SessionCompactionTests : IDisposable
         _phiHome = Path.Combine(Path.GetTempPath(), "phi-home-" + Guid.NewGuid().ToString("N"));
         _previousPhiHome = SessionPaths.PhiHome;
         SessionPaths.PhiHome = _phiHome;
-        _factory = new SessionFactory(_providerManager);
     }
 
     public void Dispose()
@@ -32,23 +27,29 @@ public class SessionCompactionTests : IDisposable
         if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
     }
 
-    private SessionConfig ConfigWith(IPhiProvider provider, params (string, object)[] overrides)
+    private Task<Session> Resume(
+        IPhiProvider provider, string id,
+        int? contextWindowTokens = null,
+        int? compactionKeepRecentTokens = null,
+        int? autoCompactTokenThreshold = null,
+        bool? autoCompactEnabled = null)
     {
-        var dict = overrides.ToDictionary(o => o.Item1, o => o.Item2);
-        return new SessionConfig
+        return TestSessionFactory.ResumeAsync(_cwd, provider, id, p =>
         {
-            Cwd = _cwd,
-            Provider = provider,
-            Model = "stub-model",
-            SystemPrompt = new SystemPromptOptions { ResolvedSystemPrompt = "test" },
-            MaxTurns = 5,
-            Tools = [],
-            ContextWindowTokens = dict.GetValueOrDefault("ContextWindowTokens") is int w ? w : 128_000,
-            CompactionKeepRecentTokens = dict.GetValueOrDefault("CompactionKeepRecentTokens") is int k ? k : 50,
-            AutoCompactEnabled = !dict.TryGetValue("AutoCompactEnabled", out var ae) || (bool)ae,
-            // Default to a tiny threshold so tests can actually trigger compaction.
-            AutoCompactTokenThreshold = dict.GetValueOrDefault("AutoCompactTokenThreshold") is int t ? t : 200,
-        };
+            var env = TestSessionFactory.BuildEnv(p);
+            return new SessionEnvironment
+            {
+                ProviderResolver = env.ProviderResolver,
+                SystemPrompt = env.SystemPrompt,
+                MaxTurns = env.MaxTurns,
+                ContextWindowTokens = contextWindowTokens ?? 128_000,
+                CompactionKeepRecentTokens = compactionKeepRecentTokens ?? 50,
+                AutoCompactEnabled = autoCompactEnabled ?? true,
+                // Default to a tiny threshold so tests can actually trigger compaction.
+                AutoCompactTokenThreshold = autoCompactTokenThreshold ?? 200,
+                Tools = env.Tools,
+            };
+        });
     }
 
     private static async Task WaitForAsync(Func<bool> condition, int timeoutMs = 5000)
@@ -103,9 +104,7 @@ public class SessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = _factory.Resume(
-            ConfigWith(StubProvider.Echo(summaryEvents),
-                ("CompactionKeepRecentTokens", 50)), storedId);
+        var resumed = await Resume(StubProvider.Echo(summaryEvents), storedId, compactionKeepRecentTokens: 50);
 
         // The session was resumed with the loaded history. Submitting a
         // prompt triggers auto-compact (since context > threshold).
@@ -145,9 +144,7 @@ public class SessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = _factory.Resume(
-            ConfigWith(StubProvider.Echo(summaryEvents),
-                ("CompactionKeepRecentTokens", 50)), storedId);
+        var resumed = await Resume(StubProvider.Echo(summaryEvents), storedId, compactionKeepRecentTokens: 50);
 
         // Internal: confirm harness was loaded with the bulky history.
         // (We don't expose harness, but the live State mirrors it.)
@@ -186,9 +183,7 @@ public class SessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = _factory.Resume(
-            ConfigWith(StubProvider.Echo(summaryEvents),
-                ("CompactionKeepRecentTokens", 50)), storedId);
+        var resumed = await Resume(StubProvider.Echo(summaryEvents), storedId, compactionKeepRecentTokens: 50);
 
         resumed.SubmitPrompt("hi");
         await WaitForAsync(() => !resumed.State.IsRunning);
@@ -230,9 +225,7 @@ public class SessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = _factory.Resume(
-            ConfigWith(StubProvider.Echo(summaryEvents),
-                ("CompactionKeepRecentTokens", 50)), storedId);
+        var resumed = await Resume(StubProvider.Echo(summaryEvents), storedId, compactionKeepRecentTokens: 50);
 
         // Before compaction, turn count matches the original history.
         await Assert.That(resumed.State.Stats.TurnCount).IsEqualTo(statsBefore.TurnCount);
@@ -264,10 +257,8 @@ public class SessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = _factory.Resume(
-            ConfigWith(StubProvider.Echo(summaryEvents),
-                ("CompactionKeepRecentTokens", 50),
-                ("AutoCompactEnabled", false)), storedId);
+        var resumed = await Resume(StubProvider.Echo(summaryEvents), storedId,
+                compactionKeepRecentTokens: 50, autoCompactEnabled: false);
         var originalCount = resumed.State.Messages.Count;
 
         resumed.SubmitPrompt("hi");
@@ -305,15 +296,12 @@ public class SessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var live = _factory.Resume(
-            ConfigWith(StubProvider.Echo(summaryEvents),
-                ("CompactionKeepRecentTokens", 50)), storedId);
+        var live = await Resume(StubProvider.Echo(summaryEvents), storedId, compactionKeepRecentTokens: 50);
         live.SubmitPrompt("hi");
         await WaitForAsync(() => !live.State.IsRunning);
 
         // A fresh resume from disk sees the rewritten transcript.
-        var reloaded = _factory.Resume(
-            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))), storedId);
+        var reloaded = await Resume(StubProvider.Echo(StubProvider.TextTurn("ok")), storedId);
         await Assert.That(reloaded.LoadMessages()[0]).IsTypeOf<UserMessage>();
         await Assert.That(
             ((UserMessage)reloaded.LoadMessages()[0]).Text
@@ -414,9 +402,7 @@ public class SessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
             }),
         };
-        var resumed = _factory.Resume(
-            ConfigWith(StubProvider.Echo(summaryEvents),
-                ("CompactionKeepRecentTokens", 50)), storedId);
+        var resumed = await Resume(StubProvider.Echo(summaryEvents), storedId, compactionKeepRecentTokens: 50);
 
         resumed.SubmitPrompt("hi");
         await WaitForAsync(() => !resumed.State.IsRunning);
@@ -454,8 +440,7 @@ public class SessionCompactionTests : IDisposable
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
             }));
-        var first = _factory.Resume(
-            ConfigWith(summaryProvider, ("CompactionKeepRecentTokens", 50)), storedId);
+        var first = await Resume(summaryProvider, storedId, compactionKeepRecentTokens: 50);
         first.SubmitPrompt("hi");
         await WaitForAsync(() => !first.State.IsRunning);
 
@@ -477,8 +462,7 @@ public class SessionCompactionTests : IDisposable
                     tr.Timestamp, tr.ToolCallId, tr.ToolName, tr.Content, tr.IsError));
         }
 
-        var second = _factory.Resume(
-            ConfigWith(summaryProvider, ("CompactionKeepRecentTokens", 50)), storedId);
+        var second = await Resume(summaryProvider, storedId, compactionKeepRecentTokens: 50);
         second.SubmitPrompt("hi2");
         await WaitForAsync(() => !second.State.IsRunning);
 
@@ -520,9 +504,7 @@ public class SessionCompactionTests : IDisposable
                 Usage = summaryUsage,
             }),
         };
-        var resumed = _factory.Resume(
-            ConfigWith(StubProvider.Echo(summaryEvents),
-                ("CompactionKeepRecentTokens", 50)), storedId);
+        var resumed = await Resume(StubProvider.Echo(summaryEvents), storedId, compactionKeepRecentTokens: 50);
 
         resumed.SubmitPrompt("hi");
         await WaitForAsync(() => !resumed.State.IsRunning);
@@ -558,8 +540,7 @@ public class SessionCompactionTests : IDisposable
                 StopReason = StopReasons.Stop,
                 Usage = originalUsage,
             }));
-        var first = _factory.Resume(
-            ConfigWith(summaryProvider, ("CompactionKeepRecentTokens", 50)), storedId);
+        var first = await Resume(summaryProvider, storedId, compactionKeepRecentTokens: 50);
         first.SubmitPrompt("hi");
         await WaitForAsync(() => !first.State.IsRunning);
 
@@ -569,8 +550,7 @@ public class SessionCompactionTests : IDisposable
         await Assert.That(first.State.Stats.OutputTokens).IsGreaterThanOrEqualTo(originalUsage.Output);
 
         // Resume the same session from disk in a brand-new instance.
-        var resumed = _factory.Resume(
-            ConfigWith(StubProvider.Echo(StubProvider.TextTurn("ok"))), storedId);
+        var resumed = await Resume(StubProvider.Echo(StubProvider.TextTurn("ok")), storedId);
 
         // The restored stats must include the summary usage we wrote
         // during the first compaction, otherwise the user sees the total

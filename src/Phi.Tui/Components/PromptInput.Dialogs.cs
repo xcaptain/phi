@@ -11,7 +11,7 @@ public sealed partial class PromptInput
 
     internal void ShowSessionsDialog()
     {
-        var sessions = _navigator.ListRecentSessions(7);
+        var sessions = _session.ListRecent(7);
         if (sessions.Count == 0)
         {
             _transcript.ShowTransient("No sessions in the last 7 days");
@@ -95,7 +95,7 @@ public sealed partial class PromptInput
     internal void ShowConnectDialog()
     {
         var list = new OptionList<OptionListItem>().ActivateOnClick(true);
-        foreach (var entry in _providers.Providers)
+        foreach (var entry in ProviderCatalog.All)
         {
             var label = FormatProviderLabel(
                 entry, _session.State.ProviderName, _providers.HasApiKey(entry), _session.State.Model);
@@ -104,7 +104,7 @@ public sealed partial class PromptInput
 
         list.ItemActivated((_, e) =>
         {
-            var entry = _providers.Providers[e.Index];
+            var entry = ProviderCatalog.All[e.Index];
             if (list.Parent is Dialog d) d.Close();
             ConnectProvider(entry);
         });
@@ -128,7 +128,7 @@ public sealed partial class PromptInput
 
     internal void ConnectProviderByName(string name)
     {
-        var entry = _providers.Providers.FirstOrDefault(
+        var entry = ProviderCatalog.All.FirstOrDefault(
             p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
         if (entry is null)
         {
@@ -166,7 +166,7 @@ public sealed partial class PromptInput
     /// </summary>
     internal void ConnectWithModel(ProviderCatalogEntry entry, string apiKey, string model)
     {
-        var provider = _providers.CreateProvider(entry, apiKey);
+        var provider = ProviderManager.CreateProvider(entry, apiKey);
         _session.SwitchProvider(provider, entry.Name, model);
         _providers.SaveDefault(entry, model);
         _transcript.ShowTransient($"Connected to {entry.Name} · {model}");
@@ -214,7 +214,7 @@ public sealed partial class PromptInput
     internal void ShowModelsDialog()
     {
         var providers = BuildModelPickerProviders(
-            _providers.Providers, _session.State.ProviderName, _providers.HasApiKey);
+            ProviderCatalog.All, _session.State.ProviderName, _providers.HasApiKey);
         if (providers.Count == 0)
         {
             _transcript.ShowTransient("No provider connected. Run /connect first.");

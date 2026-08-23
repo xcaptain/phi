@@ -8,7 +8,13 @@ namespace Phi.Providers;
 /// touching callers.
 /// </summary>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
-    "Naming", "CA1716", Justification = "Get/Set/Delete/Has are the natural store vocabulary")]
+    "Naming", "CA1716",
+    Justification = "Get/Set/Delete/Has are the conventional KV-store verbs; " +
+                    "CA1716 flags them because they resemble IDictionary<K,V>'s item-shape " +
+                    "(indexer / KeyValuePair enumerator). We deliberately don't implement " +
+                    "IDictionary to keep the interface narrow (no enumerator, no ContainsKey " +
+                    "collision with BCL, no ICollection size contract). The names read better " +
+                    "than the alternatives (TryGet/Read/Exists) at the call sites.")]
 public interface ICredentialStore
 {
     /// <summary>Returns the stored key for <paramref name="name"/>, or null when absent.</summary>

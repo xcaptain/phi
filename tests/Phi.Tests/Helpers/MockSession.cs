@@ -20,6 +20,30 @@ public sealed class MockSession : ISession
 
     public IReadOnlyList<SkillDescriptor> Skills { get; private set; } = [];
 
+    /// <summary>Stable id surfaced via <see cref="Id"/>.</summary>
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
+    /// <summary>Provider names surfaced via <see cref="AvailableProviders"/>.</summary>
+    public List<string> AvailableProviderNames { get; } = ["openai", "deepseek", "anthropic"];
+
+    public IReadOnlyList<string> AvailableProviders => AvailableProviderNames;
+
+    /// <summary>Last id passed to <see cref="ResumeAsync"/> (tests).</summary>
+    public string? LastResumedId { get; private set; }
+
+    /// <summary>Number of times <see cref="NewSessionAsync"/> was called (tests).</summary>
+    public int NewSessionCalls { get; private set; }
+
+    /// <summary>Override to return a replacement session (tests drive the
+    /// navigator-like flow without an actual session switch).</summary>
+    public Func<string?, ISession>? OnNewSession { get; set; }
+
+    /// <summary>Override to return a replacement session for resume (tests).</summary>
+    public Func<string, ISession>? OnResume { get; set; }
+
+    /// <summary>Sessions surfaced via <see cref="ListRecent"/> (tests).</summary>
+    public IReadOnlyList<SessionRecord> RecentSessions { get; set; } = [];
+
     /// <summary>Override to capture SubmitPrompt calls.</summary>
     public Action<string>? OnSubmitPrompt { get; set; }
 
@@ -76,6 +100,22 @@ public sealed class MockSession : ISession
     public void EnqueueFollowUp(UserMessage message) { }
     public void RenameSession(string? title) { }
     public Task<string> LoadSkillAsync(string name, string? prompt = null) => Task.FromResult(name);
+
+    public Task<ISession> NewSessionAsync(string? cwd = null)
+    {
+        NewSessionCalls++;
+        Dispose();
+        return Task.FromResult(OnNewSession?.Invoke(cwd) ?? this);
+    }
+
+    public Task<ISession> ResumeAsync(string sessionId)
+    {
+        LastResumedId = sessionId;
+        Dispose();
+        return Task.FromResult(OnResume?.Invoke(sessionId) ?? this);
+    }
+
+    public IReadOnlyList<SessionRecord> ListRecent(int days = 7) => RecentSessions;
 
     public void Dispose()
     {

@@ -1,18 +1,27 @@
 using Avalonia;
 using Phi.Providers;
-using Phi.Sessions;
 
 namespace Phi.Avalonia.Desktop;
 
 /// <summary>
-/// Desktop entry point. Composes the provider manager, session factory,
-/// and navigator, then hands them to the Avalonia app, and starts the
-/// classic desktop lifetime.
+/// Desktop entry point. Composes the provider manager, the cross-session
+/// <see cref="Phi.SessionEnvironment"/>, the initial
+/// <see cref="Phi.Session"/>, and the UI's
+/// <see cref="Phi.Avalonia.ActiveSession"/> holder, then hands them to
+/// the Avalonia app and starts the classic desktop lifetime.
+/// <para>
+/// Session <em>switching</em> after this point is owned by
+/// <see cref="Phi.ISession.NewSessionAsync"/> /
+/// <see cref="Phi.ISession.ResumeAsync"/>: the new session is returned,
+/// the old one disposes itself, and the <see cref="ActiveSession"/>
+/// holder fires its <c>Changed</c> event so the shell rebuilds. No
+/// separate navigator.
+/// </para>
 /// </summary>
 internal static class Program
 {
     [STAThread]
-    public static int Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
         // Capture any unhandled UI / background exception to a log file so
         // workspace-picker and submit failures can be diagnosed without a
@@ -55,31 +64,30 @@ internal static class Program
             }
         }
 
-        // Composition root: wire the provider manager (catalog + credentials
-        // + settings) into a session factory and a navigator. Provider
-        // construction is entirely the factory's job — it resolves the
-        // provider from the config name via the manager and falls back to a
-        // no-op provider when no API key exists.
+        // Composition root: wire the provider manager into a
+        // SessionEnvironment (the cross-session context shared by every
+        // session the app will ever create) and use it to build the
+        // initial Session. The desktop isn't bound to a process working
+        // directory, so the default cwd is the most recently used
+        // workspace derived from session records (falling back to the
+        // launch directory when no sessions exist yet).
         var providerManager = new ProviderManager();
-        var factory = new SessionFactory(providerManager);
         var defaultProvider = providerManager.ResolveDefaultProvider();
+        var env = SessionEnvironment.Default(providerManager);
 
-        // The desktop isn't bound to a process working directory, so the
-        // default cwd is the most recently used workspace derived from
-        // session records (falling back to the launch directory when no
-        // sessions exist yet).
         var recentWorkspaces = WorkspaceSessionStore.ListWorkspaces();
-        var env = new SessionConfig
-        {
-            Cwd = recentWorkspaces.Count > 0 ? recentWorkspaces[0] : Environment.CurrentDirectory,
-            ProviderName = defaultProvider.Name,
-            Model = providerManager.ResolveDefaultModel(defaultProvider),
-        };
+        var defaultCwd = recentWorkspaces.Count > 0
+            ? recentWorkspaces[0]
+            : Environment.CurrentDirectory;
 
-        SessionNavigator navigator;
+        Phi.Session session;
         try
         {
-            navigator = new SessionNavigator(factory, env, resumeSessionId);
+            session = await Phi.Session.LoadAsync(
+                defaultCwd, env,
+                providerName: defaultProvider.Name,
+                model: providerManager.ResolveDefaultModel(defaultProvider),
+                resumeId: resumeSessionId);
         }
         catch (InvalidOperationException ex)
         {
@@ -87,15 +95,16 @@ internal static class Program
             return 1;
         }
 
-        using (navigator)
+        using (session)
         {
-            BuildAvaloniaApp(navigator, providerManager).StartWithClassicDesktopLifetime(args);
+            var active = new ActiveSession(session);
+            BuildAvaloniaApp(active, providerManager).StartWithClassicDesktopLifetime(args);
         }
         return 0;
     }
 
-    public static AppBuilder BuildAvaloniaApp(ISessionNavigator navigator, ProviderManager providers) =>
-        AppBuilder.Configure(() => new PhiAvaloniaApp(navigator, providers))
+    public static AppBuilder BuildAvaloniaApp(ActiveSession active, ProviderManager providers) =>
+        AppBuilder.Configure(() => new PhiAvaloniaApp(active, providers))
             .UsePlatformDetect()
             .LogToTrace();
 }
