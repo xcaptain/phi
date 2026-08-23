@@ -1,5 +1,4 @@
 using System.Text.RegularExpressions;
-using Phi.Extensions;
 using Phi.Extensions.Events;
 
 namespace Phi.Extensions.PermissionGate;
@@ -41,13 +40,13 @@ public sealed partial class PermissionGateExt : IPhiExtension
     private static partial Regex Mkfs();
 
     private static readonly Regex[] Dangerous =
-    {
+    [
         RmRecursiveForce(),
         GitPushForce(),
         GitResetHard(),
         ChmodRecursive777(),
         Mkfs(),
-    };
+    ];
 
     public void Setup(IPhiApi api)
     {

@@ -25,6 +25,12 @@
        making every type public. -->
   <ItemGroup>
     <InternalsVisibleTo Include="Phi.Extensions.Host.Tests" />
+    <!-- Frontend composition roots construct ExtensionRuntime directly; their
+         assembly names differ from project names (Phi.Tui -> phi,
+         Phi.Avalonia.Desktop -> phi-avalonia). -->
+    <InternalsVisibleTo Include="phi" />
+    <InternalsVisibleTo Include="phi-avalonia" />
+    <InternalsVisibleTo Include="Phi.Tests" />
   </ItemGroup>
 
 </Project>

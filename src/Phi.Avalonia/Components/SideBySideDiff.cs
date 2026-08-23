@@ -5,7 +5,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools.Details;
 
 namespace Phi.Avalonia.Components;
 

@@ -41,6 +41,6 @@ public class UiBridgeShapeTests
             .Select(p => p.Name)
             .ToList();
 
-        await Assert.That(props).IsEquivalentTo(new[] { "HasUi" });
+        await Assert.That(props).IsEquivalentTo(["HasUi"]);
     }
 }

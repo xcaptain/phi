@@ -1,6 +1,3 @@
-using Phi.Agent;
-using Phi.Extensions.Events;
-
 namespace Phi.Extensions.Host;
 
 /// <summary>

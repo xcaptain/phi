@@ -178,7 +178,7 @@ public sealed class TranscriptView
                 if (t.LastResultState != tc.ResultState)
                 {
                     var contentBlocks = tc.ResultText is { Length: > 0 }
-                        ? new ContentBlock[] { new Phi.Agent.TextBlock(tc.ResultText) }
+                        ? [new Phi.Agent.TextBlock(tc.ResultText)]
                         : Array.Empty<ContentBlock>();
                     var details = string.IsNullOrEmpty(tc.DetailsJson)
                         ? null
@@ -355,7 +355,7 @@ public sealed class TranscriptView
     private static ToolResult BuildResultFromLine(ToolCallLine line)
     {
         var contentBlocks = !string.IsNullOrEmpty(line.ResultText)
-            ? new ContentBlock[] { new Phi.Agent.TextBlock(line.ResultText) }
+            ? [new Phi.Agent.TextBlock(line.ResultText)]
             : Array.Empty<ContentBlock>();
         var details = string.IsNullOrEmpty(line.DetailsJson)
             ? null

@@ -1,4 +1,4 @@
-namespace Phi.Tools.Details;
+namespace Phi.Extensions.CodingPack.Tools.Details;
 
 public sealed record BashDetails(
     string Command,

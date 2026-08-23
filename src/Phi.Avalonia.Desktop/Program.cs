@@ -1,4 +1,7 @@
 using Avalonia;
+using Phi.Extensions.CodingPack;
+using Phi.Extensions;
+using Phi.Extensions.Host;
 using Phi.Providers;
 
 namespace Phi.Avalonia.Desktop;
@@ -73,7 +76,18 @@ internal static class Program
         // launch directory when no sessions exist yet).
         var providerManager = new ProviderManager();
         var defaultProvider = providerManager.ResolveDefaultProvider();
-        var env = SessionEnvironment.Default(providerManager);
+        // The factory runs on every Session.LoadAsync call — the initial one
+        // here AND every ISession.NewSessionAsync / ResumeAsync a session
+        // navigates to — so CodingPack's tools survive session switching.
+        // A real IPhiUiBridge (AvaloniaPhiUiBridge) lands in Sprint 3; the
+        // no-op bridge keeps tools/hooks working meanwhile.
+        var env = SessionEnvironment.Default(providerManager, extensionRuntimeFactory: session =>
+        {
+            var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
+            runtime.RegisterCompiledExtension(new CodingPackExt());
+            runtime.Initialize();
+            return runtime;
+        });
 
         var recentWorkspaces = WorkspaceSessionStore.ListWorkspaces();
         var defaultCwd = recentWorkspaces.Count > 0
@@ -98,6 +112,7 @@ internal static class Program
         using (session)
         {
             session.HasUi = true;   // Avalonia hosts a real UI; surfaced via IPhiContext.Ui.HasUi
+
             var active = new ActiveSession(session);
             BuildAvaloniaApp(active, providerManager).StartWithClassicDesktopLifetime(args);
         }

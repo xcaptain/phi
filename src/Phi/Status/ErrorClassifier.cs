@@ -12,7 +12,7 @@ namespace Phi.Status;
 public static class ErrorClassifier
 {
     private static readonly string[] TransientSignals =
-    {
+    [
         "timeout",
         "timed out",
         "connection",
@@ -30,7 +30,7 @@ public static class ErrorClassifier
         "unavailable",
         "overloaded",
         "throttl",  // throttle, throttled, throttling
-    };
+    ];
 
     public static bool LooksTransient(string message)
     {

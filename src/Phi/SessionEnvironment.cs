@@ -29,11 +29,32 @@ public sealed record SessionEnvironment
     public required int CompactionKeepRecentTokens { get; init; }
 
     /// <summary>
-    /// Optional custom tool set. When null/empty, the built-in
-    /// <see cref="BuiltInToolProvider"/> supplies the default toolset for
-    /// the session's cwd.
+    /// Optional pre-registered tool set for the session's harness.
+    /// Sprint 2.5: the default coding tools moved out of the core into the
+    /// CodingPack extension, so this is normally empty — CodingPack (and any
+    /// other extension) registers its tools after <c>Session.LoadAsync</c>
+    /// via <c>Session.RegisterExtensionTool</c>. A composition root that
+    /// wants tools at harness-build time (e.g. for the available-tools
+    /// system-prompt section) can still supply them here.
     /// </summary>
     public required IReadOnlyList<Tool>? Tools { get; init; }
+
+    /// <summary>
+    /// Optional factory building the session's extension runtime. The
+    /// composition root (<c>Phi.Tui</c> / <c>Phi.Avalonia.Desktop</c>
+    /// <c>Program.cs</c>) is the only thing that can reference
+    /// <c>Phi.Extensions.Host</c> (Phi core cannot — that would cycle back
+    /// through <c>Phi.Extensions.Host</c>'s reference to <c>Phi</c>), so this
+    /// is an opaque delegate: it receives the freshly-loaded
+    /// <see cref="Session"/> and returns an <see cref="IDisposable"/> handle
+    /// (an <c>ExtensionRuntime</c> in practice) that <see cref="LoadAsync"/>
+    /// disposes alongside the session. Carried on <see cref="SessionEnvironment"/>
+    /// so it survives session switching — <see cref="NewSessionAsync"/> and
+    /// <see cref="ResumeAsync"/> re-enter <see cref="LoadAsync"/> with the
+    /// same <c>env</c>, so every session (not just the first) gets its
+    /// compiled extensions (CodingPack etc.) re-registered automatically.
+    /// </summary>
+    public Func<Session, IDisposable>? ExtensionRuntimeFactory { get; init; }
 
     /// <summary>
     /// Builds a <see cref="SessionEnvironment"/> with all compaction knobs
@@ -47,7 +68,8 @@ public sealed record SessionEnvironment
     public static SessionEnvironment Default(
         IProviderResolver providerResolver,
         SystemPromptOptions? systemPrompt = null,
-        int? maxTurns = null) =>
+        int? maxTurns = null,
+        Func<Session, IDisposable>? extensionRuntimeFactory = null) =>
         new()
         {
             ProviderResolver = providerResolver,
@@ -58,5 +80,6 @@ public sealed record SessionEnvironment
             AutoCompactEnabled = true,
             CompactionKeepRecentTokens = ContextWindow.DefaultCompactionKeepRecentTokens,
             Tools = null,
+            ExtensionRuntimeFactory = extensionRuntimeFactory,
         };
 }

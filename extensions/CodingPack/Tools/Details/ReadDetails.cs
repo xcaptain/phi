@@ -1,6 +1,6 @@
 using Phi.Agent;
 
-namespace Phi.Tools.Details;
+namespace Phi.Extensions.CodingPack.Tools.Details;
 
 /// <summary>
 /// Metadata about a <c>read</c> tool invocation: where the slice started,

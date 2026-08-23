@@ -67,7 +67,7 @@ public class PermissionGateIntegrationTests : IDisposable
         var session = await Phi.Session.LoadAsync(_cwd, BuildEnv(), providerName: "stub", model: "m");
         session.HasUi = false;
         using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-        runtime.DiscoverAndLoad(new[] { _gatePath });
+        runtime.DiscoverAndLoad([_gatePath]);
         runtime.Initialize();
 
         await Assert.That(runtime.SetupResults.Count).IsEqualTo(0);
@@ -91,7 +91,7 @@ public class PermissionGateIntegrationTests : IDisposable
         var session = await Phi.Session.LoadAsync(_cwd, BuildEnv(), providerName: "stub", model: "m");
         session.HasUi = false;
         using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-        runtime.DiscoverAndLoad(new[] { _gatePath });
+        runtime.DiscoverAndLoad([_gatePath]);
         runtime.Initialize();
 
         var recorder = new RecordingBashTool();

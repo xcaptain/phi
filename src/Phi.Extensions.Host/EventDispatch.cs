@@ -83,7 +83,7 @@ internal sealed class EventDispatch : IDisposable
                 Dispatch(new Phi.Extensions.Events.TurnEndEvent(_lastTurn, t.FinalMessage, []));
                 break;
             case Phi.Agent.ToolExecutionStartEvent t:
-                Dispatch(new Phi.Extensions.Events.ToolExecutionStartEvent(t.ToolCallId, t.ToolName, new System.Text.Json.Nodes.JsonObject()));
+                Dispatch(new Phi.Extensions.Events.ToolExecutionStartEvent(t.ToolCallId, t.ToolName, []));
                 break;
             case Phi.Agent.ToolExecutionEndEvent t:
                 Dispatch(new Phi.Extensions.Events.ToolExecutionEndEvent(t.ToolCall.Id, t.ToolCall.Name, t.Result));

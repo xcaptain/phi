@@ -39,6 +39,8 @@ public interface IPhiUiBridge
     /// Show a picker dialog with <paramref name="options"/>; return the
     /// selected option or <c>null</c> if cancelled / timed out / no UI.
     /// </summary>
+    /// <param name="title"></param>
+    /// <param name="options"></param>
     /// <param name="timeout">
     /// Optional auto-dismiss timeout (pi-style). <c>null</c> = wait
     /// indefinitely.

@@ -3,7 +3,10 @@
 > 状态：**Phase 0（重命名）+ 架构重构已完成**。`SessionFactory` / `SessionNavigator` /
 > `SessionConfig` / `ISessionNavigator` 全部删除，扩展系统的核心点（`ISession`、
 > `Session.LoadAsync`、composition root、`Phi.Avalonia.ActiveSession`）已经稳定。
-> Sprint 0+（`Phi.Extensions` / `Phi.Extensions.Host` 包骨架）**未开工**。
+> Sprint 0-2（`Phi.Extensions` / `Phi.Extensions.Host` 包骨架、loader、hooks、`/reload`）**代码已实现**
+> （`ExtensionLoader` / `ExtensionRuntime` / `HookRegistry` / `EventDispatch` / `ExtensionReloader` 均已落地，
+> `HelloTool` / `PermissionGate` 两个 demo 扩展齐全），但 §14 里程碑表尚未逐项勾掉——追踪状态以代码 + 测试为准，
+> 表格本身有滞后，读表时留意。
 > 对标实现：tau（~/github/tau）的 pi-extensions 形态，已生产验证。
 >
 > **本次修订对照当前代码（重构后）逐章节更新**。修改点散落在第 1 / 4 / 5 / 7 / 10 / 13 节，
@@ -1068,13 +1071,12 @@ Phi.slnx
     └── ...
 ```
 
-examples/
-└── extensions/
-    ├── CodingPack/                         # Sprint 2.5+：第一个"真"扩展
-    ├── HelloTool/                          # 附录 A
-    ├── PermissionGate/                     # 附录 B
-    ├── MultiAgentPack/                     # Sprint 5+：官方参考扩展，演示 multi-agent 模式（§16）
-    └── McpPack/                            # Sprint 6+：官方 MCP 客户端扩展（§17）
+extensions/                                # 顶层目录，跟 src/ 平级——不是 examples，是随 Phi 一起编译/分发的扩展
+├── CodingPack/                          # Sprint 2.5+：第一个"真"扩展，Phi.Tui / Phi.Avalonia 编译期默认引用
+├── HelloTool/                           # 附录 A，纯教学 demo（不被默认引用）
+├── PermissionGate/                      # 附录 B，纯教学 demo（不被默认引用）
+├── MultiAgentPack/                      # Sprint 5+：官方参考扩展，演示 multi-agent 模式（§16）
+└── McpPack/                             # Sprint 6+：官方 MCP 客户端扩展（§17）
 ```
 
 ### CPM 一行加依赖
@@ -1115,9 +1117,9 @@ examples/
 | **顶层命名空间** | **Phi.***（Phi / Phi.Agent / Phi.Provider / Phi.Extensions） | Phi.Agent 与 Phi 独立项目可单独分发 |
 | **`CodingSession` 命名** | **完全去掉 `Coding` 前缀 → `Session`** | 跟 `ISession` 接口名字对齐 |
 | **TUI/Avalonia 项目拆分** | **保持三个独立 csproj**（Phi / Phi.Tui / Phi.Avalonia） | 最小改动，最大可移植 |
-| **官方 Multi-Agent 参考扩展** | **在 `examples/extensions/MultiAgentPack/` 单独维护**（不是 Phi 主体代码）；采用 "subagent as tool" 模式（§16）；证明 `IPhiApi` 原语足够，**不需要新增任何 `IPhiApi` 方法** | 锁住"subagent 是扩展能力不是 session 抽象"——避免以后有人污染 `ISession` 加 `SubAgents` |
+| **官方 Multi-Agent 参考扩展** | **在 `extensions/MultiAgentPack/` 单独维护**（不是 Phi 主体代码）；采用 "subagent as tool" 模式（§16）；证明 `IPhiApi` 原语足够，**不需要新增任何 `IPhiApi` 方法** | 锁住"subagent 是扩展能力不是 session 抽象"——避免以后有人污染 `ISession` 加 `SubAgents` |
 | **最小核心理念** | **核心 = "能跟 LLM 聊天 + 能写代码"**（Session + Harness + 4 个 builtin tools）。其它一切（MCP、multi-agent、permission gate、domain 集成、自定义 UI 卡片）**都通过扩展启用**，用户不装就不付代价 | 保持 `Phi.Runtime.csproj` 简洁；让"Phi 是什么"对所有用户一致；避免"我装的 Phi 跟你的不一样"这种 CI/可复现性问题 |
-| **MCP 通过官方 McpPack 扩展提供（不进入 Phi 主体代码）** | `examples/extensions/McpPack/` 装上就用；用户配 `~/.phi/mcp-servers.json` 接入任何 MCP server；不想要 MCP 的用户完全不付这个代价。**专用服务扩展（figma / aws / notion / ...）由社区或 Phi 团队后续按需写**，不阻塞扩展平台本身的发布 | 跟 CodingPack / MultiAgentPack 平级；锁定"MCP 是生态集成能力不是核心能力"——以后有人说"我们 Phi 应该支持 MCP server"时直接指 §17 |
+| **MCP 通过官方 McpPack 扩展提供（不进入 Phi 主体代码）** | `extensions/McpPack/` 装上就用；用户配 `~/.phi/mcp-servers.json` 接入任何 MCP server；不想要 MCP 的用户完全不付这个代价。**专用服务扩展（figma / aws / notion / ...）由社区或 Phi 团队后续按需写**，不阻塞扩展平台本身的发布 | 跟 CodingPack / MultiAgentPack 平级；锁定"MCP 是生态集成能力不是核心能力"——以后有人说"我们 Phi 应该支持 MCP server"时直接指 §17 |
 
 ---
 
@@ -1206,7 +1208,7 @@ public async Task Reload_OldPhiApi_ThrowsExtensionError()
 | **Phase 0.5** | 架构清理（最近一次大重构）：删除 `SessionNavigator` / `SessionFactory` / `SessionConfig` / `ISessionNavigator`；新增 `ISession.NewSessionAsync` / `ResumeAsync` / `ListRecent` / `AvailableProviders`；新增 `SessionEnvironment` 替代 `SessionConfig`；新增 `Session.LoadAsync(cwd, env, ...)` 替代 `SessionFactory.Create/Resume`；Avalonia 端新增 `ActiveSession` 作为 XenoAtom `State<T>` 等价物 | 中（33+ 文件改动，838 测试全绿） | **✅ 已完成** |
 | **Sprint 0** | 新建 `Phi.Extensions` / `Phi.Extensions.Host`（用新命名空间） | 低 | ⏳ 未开工 |
 | **Sprint 1-2** | loader / hooks / reload，运行时无 naming 影响 | — | ⏳ 未开工 |
-| **Sprint 2.5（关键节点）** | 抽出 `examples/extensions/CodingPack/`：把 `Phi/Tools/*.cs`（BashTool / ReadTool / WriteTool / EditTool）+ `Phi/FileOpsExtractor.cs` + coding system prompt 模板搬入；`Phi.Tui` / `Phi.Avalonia` 默认引用 `CodingPack`。这同时是**扩展系统第一次端到端验证**——最强的"第一个扩展" | 中（行为不变需要回归测试） | ⏳ 未开工 |
+| **Sprint 2.5（关键节点）** | 抽出 `extensions/CodingPack/`：把 `Phi/Tools/*.cs`（BashTool / ReadTool / WriteTool / EditTool）+ coding system prompt 搬入；`Phi.Tui` / `Phi.Avalonia` 默认引用 `CodingPack`。这同时是**扩展系统第一次端到端验证**——最强的"第一个扩展"。**实际偏差**：FileOpsExtractor 留 Phi 主体（它是压缩离线分析，非 hook），详见 §13 checklist 的"实际偏差" | 中（行为不变需要回归测试） | ✅ 已完成 |
 | **Sprint 3-4** | UI bridges、TranscriptLineRenderer、Capability 启用强制 | — | ⏳ 未开工 |
 
 ### Phase 0 重命名 checklist（已完成 ✅）
@@ -1264,24 +1266,48 @@ public async Task Reload_OldPhiApi_ThrowsExtensionError()
 ✅ dotnet test 838/838 通过
 ```
 
-### Sprint 2.5 CodingPack 抽出 checklist
+### Sprint 2.5 CodingPack 抽出 checklist（已完成 ✅）
 
 ```
-□ 新建 examples/extensions/CodingPack/ 项目（独立 csproj，引用 Phi.Extensions）
-□ CodingPack 声明 [PhiExtension("coding-pack")]，设 Capabilities = FileSystem* | ProcessSpawn
-□ Setup 里：
-  □ RegisterTool(BashTool / ReadTool / WriteTool / EditTool) ← 这些 Tool 类型现在在 Phi/Tools/，需要先搬到 CodingPack
-  □ AddPromptGuideline(coding system prompt) ← 现在在 SystemPromptBuilder.cs，需要搬到 CodingPack
-  □ Subscribe tool_call hook（FileOpsExtractor 改写 args，记录 read/modified 文件） ← 现在在 Phi/FileOpsExtractor.cs，需要搬
-□ Phi/Tools/ 下的 BashTool.cs / ReadTool.cs / WriteTool.cs / EditTool.cs / Details/ → 物理移动到 CodingPack/Tools/
-□ Phi/FileOpsExtractor.cs → CodingPack/Extractors/
-□ Phi 主体移除 BuiltInTools.cs（不再内置工具列表）
-□ Phi 主体移除 BuiltInToolProvider.cs（在 Sprint 2.5 之前的过渡期仍保留，作为 fallback）
-□ Phi.Tui / Phi.Avalonia：ProjectReference 增加 CodingPack
-□ CodingPack 在编译期被引用（不走 file-based discovery）
-□ 端到端测试：开 TUI，跑 "list files in cwd"，tool call 走 BashTool，行为完全一致
-□ CodingPack 自身被 reload 时，FileOpsExtractor 状态正确清理
+✅ 新建 extensions/CodingPack/ 项目（独立 csproj，引用 Phi.Extensions + Phi.Agent + Phi.SchemaGen analyzer + DiffPlex）
+✅ CodingPack 声明 [PhiExtension("coding-pack")]，设 Capabilities = FileSystemRead | FileSystemWrite | ProcessSpawn
+✅ Setup 里：
+  ✅ RegisterTool(BashTool / ReadTool / WriteTool / EditTool) ← Tool 类型已搬到 CodingPack/Tools/
+  ✅ AddPromptGuideline(coding system prompt) ← CodingPackExt.Setup 注入行为规则
+  ⚠️ tool_call hook 的 FileOpsExtractor 没搬 —— 见下方"实际偏差"
+✅ Phi/Tools/ 下的 BashTool.cs / ReadTool.cs / WriteTool.cs / EditTool.cs / Details/ → 物理移动到 CodingPack/Tools/
+✅ Phi 主体移除 BuiltInTools.cs（不再内置工具列表）
+✅ Phi 主体移除 BuiltInToolProvider.cs
+✅ Phi.Tui / Phi.Avalonia / Phi.Avalonia.Desktop：ProjectReference 增加 CodingPack
+✅ CodingPack 在编译期被引用（不走 file-based discovery，用 ExtensionRuntime.RegisterCompiledExtension）
+✅ 端到端测试：CodingPackIntegrationTests 验证 4 个 tool 进 harness + write/read 可调用
+✅ dotnet test 903/903 通过
+✅ 补充调整：`extensions/` 提到仓库顶层（跟 `src/` 平级，不再挂在 `examples/` 下）——CodingPack 是编译期默认引用的组件，
+  跟 HelloTool/PermissionGate 这类纯教学 demo 性质不同；`examples/` 目录随之删除
+✅ 补充调整：CodingPack 的 `RootNamespace` / `AssemblyName` 统一为 `Phi.Extensions.CodingPack`，
+  跟 HelloTool（`Phi.Extensions.HelloTool`）/ PermissionGate（`Phi.Extensions.PermissionGate`）的命名约定对齐
+✅ 修复：`RegisterCompiledExtension` 最初只在 `Program.cs` 里围绕**启动时的第一个** `Session` 调用一次——
+  `/new` / `/sessions`（`ISession.NewSessionAsync` / `ResumeAsync`）会经 `LoadAsync` 造出全新的 `Session`，
+  但没有任何东西对新 session 重新调用 `RegisterCompiledExtension`，于是切换/恢复会话后 CodingPack 的
+  四个工具全部消失（`CodingPackIntegrationTests` 当时只测了单个 fresh session，没覆盖这条路径，因而放过了这个回归）。
+  修复方案：`SessionEnvironment` 新增 `ExtensionRuntimeFactory`（`Func<Session, IDisposable>?`）——组合根把
+  "造 ExtensionRuntime + RegisterCompiledExtension(CodingPackExt) + Initialize" 包成一个闭包放进 env，
+  `Session.LoadAsync` 在 `ApplyRuntime` 之后自动调用它并把返回的句柄存起来、随 `Session.Dispose()` 一起释放。
+  因为 `NewSessionAsync` / `ResumeAsync` 都是复用同一个 `env` 重新走 `LoadAsync`，CodingPack 从此在
+  每一个会话（不只是第一个）上都会自动注册。见 `CodingPack_Survives_NewSessionAsync` 回归测试。
+  这也是 Sprint 1 里"`Session.LoadAsync` 注入 runtime"设计提前在 Sprint 2.5 落地的部分——之所以没有让
+  `Session`/`Phi` 核心直接引用 `Phi.Extensions.Host.ExtensionRuntime`，是因为 `Phi.Extensions.Host` 反过来
+  引用 `Phi`（核心），直接引用会成环；`Func<Session, IDisposable>` 这层不透明委托刻意避开了这个环。
 ```
+
+**实际偏差**：
+
+- **FileOpsExtractor 留在 Phi 主体**（`src/Phi/FileOpsExtractor.cs`，未搬）。它其实不是运行时 tool_call hook —— 是**压缩 pipeline 的离线分析**（读历史 `AssistantMessage.ToolCalls` 提取 read/modified 文件路径，供 compaction 摘要用）。`Session.cs` 在压缩时直接调用它，而 Phi 主体不能反向引用 CodingPack（循环依赖）。文档 checklist 误把它当 hook；实际它是压缩内部实现。它编码的 `read/write/edit` tool 名耦合留待 Sprint 4（扩展 tool 元数据）解耦。
+- **CodingPack 用 `RegisterTool` 注册工具**，但 harness 在 `LoadAsync` 时已构建（无 tool）。工具通过 `Session.RegisterExtensionTool` 在 `ApplyRuntime` 之后加进 harness。system prompt 的 available-tools 段因此为空 —— 但**不影响工具可用性**：provider 通过独立的 `tools` 参数把 tool schema 发给模型（`provider.StreamResponseAsync(model, system, messages, tools, ...)`），模型能看到 schema 并调用。available-tools 段只是描述性文字，缺失不影响功能（这是扩展化的固有结果）。
+- **CodingPack 需要自己的 AOT context**：`ToolDetails`（Details 序列化）从 Phi 的 `PhiJsonContext` 改用 CodingPack 的 `CodingPackJsonContext`；SchemaGen 硬编码的 `Phi.ToolArgsJsonContext` 由 CodingPack 在自己 assembly 里定义同名 internal context（不同 assembly 不冲突）。
+- **`ToolDescriptors` 留在 Phi.Agent**（前端 `ChatTranscriptProjector` 在 Phi 主体调用它渲染 ToolCallLine，Phi 不能引用 CodingPack）。Sprint 4 改成扩展注册。
+
+**为什么 RegisterTool 后 system prompt 的 available-tools 段空了还是能跑**：模型对工具的感知来自两处 —— (1) provider 的 `tools` 参数（工具 schema，必传，模型靠它知道签名），(2) system prompt 的描述段（可选增强）。CodingPack 注册后 harness 的 `_tools` 有 4 个工具，provider 把 schema 发给模型，所以工具可用。AddPromptGuideline 补了行为规则。
 
 ### 为什么不把 CodingPack 抽出提前到 Phase 0 或 0.5
 
@@ -1301,19 +1327,19 @@ public async Task Reload_OldPhiApi_ThrowsExtensionError()
 |---|---|---|---|
 | **Phase 0** | 命名重命名 | 所有 `PhiCoding` / `CodingSession` 等命名清理；AGENTS.md / README.md / phi.slnx / props 同步 | ✅ |
 | **Phase 0.5** | 架构清理（删除 navigator/factory/config，重写 composition 路径） | `ISession` 加导航 API；`SessionEnvironment` + `Session.LoadAsync`；Avalonia `ActiveSession`；33+ 文件改动，838 测试 | ✅ |
-| **0** | 包骨架 + `IPhiApi` 接口定义 | `Phi.Extensions` 公开包；`IPhiExtension` / `IPhiApi` / `IPhiUiBridge` + 所有事件 record；attribute；`ExtensionError`；`ApiShapeTests` 锁死接口 | ⏳ |
-| **1** | Loader + 第一个 `HelloTool` 端到端 | `ExtensionLoader` + ALC；`ExtensionRuntime.DiscoverAndLoad`；`Session.LoadAsync` 注入 runtime；`HelloTool` demo（加载 + 转录可见 + tool call 可用） | ⏳ |
-| **2** | Events + Hooks + `/reload` | `HookDispatch`（tool_call / tool_result / input）；所有 agent event 透传；`/reload` 流程 + ALC GC dance；`PermissionGate` demo；`ReloadTests` 真卸载验证 | ⏳ |
-| **2.5** | **CodingPack 抽出（架构重构）** | `examples/extensions/CodingPack/` 第一个真扩展；搬出 BashTool/ReadTool/WriteTool/EditTool + FileOpsExtractor + coding prompt；端到端回归测试 | ⏳ |
+| **0** | 包骨架 + `IPhiApi` 接口定义 | `Phi.Extensions` 公开包；`IPhiExtension` / `IPhiApi` / `IPhiUiBridge` + 所有事件 record；attribute；`ExtensionError`；`ApiShapeTests` 锁死接口 | ✅ |
+| **1** | Loader + 第一个 `HelloTool` 端到端 | `ExtensionLoader` + ALC；`ExtensionRuntime.DiscoverAndLoad`；`Session.LoadAsync` 通过 `SessionEnvironment.ExtensionRuntimeFactory` 注入 runtime（见 Sprint 2.5 checklist 的"修复"条目）；`HelloTool` demo（加载 + 转录可见 + tool call 可用） | ✅ |
+| **2** | Events + Hooks + `/reload` | `HookDispatch`（tool_call / tool_result / input）；所有 agent event 透传；`ExtensionReloader` + ALC GC dance；`PermissionGate` demo；`ReloadTests` 真卸载验证。`/reload` 已注册为 TUI slash 命令（`PromptInput.HandleInput`），调 `ISession.ReloadExtensions()`：内部 `RemoveExtensionTools`（释放 harness 对旧 assembly 的强引用） + dispose 旧 runtime + 重跑 `env.ExtensionRuntimeFactory` 重建 CodingPack 等 compiled extensions。回归测试 `CodingPack_Survives_ReloadExtensions` + `ReloadExtensions_WithoutEnv_Throws_LeavesSessionUsable` 锁死语义。**Avalonia 端 `/reload` 未接线**：`PromptInputView.HandleInput` 当前所有输入都走 `SubmitPrompt`，slash 调度器还是空骨架（`/new`/`/sessions` 等也没接）—— Avalonia 端 slash dispatcher 统一留到 Sprint 3 的 `AvaloniaPhiUiBridge` 一起做 | ✅ |
+| **2.5** | **CodingPack 抽出（架构重构）** | `extensions/CodingPack/` 第一个真扩展；搬出 BashTool/ReadTool/WriteTool/EditTool + coding prompt；端到端回归测试（`CodingPackIntegrationTests`，含 `CodingPack_Survives_NewSessionAsync` + `CodingPack_Survives_ReloadExtensions`）；906/906 测试 | ✅ |
 | **3** | UI Bridge 双端实现 + Capability 落地 | `TuiPhiUiBridge` + `AvaloniaPhiUiBridge`；`select` / `confirm` / `input` 复用现有 picker；`Notify` 双端；`PhiStatusBar` 错误分类扩展接入；Capability attribute 启用强制；`Project Trust` v1 上线 | ⏳ |
 | **4** | Tool Card + Transcript Line 扩展点 + Bundle 加载 | `RegisterToolCard` / `RegisterToolCardRenderer`；`RegisterTranscriptLineRenderer`；`CustomLine` 加入 `ChatLine` DU；`AvaloniaToolCardRegistry` 和 TUI registry 走 `PhiApi` 而不是静态表；ALC 解析 `runtimes/{rid}/` | ⏳ |
-| **5** | **官方 Multi-Agent 参考扩展 `MultiAgentPack`** | `examples/extensions/MultiAgentPack/` 第一个完整 demo 扩展，演示 "subagent as tool" 模式（§16）；含端到端测试；作为其它扩展的参考样板 | ⏳ |
-| **6** | **官方 MCP 客户端扩展 `McpPack`**（§17） | `examples/extensions/McpPack/`；读 `~/.phi/mcp-servers.json`；stdio + HTTP/SSE transport；`tools/list` → `api.RegisterTool`；`On("session_start"/"reload")` 管理 server 生命周期；端到端测试（mock JSON-RPC server）；**证明 MCP 完全不需要进入 Phi 主体代码** | ⏳ |
+| **5** | **官方 Multi-Agent 参考扩展 `MultiAgentPack`** | `extensions/MultiAgentPack/` 第一个完整 demo 扩展，演示 "subagent as tool" 模式（§16）；含端到端测试；作为其它扩展的参考样板 | ⏳ |
+| **6** | **官方 MCP 客户端扩展 `McpPack`**（§17） | `extensions/McpPack/`；读 `~/.phi/mcp-servers.json`；stdio + HTTP/SSE transport；`tools/list` → `api.RegisterTool`；`On("session_start"/"reload")` 管理 server 生命周期；端到端测试（mock JSON-RPC server）；**证明 MCP 完全不需要进入 Phi 主体代码** | ⏳ |
 
 每个 sprint：
 1. 先写测试，跑通再写实现
 2. `dotnet test` 全绿（含现有所有测试，无回归）
-3. `examples/extensions/` 加一个最小可跑 demo
+3. `extensions/` 加一个最小可跑 demo
 4. 跑 `dotnet build` + `dotnet test` 跨 Windows / Linux / macOS 三个平台 CI
 
 ---
@@ -1328,7 +1354,7 @@ public async Task Reload_OldPhiApi_ThrowsExtensionError()
 - **可卸载**——ALC + generation guard 让 `/reload` 真卸载，不留内存泄漏。
 - **C# 习惯**——`IDisposable On(...)` / `record sealed` / `Task<T?>` / `IReadOnlyList<T>`，比直接翻译 Python 类型更地道。
 - **跨平台零妥协**——纯托管扩展一份 dll 通吃三平台；bundle 按 RID 自动选 native deps。
-- **架构命名干净**——`Phi` 是 agent host，`Phi.CodingPack` 是默认扩展，第三方扩展自然处于同一层。命名不再"coding"。
+- **架构命名干净**——`Phi` 是 agent host，`Phi.Extensions.CodingPack` 是默认扩展，第三方扩展自然处于同一层。命名不再"coding"。
 
 ### 风险
 
@@ -1445,7 +1471,7 @@ public sealed class PermissionGate : IPhiExtension
 ## §16 官方 Multi-Agent 参考扩展 (`MultiAgentPack`)
 
 > **定位**：本节展示如何用现有 `IPhiApi` 原语（**零新增**）构建一个能用的 multi-agent
-> 系统。代码就是 Phi 仓库 `examples/extensions/MultiAgentPack/` 的最终形态。
+> 系统。代码就是 Phi 仓库 `extensions/MultiAgentPack/` 的最终形态。
 > 其它扩展作者可以直接复制本节作为起点。
 
 ### 16.1 为什么需要"官方"扩展
@@ -1525,7 +1551,7 @@ Main Agent 拿到 3 个结果 → 写集成方案
 ### 16.4 项目结构
 
 ```
-examples/extensions/MultiAgentPack/
+extensions/MultiAgentPack/
 ├── MultiAgentPack.csproj
 ├── MultiAgentPack.cs              # 主入口（IPhiExtension 实现）
 ├── SubAgentSpec.cs                # 子 agent 配置 record
@@ -2130,7 +2156,7 @@ string PhiToolName(string serverKey, string mcpToolName) =>
 ### 17.5 项目结构
 
 ```
-examples/extensions/McpPack/
+extensions/McpPack/
 ├── McpPack.csproj                # + PackageReference ModelContextProtocol
 ├── McpPack.cs                     # IPhiExtension 入口（注册 lifecycle hooks）
 ├── Configuration/

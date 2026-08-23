@@ -1,4 +1,4 @@
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools.Details;
 using Phi.Tui.Components;
 using XenoAtom.Terminal.UI.Controls;
 

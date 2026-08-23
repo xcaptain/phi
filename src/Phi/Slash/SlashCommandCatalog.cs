@@ -24,6 +24,7 @@ public static class SlashCommandCatalog
         new("/connect", "Connect an LLM provider (API key).", "/connect [provider]", SupportsArgs: true),
         new("/models", "Switch provider/model across configured providers."),
         new("/sessions", "Browse and resume previous sessions."),
+        new("/reload", "Reload extensions (unload ALCs, re-run Setup)."),
         new("/exit", "Quit Phi."),
     ];
 

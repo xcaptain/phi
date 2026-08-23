@@ -55,8 +55,8 @@ public class ReadToolCardTests
         card.ShowPending(Call("a.cs"));
         card.Complete(new ToolResult(
             [new TextBlock("...")],
-            Details: Phi.Tools.Details.ToolDetails.Node(
-                new Phi.Tools.Details.ReadDetails(
+            Details: Phi.Extensions.CodingPack.Tools.Details.ToolDetails.Node(
+                new Phi.Extensions.CodingPack.Tools.Details.ReadDetails(
                     "a.cs", Offset: 1, Limit: 42, LineCount: 42, TotalLineCount: 42, ByteCount: 2048))));
 
         await Assert.That(card.Title).Contains("[green]✓[/]");
@@ -71,8 +71,8 @@ public class ReadToolCardTests
         card.ShowPending(Call("a.cs"));
         card.Complete(new ToolResult(
             [new TextBlock("...")],
-            Details: Phi.Tools.Details.ToolDetails.Node(
-                new Phi.Tools.Details.ReadDetails(
+            Details: Phi.Extensions.CodingPack.Tools.Details.ToolDetails.Node(
+                new Phi.Extensions.CodingPack.Tools.Details.ReadDetails(
                     "a.cs", Offset: 100, Limit: 50, LineCount: 50, TotalLineCount: 1234, ByteCount: 12_345))));
 
         await Assert.That(card.Title).Contains("read — lines 100-149 of 1234 · 12.1KB");
@@ -85,8 +85,8 @@ public class ReadToolCardTests
         card.ShowPending(Call("a.cs"));
         card.Complete(new ToolResult(
             [new TextBlock("...")],
-            Details: Phi.Tools.Details.ToolDetails.Node(
-                new Phi.Tools.Details.ReadDetails(
+            Details: Phi.Extensions.CodingPack.Tools.Details.ToolDetails.Node(
+                new Phi.Extensions.CodingPack.Tools.Details.ReadDetails(
                     "a.cs", Offset: 1, Limit: 10, LineCount: 10, TotalLineCount: 100, ByteCount: 800))));
 
         await Assert.That(card.Title).Contains("read — lines 1-10 of 100 · 800B");
@@ -121,8 +121,8 @@ public class ReadToolCardTests
         card.ShowPending(Call("a.cs", offset: 30, limit: 18));
         card.Complete(new ToolResult(
             [new TextBlock("file body")],
-            Details: Phi.Tools.Details.ToolDetails.Node(
-                new Phi.Tools.Details.ReadDetails(
+            Details: Phi.Extensions.CodingPack.Tools.Details.ToolDetails.Node(
+                new Phi.Extensions.CodingPack.Tools.Details.ReadDetails(
                     "a.cs", Offset: 30, Limit: 18, LineCount: 18, TotalLineCount: 82, ByteCount: 2048))));
 
         await Assert.That(card.Visual).IsTypeOf<XenoAtom.Terminal.UI.Controls.Markup>();

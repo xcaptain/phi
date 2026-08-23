@@ -1,5 +1,4 @@
 using System.Reflection;
-using Phi.Extensions.Host;
 
 namespace Phi.Extensions.Host.Tests;
 
@@ -22,6 +21,7 @@ public class HostShapeTests
             "Initialize",
             "InvalidateAllGenerations",
             "RegisterCommand",
+            "RegisterCompiledExtension",
             "RegisterTool",
             "SubscribeEvent",
         };
@@ -36,6 +36,16 @@ public class HostShapeTests
         await Assert.That(actual).IsEquivalentTo(expected);
     }
 
+    private static readonly string[] sourceArray =
+        [
+            "Commands",
+            "Extensions",
+            "LoadResults",
+            "SetupResults",
+            "Session",
+            "UiBridge",
+        ];
+
     [Test]
     public async Task ExtensionRuntime_Public_Properties_Are_Stable()
     {
@@ -46,15 +56,7 @@ public class HostShapeTests
             .OrderBy(n => n)
             .ToList();
 
-        await Assert.That(actual).IsEquivalentTo(new[]
-        {
-            "Commands",
-            "Extensions",
-            "LoadResults",
-            "SetupResults",
-            "Session",
-            "UiBridge",
-        }.OrderBy(n => n).ToList());
+        await Assert.That(actual).IsEquivalentTo(sourceArray.OrderBy(n => n).ToList());
     }
 
     [Test]
@@ -76,6 +78,6 @@ public class HostShapeTests
             .Select(m => m.Name)
             .OrderBy(n => n)
             .ToList();
-        await Assert.That(methods).IsEquivalentTo(new[] { "Load" });
+        await Assert.That(methods).IsEquivalentTo(["Load"]);
     }
 }

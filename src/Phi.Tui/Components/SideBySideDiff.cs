@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text;
 using DiffPlex.DiffBuilder;
 using DiffPlex.DiffBuilder.Model;
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools.Details;
 using Phi.Tui.Components.ToolCards;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;

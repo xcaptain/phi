@@ -1,20 +1,23 @@
+using System.Diagnostics.CodeAnalysis;
+
 using Phi.Extensions;
 
 namespace Phi.Extensions.Tests;
 
+[UnconditionalSuppressMessage("Usage", "TUnitAssertions0005:Assert.That(...) should not be used with a constant value")]
 public class NotifyLevelTests
 {
     [Test]
     public async Task Has_Three_Levels()
     {
         var names = Enum.GetNames<NotifyLevel>().OrderBy(n => n).ToList();
-        await Assert.That(names).IsEquivalentTo(new[] { "Error", "Info", "Warning" });
+        await Assert.That(names).IsEquivalentTo(["Error", "Info", "Warning"]);
     }
 
     [Test]
     public async Task Default_Is_Info()
     {
-        await Assert.That(NotifyLevel.Info).IsEqualTo(default(NotifyLevel));
+        await Assert.That(NotifyLevel.Info).IsEqualTo(default);
     }
 }
 
@@ -24,13 +27,14 @@ public class MessageDeliveryTests
     public async Task Has_Two_Deliveries()
     {
         var names = Enum.GetNames<MessageDelivery>().OrderBy(n => n).ToList();
-        await Assert.That(names).IsEquivalentTo(new[] { "FollowUp", "Steer" });
+        await Assert.That(names).IsEquivalentTo(["FollowUp", "Steer"]);
     }
 }
 
 /// <summary>
 /// Capability flag tests: bitwise combinations, undefined bits ignored.
 /// </summary>
+[UnconditionalSuppressMessage("Usage", "TUnitAssertions0005:Assert.That(...) should not be used with a constant value")]
 public class CapabilityFlagTests
 {
     [Test]

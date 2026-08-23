@@ -57,6 +57,6 @@ public class ApiShapeTests
             .OrderBy(n => n)
             .ToList();
 
-        await Assert.That(props).IsEquivalentTo(new[] { "Context", "Name", "Version" });
+        await Assert.That(props).IsEquivalentTo(["Context", "Name", "Version"]);
     }
 }

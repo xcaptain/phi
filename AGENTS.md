@@ -93,7 +93,7 @@ Phi 库下面分：
 
 - `src/Phi/`：`ISession`、`SessionState`、`Session`（含导航 + NewSessionAsync/ResumeAsync/ListRecent/AvailableProviders）、`SessionEnvironment`（跨 session 共享的 resolver / 工具 / 压缩参数）、`SessionManager`、`SessionRecord`、`SessionStorage`、`SessionPaths`、`WorkspaceSessionStore`、`SessionRuntime`（composition root 用 `Session.LoadAsync` 一次性装配：resources + tools + prompt + harness）、compaction
 - `src/Phi/Providers/`：`ProviderManager`、`ProviderCatalog`、`ICredentialStore`、`IProviderResolver`、`PhiSettings`
-- `src/Phi/Tools/`、`src/Phi/Prompts/`、`src/Phi/Resources/`：runtime + skill/prompt 加载
+- `src/Phi/Prompts/`、`src/Phi/Resources/`：prompt 构建 + skill/prompt 加载。**Sprint 2.5：`src/Phi/Tools/` 已搬到 `extensions/CodingPack/Tools/`**（4 个默认 coding tool 现在通过 CodingPack 扩展注册进 harness，不走 Phi 主体）
 - `src/Phi/Slash/`：UI-agnostic slash 命令（SlashCommands、SlashCommandCatalog）
 - `src/Phi/Status/`：session → 状态条目的 routing（ISessionStatusSink、SessionStatusRouter、ErrorClassifier）
 - `src/Phi/Prompt/`：UI-agnostic 输入建议提供器（ISuggestionProvider、SuggestionItem、SlashCommandProvider、SkillSuggestionProvider）

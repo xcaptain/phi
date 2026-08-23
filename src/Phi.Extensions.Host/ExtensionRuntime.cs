@@ -1,3 +1,4 @@
+using System.Reflection;
 using Phi.Agent;
 using Phi.Extensions.Events;
 
@@ -81,6 +82,32 @@ internal sealed class ExtensionRuntime : IDisposable
                 _loadResults.Add(new ExtensionLoadFailure(path, ex));
             }
         }
+    }
+
+    /// <summary>
+    /// Registers an extension compiled directly into the host (CodingPack,
+    /// HelloTool, PermissionGate — anything referenced via ProjectReference).
+    /// These live in the host's default ALC, so they're never unloaded by
+    /// <c>/reload</c>; the metadata (name/version/description) comes from the
+    /// <c>[PhiExtension]</c> attribute on <paramref name="instance"/>'s type.
+    /// </summary>
+    public void RegisterCompiledExtension(IPhiExtension instance)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+
+        var attr = instance.GetType().GetCustomAttributes<PhiExtensionAttribute>().FirstOrDefault()
+            ?? throw new InvalidOperationException(
+                $"compile-time extension '{instance.GetType().FullName}' has no [PhiExtension] attribute");
+
+        _extensions.Add(new LoadedExtension(
+            Name: attr.Name,
+            Version: attr.Version,
+            Description: attr.Description,
+            EntryType: instance.GetType(),
+            Instance: instance,
+            AssemblyPath: "",
+            Assembly: instance.GetType().Assembly,
+            Alc: null));
     }
 
     /// <summary>
@@ -209,9 +236,9 @@ internal sealed class ExtensionRuntime : IDisposable
     public void Dispose()
     {
         _eventDispatch?.Dispose();
-        foreach (var alc in _extensions.Select(e => e.Alc).Distinct())
+        foreach (var alc in _extensions.Select(e => e.Alc).Where(a => a is not null).Distinct())
         {
-            try { alc.Unload(); } catch { /* best-effort */ }
+            try { alc!.Unload(); } catch { /* best-effort */ }
         }
         // Drop every reference that could keep old assemblies alive: the
         // extension list, the per-extension PhiApi instances (which hold

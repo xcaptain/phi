@@ -107,6 +107,29 @@ public interface ISession : IDisposable
     Task<ISession> NewSessionAsync(string? cwd = null);
 
     /// <summary>
+    /// Reloads the session's extension set: disposes the current extension
+    /// runtime (unloading ALCs, invalidating captured <c>IPhiApi</c>
+    /// references, clearing hooks + event dispatch) and asks the
+    /// composition root's <see cref="SessionEnvironment.ExtensionRuntimeFactory"/>
+    /// for a fresh one. Compiled extensions (CodingPack and friends) are
+    /// re-registered automatically because the factory rebuilds them from
+    /// scratch — <c>/reload</c> must not drop them.
+    /// <para>
+    /// Persistence-only sessions (built without an env, e.g.
+    /// <c>Session.GetOrCreateDefault</c>) have no runtime to reload and
+    /// no factory to consult; this method throws
+    /// <see cref="InvalidOperationException"/> on them. Callers (the TUI
+    /// <c>/reload</c> slash command) catch and surface as a transient message.
+    /// </para>
+    /// <para>
+    /// UI binding: the extension lifecycle is opaque to the UI; this method
+    /// only triggers it. The TUI's <c>/reload</c> slash command calls this;
+    /// the Avalonia shell wires the same command in Sprint 3.
+    /// </para>
+    /// </summary>
+    void ReloadExtensions();
+
+    /// <summary>
     /// Resumes the indexed session identified by <paramref name="sessionId"/>.
     /// Resolves the session's own cwd from its record so cross-workspace
     /// resume works (the desktop shell lists sessions across every project;

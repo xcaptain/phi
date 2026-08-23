@@ -15,35 +15,35 @@ namespace Phi.Extensions;
 [Flags]
 public enum ExtensionCapability
 {
-    None               = 0,
+    None = 0,
 
     /// <summary>Outbound network (HTTP, gRPC, etc.).</summary>
-    Network            = 1 << 0,
+    Network = 1 << 0,
 
     /// <summary>Read files anywhere on the host filesystem.</summary>
-    FileSystemRead     = 1 << 1,
+    FileSystemRead = 1 << 1,
 
     /// <summary>Write / mutate files anywhere on the host filesystem.</summary>
-    FileSystemWrite    = 1 << 2,
+    FileSystemWrite = 1 << 2,
 
     /// <summary>Spawn child processes (e.g. <c>Process.Start</c>).</summary>
-    ProcessSpawn       = 1 << 3,
+    ProcessSpawn = 1 << 3,
 
     /// <summary>Read credentials store, OAuth tokens, env-var secrets.</summary>
-    SecretsRead        = 1 << 4,
+    SecretsRead = 1 << 4,
 
     /// <summary>Read host environment variables.</summary>
-    EnvironmentRead    = 1 << 5,
+    EnvironmentRead = 1 << 5,
 
     /// <summary>Read system clipboard.</summary>
-    ClipboardRead      = 1 << 6,
+    ClipboardRead = 1 << 6,
 
     /// <summary>Write system clipboard.</summary>
-    ClipboardWrite     = 1 << 7,
+    ClipboardWrite = 1 << 7,
 
     /// <summary>Show dialogs / request user interaction via <see cref="IPhiUiBridge"/>.</summary>
-    UiInteract         = 1 << 8,
+    UiInteract = 1 << 8,
 
     /// <summary>Write transcript lines / submit messages.</summary>
-    TranscriptWrite    = 1 << 9,
+    TranscriptWrite = 1 << 9,
 }

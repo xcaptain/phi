@@ -116,7 +116,7 @@ public class HarnessInterruptedToolTests
         // and end the session normally — never re-throwing to the caller.
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[] { new ProviderTextDeltaEvent("hel") },
+            [new ProviderTextDeltaEvent("hel")],
         ]);
         var harness = new Harness(fake, Array.Empty<Tool>(), "test");
 
@@ -179,7 +179,7 @@ public class HarnessInterruptedToolTests
         var toolCall = MakeToolCall("c1");
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[] { new ProviderTextDeltaEvent("x") },
+            [new ProviderTextDeltaEvent("x")],
         ]);
         var harness = new Harness(fake, Array.Empty<Tool>(), "test");
         harness.AppendMessage(new AssistantMessage
@@ -212,10 +212,10 @@ public class HarnessInterruptedToolTests
         // Cancel during text streaming — no tool was in flight, so the
         // placeholders list is empty. We should still surface the cancel
         // as a HarnessErrorEvent for the UI to render.
-        var fake = new FakePhiProvider(new[]
-        {
+        var fake = new FakePhiProvider(
+        [
             new ProviderEvent[] { new ProviderTextDeltaEvent("hel") },
-        });
+        ]);
 
         var harness = new Harness(fake, Array.Empty<Tool>(), "test");
 

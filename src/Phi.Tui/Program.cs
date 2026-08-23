@@ -1,4 +1,7 @@
 using Phi;
+using Phi.Extensions.CodingPack;
+using Phi.Extensions;
+using Phi.Extensions.Host;
 using Phi.Providers;
 using Phi.Tui;
 
@@ -30,7 +33,18 @@ for (var i = 0; i < args.Length; i++)
 // for /connect).
 var providerManager = new ProviderManager();
 var defaultProvider = providerManager.ResolveDefaultProvider();
-var env = SessionEnvironment.Default(providerManager);
+// The factory runs on every Session.LoadAsync call — the initial one here
+// AND every ISession.NewSessionAsync / ResumeAsync a session navigates to
+// (/new, /sessions) — so CodingPack's tools survive session switching. A
+// real IPhiUiBridge (TuiPhiUiBridge) lands in Sprint 3; for now the no-op
+// bridge keeps tools/hooks working (dialogs / notify are no-ops).
+var env = SessionEnvironment.Default(providerManager, extensionRuntimeFactory: session =>
+{
+    var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
+    runtime.RegisterCompiledExtension(new CodingPackExt());
+    runtime.Initialize();
+    return runtime;
+});
 
 Session session;
 try
@@ -50,6 +64,7 @@ catch (InvalidOperationException ex)
 using (session)
 {
     session.HasUi = true;   // TUI hosts a real UI; surfaced via IPhiContext.Ui.HasUi to extensions
+
     var app = new PhiTuiApp(session, providerManager);
     app.Run();
 }

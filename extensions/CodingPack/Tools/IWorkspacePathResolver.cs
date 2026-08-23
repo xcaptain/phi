@@ -1,4 +1,4 @@
-namespace Phi.Tools;
+namespace Phi.Extensions.CodingPack.Tools;
 
 /// <summary>
 /// Resolves tool-supplied paths against the session's working directory.

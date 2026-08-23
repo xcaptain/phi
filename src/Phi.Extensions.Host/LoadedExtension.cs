@@ -15,9 +15,11 @@ namespace Phi.Extensions.Host;
 /// <param name="Description">From <c>[PhiExtension(Description = ...)]</c>.</param>
 /// <param name="EntryType">The concrete <see cref="Type"/> implementing <see cref="IPhiExtension"/>.</param>
 /// <param name="Instance">Live instance (after <c>Activator.CreateInstance</c>).</param>
-/// <param name="AssemblyPath">Absolute path on disk — kept for diagnostics and audit log.</param>
+/// <param name="AssemblyPath">Absolute path on disk — kept for diagnostics and audit log. Empty for compile-time extensions.</param>
 /// <param name="Assembly">Loaded <see cref="System.Reflection.Assembly"/> reference; prevents GC while alive.</param>
-/// <param name="Alc">The per-extension <see cref="ExtensionLoadContext"/>.</param>
+/// <param name="Alc">The per-extension <see cref="ExtensionLoadContext"/>. Null for compile-time
+/// extensions (CodingPack etc. referenced via ProjectReference), which live in the host's
+/// default ALC and are never unloaded by <c>/reload</c>.</param>
 internal sealed record LoadedExtension(
     string Name,
     string Version,
@@ -26,4 +28,4 @@ internal sealed record LoadedExtension(
     IPhiExtension Instance,
     string AssemblyPath,
     Assembly Assembly,
-    ExtensionLoadContext Alc);
+    ExtensionLoadContext? Alc);

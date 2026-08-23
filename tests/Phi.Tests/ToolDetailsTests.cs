@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
-using Phi.Tools;
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools;
+using Phi.Extensions.CodingPack.Tools.Details;
 
 namespace Phi.Tests;
 

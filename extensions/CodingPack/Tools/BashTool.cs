@@ -1,9 +1,9 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using Phi.Agent;
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools.Details;
 
-namespace Phi.Tools;
+namespace Phi.Extensions.CodingPack.Tools;
 
 public sealed record BashArgs
 {

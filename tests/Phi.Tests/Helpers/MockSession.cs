@@ -123,6 +123,8 @@ public sealed class MockSession : ISession
 
     public IReadOnlyList<SessionRecord> ListRecent(int days = 7) => RecentSessions;
 
+    public void ReloadExtensions() { /* mock: no-op */ }
+
     public void Dispose()
     {
         Disposed = true;

@@ -68,14 +68,14 @@ public class ReloadTests : IDisposable
         ExtensionRuntime oldRuntime;
         {
             oldRuntime = new ExtensionRuntime(session, new NullPhiUiBridge());
-            oldRuntime.DiscoverAndLoad(new[] { _helloToolPath });
+            oldRuntime.DiscoverAndLoad([_helloToolPath]);
             oldRuntime.Initialize();
         }
 
         var oldHelloTool = session.HarnessForTest().Tools.Single(t => t.Name == "hello");
 
         // Reload → old tool removed, new tool registered.
-        var reloader = new ExtensionReloader(oldRuntime, new[] { _helloToolPath });
+        var reloader = new ExtensionReloader(oldRuntime, [_helloToolPath]);
         var newRuntime = reloader.Reload();
 
         var after = session.HarnessForTest().Tools.Where(t => t.Name == "hello").ToList();
@@ -90,14 +90,14 @@ public class ReloadTests : IDisposable
     {
         var session = await Phi.Session.LoadAsync(_cwd, BuildEnv(), providerName: "stub", model: "m");
         using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-        runtime.DiscoverAndLoad(new[] { _helloToolPath });
+        runtime.DiscoverAndLoad([_helloToolPath]);
         runtime.Initialize();
 
         // Capture the api reference the runtime handed to HelloTool's Setup.
         var ext = runtime.Extensions[0];
         var oldApi = runtime.ApisForTest[ext];
 
-        var reloader = new ExtensionReloader(runtime, new[] { _helloToolPath });
+        var reloader = new ExtensionReloader(runtime, [_helloToolPath]);
         var newRuntime = reloader.Reload();   // invalidates generations + unloads old ALCs
 
         // The captured old api is stale; action methods throw GenerationGuard.
@@ -111,10 +111,10 @@ public class ReloadTests : IDisposable
     {
         var session = await Phi.Session.LoadAsync(_cwd, BuildEnv(), providerName: "stub", model: "m");
         using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-        runtime.DiscoverAndLoad(new[] { _helloToolPath });
+        runtime.DiscoverAndLoad([_helloToolPath]);
         runtime.Initialize();
 
-        var reloader = new ExtensionReloader(runtime, new[] { _helloToolPath });
+        var reloader = new ExtensionReloader(runtime, [_helloToolPath]);
         var newRuntime = reloader.Reload();
 
         // New runtime should have the extension loaded and its tool registered.

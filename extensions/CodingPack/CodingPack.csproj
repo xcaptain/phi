@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Library</OutputType>
+    <IsPackable>true</IsPackable>
+    <AssemblyName>Phi.Extensions.CodingPack</AssemblyName>
+    <RootNamespace>Phi.Extensions.CodingPack</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The coding pack is Phi's "first real extension" — it pulls the four
+         built-in tools and the coding system prompt out of the Phi core and
+         ships them as an extension (docs/extensions.md §13 Sprint 2.5).
+         Phi.Tui / Phi.Avalonia reference it at compile time (not via file
+         discovery). -->
+    <ProjectReference Include="..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
+    <ProjectReference Include="..\..\src\Phi.Agent\Phi.Agent.csproj" />
+    <!-- TypedTool<T> subclasses get their Parameters / ArgsTypeInfo generated
+         by the Phi.SchemaGen source generator (same as Phi core uses). -->
+    <ProjectReference Include="..\..\src\Phi.SchemaGen\Phi.SchemaGen.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- EditTool renders diffs. Same version as Phi core uses (CPM). -->
+    <PackageReference Include="DiffPlex" />
+  </ItemGroup>
+
+</Project>

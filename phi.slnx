@@ -4,13 +4,16 @@
     <Project Path="src/Phi.Extensions/Phi.Extensions.csproj" />
     <Project Path="src/Phi.Extensions.Host/Phi.Extensions.Host.csproj" />
     <Project Path="src/Phi/Phi.Runtime.csproj" />
-    <Project Path="examples/extensions/HelloTool/HelloTool.csproj" />
-    <Project Path="examples/extensions/PermissionGate/PermissionGate.csproj" />
     <Project Path="src/Phi.Provider/Phi.Provider.csproj" />
     <Project Path="src/Phi.SchemaGen/Phi.SchemaGen.csproj" />
     <Project Path="src/Phi.Tui/Phi.Tui.csproj" />
     <Project Path="src/Phi.Avalonia/Phi.Avalonia.csproj" />
     <Project Path="src/Phi.Avalonia.Desktop/Phi.Avalonia.Desktop.csproj" />
+  </Folder>
+  <Folder Name="/extensions/">
+    <Project Path="extensions/CodingPack/CodingPack.csproj" />
+    <Project Path="extensions/HelloTool/HelloTool.csproj" />
+    <Project Path="extensions/PermissionGate/PermissionGate.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Phi.Agent.Tests/Phi.Agent.Tests.csproj" />

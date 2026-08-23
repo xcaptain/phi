@@ -1,4 +1,4 @@
-namespace Phi.Tools.Details;
+namespace Phi.Extensions.CodingPack.Tools.Details;
 
 /// <summary>
 /// One applied edit's original and replacement text (LF-normalized), plus

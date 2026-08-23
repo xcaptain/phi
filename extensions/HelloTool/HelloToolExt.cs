@@ -1,6 +1,5 @@
 using System.Text.Json.Nodes;
 using Phi.Agent;
-using Phi.Extensions;
 
 namespace Phi.Extensions.HelloTool;
 

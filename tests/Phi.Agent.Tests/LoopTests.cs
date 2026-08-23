@@ -29,12 +29,11 @@ public class LoopTests
     {
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[]
-            {
+            [
                 new ProviderTextDeltaEvent("Hello"),
                 new ProviderTextDeltaEvent(" world"),
                 new ProviderResponseEndEvent(FinalMessage("Hello world"), StopReasons.Stop),
-            },
+            ],
         ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
@@ -376,11 +375,10 @@ public class LoopTests
     {
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[]
-            {
+            [
                 new ProviderTextDeltaEvent("done"),
                 new ProviderResponseEndEvent(FinalMessage("done"), StopReasons.Stop),
-            },
+            ],
         ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
@@ -405,11 +403,10 @@ public class LoopTests
         // (no TurnStartEvent for it) — matching tau's run_agent_loop.
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[]
-            {
+            [
                 new ProviderTextDeltaEvent("First"),
                 new ProviderResponseEndEvent(FinalMessage("First"), StopReasons.Stop),
-            },
+            ],
         ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "first" } };
@@ -449,16 +446,14 @@ public class LoopTests
     {
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[]
-            {
+            [
                 new ProviderTextDeltaEvent("Done turn 1"),
                 new ProviderResponseEndEvent(FinalMessage("Done turn 1"), StopReasons.Stop),
-            },
-            new ProviderEvent[]
-            {
+            ],
+            [
                 new ProviderTextDeltaEvent("Done turn 2"),
                 new ProviderResponseEndEvent(FinalMessage("Done turn 2"), StopReasons.Stop),
-            },
+            ],
         ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "first" } };
@@ -498,15 +493,13 @@ public class LoopTests
 
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[]
-            {
+            [
                 new ProviderToolCallEvent(toolCall),
                 new ProviderResponseEndEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
-            },
-            new ProviderEvent[]
-            {
+            ],
+            [
                 new ProviderResponseEndEvent(FinalMessage("done"), StopReasons.Stop),
-            },
+            ],
         ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
@@ -535,14 +528,12 @@ public class LoopTests
         // terminates after both queues are drained.
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[]
-            {
+            [
                 new ProviderResponseEndEvent(FinalMessage("t1"), StopReasons.Stop),
-            },
-            new ProviderEvent[]
-            {
+            ],
+            [
                 new ProviderResponseEndEvent(FinalMessage("t2"), StopReasons.Stop),
-            },
+            ],
         ]);
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "x" } };

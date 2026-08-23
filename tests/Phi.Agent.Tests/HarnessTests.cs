@@ -10,8 +10,8 @@ public class HarnessTests
     [Test]
     public async Task RunAsync_NoToolCalls_EmitsTurnStartThenTurnEnd()
     {
-        var fake = new FakePhiProvider(new[]
-        {
+        var fake = new FakePhiProvider(
+        [
             new ProviderEvent[]
             {
                 new ProviderTextDeltaEvent("Hi back"),
@@ -24,7 +24,7 @@ public class HarnessTests
                     },
                     StopReasons.Stop),
             },
-        });
+        ]);
 
         var harness = CreateHarness(fake);
 
@@ -44,8 +44,8 @@ public class HarnessTests
     [Test]
     public async Task RunAsync_NoSteeringOrFollowUp_TerminatesAfterOneTurn()
     {
-        var fake = new FakePhiProvider(new[]
-        {
+        var fake = new FakePhiProvider(
+        [
             new ProviderEvent[]
             {
                 new ProviderTextDeltaEvent("done"),
@@ -58,7 +58,7 @@ public class HarnessTests
                     },
                     StopReasons.Stop),
             },
-        });
+        ]);
 
         var harness = CreateHarness(fake);
         var turnCount = 0;
@@ -73,13 +73,13 @@ public class HarnessTests
     [Test]
     public async Task RunAsync_ProviderErrorPropagates_ThroughOuterLoop()
     {
-        var fake = new FakePhiProvider(new[]
-        {
+        var fake = new FakePhiProvider(
+        [
             new ProviderEvent[]
             {
                 new ProviderErrorEvent("HTTP 500: server error"),
             },
-        });
+        ]);
 
         var harness = CreateHarness(fake);
 
@@ -100,7 +100,7 @@ public class HarnessTests
         // and end the session normally — never re-throwing to the caller.
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[] { new ProviderTextDeltaEvent("hel") },
+            [new ProviderTextDeltaEvent("hel")],
         ]);
         var harness = CreateHarness(fake);
 
@@ -133,7 +133,7 @@ public class HarnessTests
         };
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[] { new ProviderTextDeltaEvent("x") },
+            [new ProviderTextDeltaEvent("x")],
         ]);
         var harness = new Harness(fake, Array.Empty<Tool>(), "test");
         harness.AppendMessage(new AssistantMessage

@@ -123,6 +123,9 @@ public sealed partial class PromptInput
                 case "/models":
                     ShowModelsDialog();
                     break;
+                case "/reload":
+                    ReloadExtensions();
+                    break;
                 case "/exit":
                     Editor.App?.Stop();
                     break;
@@ -224,6 +227,29 @@ public sealed partial class PromptInput
         catch (InvalidOperationException ex)
         {
             _transcript.ShowTransient(ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Reloads the session's extension set: disposes the current extension
+    /// runtime (unloading ALCs, invalidating captured <c>IPhiApi</c>
+    /// references, clearing hooks + event dispatch) and asks the composition
+    /// root's <see cref="SessionEnvironment.ExtensionRuntimeFactory"/> for a
+    /// fresh one. CodingPack (and any other compiled extension registered
+    /// through the factory) re-registers automatically, so the four coding
+    /// tools stay in the harness. Failures surface as a transient message;
+    /// the session stays usable (re-call /reload).
+    /// </summary>
+    private void ReloadExtensions()
+    {
+        try
+        {
+            _session.ReloadExtensions();
+            _transcript.ShowTransient("Extensions reloaded.");
+        }
+        catch (Exception ex)
+        {
+            _transcript.ShowTransient($"Reload failed: {ex.Message}");
         }
     }
 

@@ -227,8 +227,8 @@ public class TranscriptViewTests
         AvaloniaTestHost.EnsureInitialized();
         var (session, projector, view) = Create();
 
-        var bashDetails = Phi.Tools.Details.ToolDetails.Node(
-            new Phi.Tools.Details.BashDetails(
+        var bashDetails = Phi.Extensions.CodingPack.Tools.Details.ToolDetails.Node(
+            new Phi.Extensions.CodingPack.Tools.Details.BashDetails(
                 Command: "ls",
                 ExitCode: 0,
                 DurationMs: 42,

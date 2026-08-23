@@ -1,6 +1,4 @@
-using Phi.Agent;
-using Phi.Prompts;
-using Phi.Tools;
+using Phi.Extensions.CodingPack.Tools;
 
 namespace Phi.Tests.Tools;
 
@@ -113,84 +111,19 @@ public class CwdBoundToolTests : IDisposable
     }
 
     [Test]
-    public async Task BuiltInToolProvider_BashToolHonoursCwd()
+    public async Task CodingPack_ProvidesTheFourDefaultTools()
     {
-        // /bin/bash does not exist on desktop Windows (the tool switches to
-        // PowerShell there); CI runs on Linux, so just no-op the assertion.
-        if (OperatingSystem.IsWindows())
-            return;
-
-        var provider = new BuiltInToolProvider(_cwd);
-        Phi.Agent.Tool bash = provider.GetTools().Single(c => c.Tool.Name == "bash").Tool;
-        var args = new System.Text.Json.Nodes.JsonObject { ["command"] = "pwd" };
-
-        var result = await bash.ExecuteAsync("bash", "c1", args, CancellationToken.None);
-
-        await Assert.That(result.IsError).IsFalse();
-        var text = string.Concat(result.Content.OfType<Phi.Agent.TextBlock>().Select(b => b.Text));
-        await Assert.That(text).Contains(_cwd);
-    }
-
-    [Test]
-    public async Task BuiltInTools_CreateDefault_ProducesCwdBoundInstances()
-    {
-        var tools = BuiltInTools.CreateDefault(_cwd);
+        // Sprint 2.5: the four default coding tools come from the CodingPack
+        // extension now. Verify they instantiate cwd-bound.
+        var tools = new Phi.Agent.Tool[]
+        {
+            new BashTool(_cwd),
+            new ReadTool(_cwd),
+            new WriteTool(_cwd),
+            new EditTool(_cwd),
+        };
 
         await Assert.That(tools).Count().IsEqualTo(4);
         await Assert.That(tools.Select(t => t.Name)).IsEquivalentTo(["bash", "read", "write", "edit"]);
-    }
-
-    [Test]
-    public async Task ToolComposer_DuplicateName_Throws()
-    {
-        var first = new ToolContribution
-        {
-            Tool = new PromptTestTool("read", "first"),
-            Source = "builtin",
-        };
-        var dup = new ToolContribution
-        {
-            Tool = new PromptTestTool("read", "second"),
-            Source = "custom",
-        };
-
-        var ex = await Assert.That(async () =>
-            await ToolComposer.ComposeAsync([first, dup]))
-            .Throws<InvalidOperationException>();
-        await Assert.That(ex!.Message).Contains("read");
-    }
-
-    [Test]
-    public async Task ToolComposer_UniqueNames_PassesThrough()
-    {
-        var first = new ToolContribution
-        {
-            Tool = new PromptTestTool("read", "first"),
-            Source = "builtin",
-        };
-        var second = new ToolContribution
-        {
-            Tool = new PromptTestTool("bash", "second"),
-            Source = "builtin",
-        };
-
-        var composed = await ToolComposer.ComposeAsync([first, second]);
-
-        await Assert.That(composed.Select(c => c.Tool.Name)).IsEquivalentTo(["read", "bash"]);
-    }
-
-    private sealed class PromptTestTool(string name, string description) : Phi.Agent.Tool
-    {
-        public override string Name { get; } = name;
-        public override string Description { get; } = description;
-        public override System.Text.Json.Nodes.JsonObject Parameters =>
-            new() { ["type"] = "object" };
-        public override Task<Phi.Agent.ToolResult> ExecuteAsync(
-            string toolName,
-            string toolCallId,
-            System.Text.Json.Nodes.JsonObject arguments,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(new Phi.Agent.ToolResult(
-                Content: [new Phi.Agent.TextBlock("ok")]));
     }
 }

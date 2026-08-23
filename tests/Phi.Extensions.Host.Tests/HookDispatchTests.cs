@@ -1,7 +1,6 @@
 using System.Text.Json.Nodes;
 using Phi.Agent;
 using Phi.Extensions.Events;
-using Phi.Provider;
 
 namespace Phi.Extensions.Host.Tests;
 
@@ -64,7 +63,7 @@ public class HookDispatchTests
     public async Task ToolCall_No_Hook_Passes_Through()
     {
         var tool = new HookWrappingTool(EchoTool(), _registry);
-        var result = await tool.ExecuteAsync("echo", "call-1", new JsonObject(), default);
+        var result = await tool.ExecuteAsync("echo", "call-1", [], default);
 
         await Assert.That(result.IsError).IsFalse();
         await Assert.That(result.Text).IsEqualTo("ran");
@@ -82,7 +81,7 @@ public class HookDispatchTests
         });
 
         var tool = new HookWrappingTool(EchoTool(), _registry);
-        var result = await tool.ExecuteAsync("echo", "call-1", new JsonObject(), default);
+        var result = await tool.ExecuteAsync("echo", "call-1", [], default);
 
         await Assert.That(result.Text).IsEqualTo("rewritten");
     }
@@ -97,7 +96,7 @@ public class HookDispatchTests
         });
 
         var tool = new HookWrappingTool(EchoTool(), _registry);
-        var result = await tool.ExecuteAsync("echo", "call-1", new JsonObject(), default);
+        var result = await tool.ExecuteAsync("echo", "call-1", [], default);
 
         await Assert.That(result.IsError).IsTrue();
         await Assert.That(result.Text).Contains("hook error");

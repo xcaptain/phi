@@ -3,7 +3,7 @@ using Avalonia.Controls;
 using Phi.Agent;
 using Phi.Avalonia.Components;
 using Phi.Avalonia.Components.ToolCards;
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools.Details;
 using PbTextBlock = Phi.Agent.TextBlock;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 

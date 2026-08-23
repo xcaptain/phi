@@ -140,8 +140,8 @@ public class ChatTranscriptTests
             call,
             new ToolResult(
                 [new TextBlock("file body")],
-                Details: Phi.Tools.Details.ToolDetails.Node(
-                    new Phi.Tools.Details.ReadDetails(
+                Details: Phi.Extensions.CodingPack.Tools.Details.ToolDetails.Node(
+                    new Phi.Extensions.CodingPack.Tools.Details.ReadDetails(
                         "a.cs", Offset: 30, Limit: 18,
                         LineCount: 18, TotalLineCount: 82, ByteCount: 2048)))));
 
@@ -190,10 +190,10 @@ public class ChatTranscriptTests
             call,
             new ToolResult(
                 [new TextBlock("ok")],
-                Details: Phi.Tools.Details.ToolDetails.Node(
-                    new Phi.Tools.Details.EditDetails(
+                Details: Phi.Extensions.CodingPack.Tools.Details.ToolDetails.Node(
+                    new Phi.Extensions.CodingPack.Tools.Details.EditDetails(
                         "a.cs",
-                        [new Phi.Tools.Details.EditOpDetails("old line", "new line")],
+                        [new Phi.Extensions.CodingPack.Tools.Details.EditOpDetails("old line", "new line")],
                         Diff: "",
                         Patch: "")))));
 

@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Nodes;
 using Phi.Agent;
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools.Details;
 using XenoAtom.Terminal.UI;
 using XenoAtom.Terminal.UI.Controls;
 

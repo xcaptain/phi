@@ -43,6 +43,13 @@ public sealed class Session : ISession
     // only kind that can answer ISession navigation requests.
     private readonly SessionEnvironment? _env;
 
+    // Handle returned by env.ExtensionRuntimeFactory (an ExtensionRuntime in
+    // practice) — opaque here because Phi core can't reference
+    // Phi.Extensions.Host (see SessionEnvironment.ExtensionRuntimeFactory).
+    // Disposed alongside the session so compiled extensions (CodingPack)
+    // never outlive the session they were registered into.
+    private IDisposable? _extensionRuntime;
+
     private Session(
         SessionRecord record, SessionStorage storage,
         SessionManager manager, bool persisted,
@@ -177,6 +184,7 @@ public sealed class Session : ISession
             var runtime = BuildRuntime(env, provider, session.Record.Model, session.Record.ProviderName, cwd);
             runtime.Harness.ReplaceMessages(session.LoadMessages());
             session.ApplyRuntime(runtime);
+            session.AttachExtensionRuntime();
             return session;
         }
         else
@@ -185,8 +193,52 @@ public sealed class Session : ISession
             var provider = env.ProviderResolver.Resolve(providerName);
             var runtime = BuildRuntime(env, provider, model, providerName, cwd);
             session.ApplyRuntime(runtime);
+            session.AttachExtensionRuntime();
             return session;
         }
+    }
+
+    /// <summary>
+    /// Calls <see cref="SessionEnvironment.ExtensionRuntimeFactory"/> (when
+    /// the env exposes one) and stores the returned runtime handle for
+    /// <see cref="Dispose"/>. Called from <see cref="LoadAsync"/> and
+    /// <see cref="ReloadExtensions"/>.
+    /// </summary>
+    private void AttachExtensionRuntime()
+    {
+        _extensionRuntime = _env?.ExtensionRuntimeFactory?.Invoke(this);
+    }
+
+    /// <summary>
+    /// Disposes the current extension runtime (unloading ALCs, clearing
+    /// hooks + event dispatch, invalidating captured <c>IPhiApi</c>
+    /// generations) and asks <see cref="SessionEnvironment.ExtensionRuntimeFactory"/>
+    /// for a fresh one. Compiled extensions registered through the factory
+    /// (e.g. CodingPack in the default composition root) re-register
+    /// automatically because the factory rebuilds them from scratch —
+    /// this is what makes <c>/reload</c> not lose the four coding tools.
+    /// No-op when the env has no factory (persistence-only sessions).
+    /// Throws <see cref="InvalidOperationException"/> when the session has
+    /// no runtime yet (call <see cref="LoadAsync"/> first).
+    /// </summary>
+    public void ReloadExtensions()
+    {
+        // Env is the precondition: persistence-only sessions have no env
+        // and therefore no runtime to reload. Runtime check is implicit —
+        // an env-bearing session always has a runtime (LoadAsync attaches
+        // it as the last step), so the env check is enough.
+        ThrowIfNoEnv();
+        // Drop every tool the previous runtime added to the harness BEFORE
+        // disposing its ALCs — otherwise the harness keeps strong references
+        // to the now-unloaded extension assembly, defeating collectible-ALC
+        // collection (same rationale as ExtensionReloader.Reload).
+        RemoveExtensionTools();
+        // Dispose first (invalidates generations, unloads ALCs, clears
+        // hooks + EventDispatch). AttachExtensionRuntime then builds a
+        // brand-new runtime — its registered tools replace the old ones in
+        // the harness via the factory's RegisterCompiledExtension calls.
+        _extensionRuntime?.Dispose();
+        AttachExtensionRuntime();
     }
 
     /// <summary>
@@ -206,8 +258,12 @@ public sealed class Session : ISession
             new SkillLoadOptions { Cwd = cwd });
 
         var skills = skillResult.Skills;
+        // Sprint 2.5: the built-in tools moved out of the core into the
+        // CodingPack extension. The harness starts with whatever the
+        // composition root injected via env.Tools (usually empty — CodingPack
+        // registers its tools post-ApplyRuntime via Session.RegisterExtensionTool).
         var contributions = env.Tools is null or { Count: 0 }
-            ? new BuiltInToolProvider(cwd).GetTools()
+            ? []
             : env.Tools.Select(WrapCustomTool).ToArray();
         var tools = contributions.Select(c => c.Tool).ToArray();
 
@@ -1029,5 +1085,9 @@ public sealed class Session : ISession
         // Release the provider's HTTP transport. NullProvider and fakes are
         // no-ops; real providers dispose their HttpClient here.
         _provider?.Dispose();
+
+        // Tear down the extension runtime (ALC unload, hook/event dispatch
+        // disposal) before this session becomes unreachable.
+        _extensionRuntime?.Dispose();
     }
 }

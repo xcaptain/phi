@@ -2,7 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Phi.Avalonia.Components;
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools.Details;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 
 namespace Phi.Avalonia.Tests;

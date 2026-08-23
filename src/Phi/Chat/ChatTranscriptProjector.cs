@@ -1,6 +1,5 @@
 using Phi.Agent;
 using Phi.Resources;
-using Phi.Agent;
 
 namespace Phi.Chat;
 

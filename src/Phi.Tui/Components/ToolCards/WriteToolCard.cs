@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
 using Phi.Agent;
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools.Details;
 using XenoAtom.Terminal.UI.Controls;
 
 namespace Phi.Tui.Components.ToolCards;

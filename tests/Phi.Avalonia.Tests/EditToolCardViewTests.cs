@@ -4,7 +4,7 @@ using Avalonia.Controls.Primitives;
 using Phi.Agent;
 using Phi.Avalonia.Components;
 using Phi.Avalonia.Components.ToolCards;
-using Phi.Tools.Details;
+using Phi.Extensions.CodingPack.Tools.Details;
 
 namespace Phi.Avalonia.Tests;
 

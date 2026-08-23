@@ -1,4 +1,3 @@
-using System.Reflection;
 using Phi.Agent;
 using Phi.Prompts;
 using Phi.Providers;
@@ -26,7 +25,7 @@ public class HelloToolIntegrationTests : IDisposable
         _cwd = Path.Combine(Path.GetTempPath(), $"phi-hello-{Guid.NewGuid():N}");
         Directory.CreateDirectory(_cwd);
 
-        // HelloTool.dll is produced by examples/extensions/HelloTool and
+        // HelloTool.dll is produced by extensions/HelloTool and
         // copied to the test artifacts dir. Locate it relative to the test
         // bin directory.
         var candidates = new[]
@@ -36,7 +35,7 @@ public class HelloToolIntegrationTests : IDisposable
         };
         _helloToolPath = candidates.FirstOrDefault(File.Exists)
             ?? throw new FileNotFoundException(
-                "HelloTool.dll not found. Build examples/extensions/HelloTool first.",
+                "HelloTool.dll not found. Build extensions/HelloTool first.",
                 candidates[0]);
     }
 
@@ -86,7 +85,7 @@ public class HelloToolIntegrationTests : IDisposable
     {
         var session = await BuildHeadlessSession();
         using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-        runtime.DiscoverAndLoad(new[] { _helloToolPath });
+        runtime.DiscoverAndLoad([_helloToolPath]);
         runtime.Initialize();
 
         // Setup() ran without throwing (SetupResults empty).
@@ -110,7 +109,7 @@ public class HelloToolIntegrationTests : IDisposable
     {
         var session = await BuildHeadlessSession();
         using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-        runtime.DiscoverAndLoad(new[] { _helloToolPath });
+        runtime.DiscoverAndLoad([_helloToolPath]);
         runtime.Initialize();
 
         var tool = session.HarnessForTest().Tools.Single(t => t.Name == "hello");
@@ -129,7 +128,7 @@ public class HelloToolIntegrationTests : IDisposable
         var beforePrompt = session.State.SystemPrompt;
 
         using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-        runtime.DiscoverAndLoad(new[] { _helloToolPath });
+        runtime.DiscoverAndLoad([_helloToolPath]);
         runtime.Initialize();
 
         // The guideline HelloTool added should appear in State.SystemPrompt.
@@ -145,7 +144,7 @@ public class HelloToolIntegrationTests : IDisposable
         // it on the next turn).
         var session = await BuildHeadlessSession();
         using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-        runtime.DiscoverAndLoad(new[] { _helloToolPath });
+        runtime.DiscoverAndLoad([_helloToolPath]);
         runtime.Initialize();
 
         var names = session.HarnessForTest().Tools.Select(t => t.Name).ToList();
@@ -162,7 +161,7 @@ public class HelloToolIntegrationTests : IDisposable
 
         var session = await BuildHeadlessSession();
         using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-        runtime.DiscoverAndLoad(new[] { goodPath, badPath });
+        runtime.DiscoverAndLoad([goodPath, badPath]);
         runtime.Initialize();
 
         await Assert.That(runtime.Extensions.Count).IsEqualTo(1);

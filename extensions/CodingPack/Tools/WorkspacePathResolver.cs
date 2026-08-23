@@ -1,4 +1,4 @@
-namespace Phi.Tools;
+namespace Phi.Extensions.CodingPack.Tools;
 
 /// <summary>
 /// Default <see cref="IWorkspacePathResolver"/>. Stores an absolute form of

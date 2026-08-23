@@ -25,6 +25,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Phi\Phi.Runtime.csproj" />
+    <ProjectReference Include="..\Phi.Extensions.Host\Phi.Extensions.Host.csproj" />
+    <ProjectReference Include="..\..\extensions\CodingPack\CodingPack.csproj" />
   </ItemGroup>
 
   <ItemGroup>

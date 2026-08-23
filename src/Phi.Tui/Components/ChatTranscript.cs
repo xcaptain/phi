@@ -182,7 +182,7 @@ public sealed class ChatTranscript : IDisposable
                 if (t.LastResultState != tc.ResultState)
                 {
                     var contentBlocks = tc.ResultText is { Length: > 0 }
-                        ? new ContentBlock[] { new Phi.Agent.TextBlock(tc.ResultText) }
+                        ? [new Phi.Agent.TextBlock(tc.ResultText)]
                         : Array.Empty<ContentBlock>();
                     var details = string.IsNullOrEmpty(tc.DetailsJson)
                         ? null
