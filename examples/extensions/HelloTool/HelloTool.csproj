@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Library</OutputType>
+    <!-- This is an EXTENSION — not part of Phi core. Phi.Tui / Phi.Avalonia.Desktop
+         load the built dll at runtime via ExtensionLoader. The extension
+         has zero reference to Phi (main runtime) or Phi.Extensions.Host;
+         it only references the PUBLIC Phi.Extensions contract. -->
+    <IsPackable>true</IsPackable>
+    <AssemblyName>Phi.Extensions.HelloTool</AssemblyName>
+    <RootNamespace>Phi.Extensions.HelloTool</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
+  </ItemGroup>
+
+</Project>

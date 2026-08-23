@@ -149,7 +149,14 @@ Phi.Extensions.Host       ←── Phi 自己用，不发给扩展
 - 版本独立：`Phi.Extensions` 可以 `netstandard2.0` 发布，不跟随 Phi 主版本。扩展升级 Phi 后扩展代码不动。
 - 测试独立：`Phi.Extensions.Tests` 不依赖 Phi 主项目，跑得更快。
 
-### 3.2 ALC 加载流程
+### 3.2 ALC 加载流程（两阶段）
+
+> **Sprint 1 实现细节**：原设计是单步"Load 时实例化 + 调 Setup"，但 Setup 需要
+> 一个 session-bound 的 `IPhiApi`（action 方法要求 session 已绑定），所以实际拆成两步：
+> **Load**（无 session）只实例化并返回 `LoadedExtension`；**Initialize**（session 已 bound
+> 之后）才调 `Setup`。这跟 tau 的 "setup() 在 session 创建后调" 一致。
+
+**第一阶段：`ExtensionLoader.Load`**
 
 ```csharp
 public static class ExtensionLoader
@@ -160,28 +167,73 @@ public static class ExtensionLoader
         var asm = alc.LoadFromAssemblyPath(dllPath);
 
         // 2. 找 [PhiExtension("name", ...)] attribute
-        var entry = asm.GetTypes()
-            .SelectMany(t => t.GetCustomAttributes<PhiExtensionAttribute>()
-                              .Select(a => (Type: t, Attr: a)))
-            .FirstOrDefault()
-            ?? throw ExtensionLoadDiagnostic.MissingAttribute(dllPath);
+        //    找不到 → ExtensionLoadDiagnostic("missing attribute")
+        //    找到多个 → ExtensionLoadDiagnostic("v1 allows one per assembly")
+        //    反射异常（缺 transitive deps） → 把 LoaderException 信息透传
+        var (entryType, attribute) = FindEntryType(asm, dllPath);
 
-        // 3. 实例化 + 调 Setup（try/catch 记录诊断，永不让扩展崩 host）
+        // 3. 实例化（try/catch 记录诊断，永不让扩展崩 host）
         IPhiExtension instance;
         try
         {
-            instance = (IPhiExtension)Activator.CreateInstance(entry.Type)!;
+            instance = (IPhiExtension)Activator.CreateInstance(entryType)!;
         }
         catch (Exception ex)
         {
-            throw ExtensionLoadDiagnostic.ActivationFailed(dllPath, ex);
+            // ActivationFailed; ALC 已 try-unload 避免泄漏
+            throw new ExtensionLoadDiagnostic(
+                $"failed to instantiate '{entryType.FullName}': {ex.Message}", ex);
         }
+
+        // 注意：Load 不调 Setup。Setup 需要 IPhiApi，而 IPhiApi 需要 Session。
         return new LoadedExtension(
-            entry.Attr.Name, entry.Attr.Version, entry.Attr.Description,
-            dllPath, entry.Type, instance, alc);
+            attribute.Name, attribute.Version, attribute.Description,
+            entryType, instance, Path.GetFullPath(dllPath), asm, alc);
     }
 }
 ```
+
+**第二阶段：`ExtensionRuntime.Initialize`**（session 已 bound 后调）
+
+```csharp
+public void Initialize()
+{
+    // 一个 session 一个 PhiContext（共享给所有 extension）
+    var context = new PhiContext(_session, _uiBridge);
+    foreach (var ext in _extensions)
+    {
+        try
+        {
+            // 每 extension 一个 PhiApi 实例——同样的 context，不同的
+            // GenerationGuard（见 §7.1）。Sprint 2 真正实现，目前 stub。
+            var api = new PhiApi(this, ext, context);
+            ext.Instance.Setup(api);
+        }
+        catch (Exception ex)
+        {
+            // Setup 抛异常不杀其它 extension；写进 SetupResults audit log
+            _setupResults.Add(new ExtensionSetupFailure(ext, ex));
+        }
+    }
+}
+```
+
+Composition root 完整流程：
+
+```csharp
+// Phi.Tui/Program.cs 或 Phi.Avalonia.Desktop/Program.cs
+var session = await Phi.Session.LoadAsync(cwd, env, ...);   // 阶段零：composition root
+session.HasUi = true;                                          // 标志 UI 已 attached
+
+using var runtime = new ExtensionRuntime(session, uiBridge);    // 持有 lifetime
+runtime.DiscoverAndLoad(extensionPaths);                          // 阶段一：Load
+runtime.Initialize();                                             // 阶段二：Setup
+// runtime.Dispose() 时所有 ALC unload
+```
+
+**为什么不合并成一步**：Setup 的 IPhiContext 投影 `Session.SystemPrompt` 等字段，
+而这些字段是 `Session.LoadAsync`（即 `ApplyRuntime`）之后才填充的。Load 阶段
+session 还没 ready，Setup 会抛"session not bound"——所以必须分两阶段。
 
 ### 3.3 ALC 的 Resolving 事件
 
@@ -957,8 +1009,10 @@ Phi.slnx
 │           ├── LoadedExtension.cs / DiscoveredExtension.cs
 │           ├── ExtensionDiagnostics.cs / ExtensionPaths.cs
 │           ├── ExtensionGeneration.cs        # GenerationGuard 实现
-│           ├── PhiApi.cs                     # IPhiApi 内部实现（公开给扩展的入口）
+│           ├── PhiApi.cs                     # internal sealed：host-side IPhiApi impl（不发给扩展）
+│           ├── PhiContext.cs                 # internal sealed：host-side IPhiContext impl（不发给扩展）
 │           ├── HookDispatch.cs / EventDispatch.cs
+│           ├── ExtensionEntryStore.cs        # AppendEntryAsync 持久化 pipeline
 │           ├── ReloadSummary.cs
 │           └── UI/
 │               ├── TuiPhiUiBridge.cs         # 实现 IPhiUiBridge，包装 PhiStatusBar / ChatTranscript

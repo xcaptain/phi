@@ -58,6 +58,23 @@ public sealed class Session : ISession
     public string Id => Record.Id;
     public string Cwd => _manager.Cwd;
     public string Model => Record.Model;
+
+    /// <summary>
+    /// The resolved system prompt currently in use by the harness.
+    /// Empty string before <see cref="ApplyRuntime"/> has run.
+    /// Exposed via <see cref="ISession.SystemPrompt"/> for the extension
+    /// <c>IPhiContext</c> view and for diagnostics / UI display.
+    /// </summary>
+    public string SystemPrompt => _systemPrompt;
+
+    /// <summary>
+    /// Whether the host that built this session has a real UI attached
+    /// (TUI / Avalonia). The composition root sets this to <c>true</c>
+    /// after <see cref="LoadAsync"/>; tests can flip it. The
+    /// <c>IPhiContext.Ui.HasUi</c> view reads from here.
+    /// </summary>
+    public bool HasUi { get; set; }
+
     public SessionRecord Record { get; private set; }
     public SessionStorage Storage => _storage;
 
@@ -401,6 +418,69 @@ public sealed class Session : ISession
                 _accumulatedSummaryUsage),
             ContextUsedTokens = EstimateContextUsage(messages),
         });
+    }
+
+    // ──────── Extension hooks (Sprint 1+) ────────
+
+    /// <summary>
+    /// Registers a tool added by an extension after <see cref="ApplyRuntime"/>.
+    /// The tool is appended to the live harness's tool list immediately
+    /// (via <see cref="Phi.Agent.Harness.AddTool"/>) so the next turn picks
+    /// it up; the cached message count is updated so the just-added tool
+    /// doesn't trigger a spurious transcript delta.
+    /// </summary>
+    /// <remarks>
+    /// Sprint 1 only supports adding tools. Removing tools (for /reload
+    /// unloading in Sprint 2) requires rebuilding the harness because the
+    /// underlying <see cref="Phi.Agent.Harness"/> doesn't expose
+    /// <c>RemoveTool</c>.
+    /// </remarks>
+    private readonly List<Phi.Agent.Tool> _extensionTools = [];
+
+    public void RegisterExtensionTool(Phi.Agent.Tool tool)
+    {
+        ArgumentNullException.ThrowIfNull(tool);
+        ThrowIfNoRuntime();
+        _harness!.AddTool(tool);
+        _extensionTools.Add(tool);
+        _lastMessageCount = _harness.Messages.Count;
+        _tools = [.. _harness.Tools];
+    }
+
+    /// <summary>
+    /// Removes every extension-registered tool from the live harness
+    /// (and forgets them). Called on extension <c>/reload</c> before the
+    /// new extension set re-registers, so old tools don't keep strong
+    /// references to the unloaded extension's assembly.
+    /// </summary>
+    public void RemoveExtensionTools()
+    {
+        if (_harness is null) return;
+        var removed = _extensionTools.ToArray();
+        foreach (var t in removed)
+            _harness.RemoveTools(x => ReferenceEquals(x, t));
+        _extensionTools.Clear();
+        _lastMessageCount = _harness.Messages.Count;
+        _tools = [.. _harness.Tools];
+    }
+
+    /// <summary>
+    /// Appends a guideline string to the live system prompt and surfaces
+    /// the updated prompt in <see cref="State.SystemPrompt"/>.
+    /// </summary>
+    /// <remarks>
+    /// Sprint 1 implementation: simple string concatenation. The harness's
+    /// own prompt (the one the model actually sees) is built once in
+    /// <see cref="ApplyRuntime"/>; updates here show up in the UI's
+    /// prompt-display path but the model won't see the new guideline
+    /// until Sprint 2's full prompt-rebuild pipeline lands.
+    /// </remarks>
+    public void AddExtensionPromptGuideline(string guideline)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(guideline);
+        ThrowIfNoRuntime();
+        _systemPrompt = (_systemPrompt ?? "") + "\n- " + guideline;
+        UpdateState(s => s with { SystemPrompt = _systemPrompt });
     }
 
     private int EstimateContextUsage(IReadOnlyList<IAgentMessage> messages) =>

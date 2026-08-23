@@ -23,6 +23,12 @@ public sealed class MockSession : ISession
     /// <summary>Stable id surfaced via <see cref="Id"/>.</summary>
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
+    /// <summary>Resolved system prompt (mirrors <c>ISession.SystemPrompt</c>).</summary>
+    public string SystemPrompt { get; set; } = "";
+
+    /// <summary>Mirrors <c>ISession.HasUi</c>. Defaults to <c>true</c> so tests that bind a fake UI behave like the production TUI/Avalonia host.</summary>
+    public bool HasUi { get; set; } = true;
+
     /// <summary>Provider names surfaced via <see cref="AvailableProviders"/>.</summary>
     public List<string> AvailableProviderNames { get; } = ["openai", "deepseek", "anthropic"];
 

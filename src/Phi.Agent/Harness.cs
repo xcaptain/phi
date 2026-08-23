@@ -26,10 +26,34 @@ public sealed class Harness(
     string system = "",
     int? maxTurns = null)
 {
-    private readonly IReadOnlyList<Tool> _tools = tools;
+    // Mutable so the extension runtime can add tools after construction
+    // (extensions are loaded after the session is composed, so tools have
+    // to register post-ApplyRuntime — see Sprint 1 design in
+    // docs/extensions.md §14).
+    private readonly List<Tool> _tools = [.. tools];
     private readonly string _system = system;
     private readonly int? _maxTurns = maxTurns;
     private readonly List<IAgentMessage> _messages = [];
+
+    /// <summary>Read-only view of the tool set (built-in + extension tools).</summary>
+    public IReadOnlyList<Tool> Tools => _tools;
+
+    /// <summary>
+    /// Append a tool after construction. Used by the extension runtime to
+    /// register tools post-ApplyRuntime. Replaces the old design where
+    /// Session had to rebuild the harness on every extension registration.
+    /// </summary>
+    public void AddTool(Tool tool) => _tools.Add(tool);
+
+    /// <summary>
+    /// Removes every tool matching <paramref name="predicate"/>. Used by the
+    /// extension reload path to drop old-extension tools before the new set
+    /// is registered — otherwise the harness would keep strong references to
+    /// the unloaded extension's assembly (which defeats the collectible-ALC
+    /// GC unload). Returns the number of tools removed.
+    /// </summary>
+    public int RemoveTools(Predicate<Tool> predicate) =>
+        _tools.RemoveAll(predicate);
 
     /// <summary>
     /// Provider used for the next <see cref="RunAsync"/> call. Mutable so a

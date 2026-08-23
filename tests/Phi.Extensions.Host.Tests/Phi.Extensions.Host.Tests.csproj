@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsPublishable>false</IsPublishable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
+    <ProjectReference Include="..\..\src\Phi.Extensions.Host\Phi.Extensions.Host.csproj" />
+    <ProjectReference Include="..\..\src\Phi\Phi.Runtime.csproj" />
+    <ProjectReference Include="..\..\examples\extensions\HelloTool\HelloTool.csproj" />
+    <ProjectReference Include="..\..\examples\extensions\PermissionGate\PermissionGate.csproj" />
+  </ItemGroup>
+
+</Project>

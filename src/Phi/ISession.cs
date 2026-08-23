@@ -36,6 +36,25 @@ public interface ISession : IDisposable
     string Cwd { get; }
 
     /// <summary>
+    /// The resolved system prompt currently in use by the harness (after
+    /// tool-contribution rendering). Exposed for the extension
+    /// <c>IPhiContext.SystemPrompt</c> view; tests and UI can read it for
+    /// diagnostics / display. Empty string if the session hasn't been
+    /// bound yet (no <c>ApplyRuntime</c> call).
+    /// </summary>
+    string SystemPrompt { get; }
+
+    /// <summary>
+    /// Whether the host that constructed this session has a real UI
+    /// attached (TUI / Avalonia). <c>false</c> means headless mode (CI,
+    /// automation, unit tests) — extensions should expect dialog calls
+    /// to return no-op defaults via <see cref="IPhiUiBridge"/>'s
+    /// <c>HasUi = false</c> path. Set by the composition root after
+    /// <see cref="Session.LoadAsync"/>; mutable so tests can flip it.
+    /// </summary>
+    bool HasUi { get; set; }
+
+    /// <summary>
     /// Skills available to this session (project + user level), for
     /// autocompleting <c>/skill:NAME</c> and surfacing in the prompt.
     /// </summary>

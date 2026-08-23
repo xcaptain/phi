@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Phi.Extensions.Host is the PRIVATE wiring package. Extensions
+         (user code) never reference this — they only see Phi.Extensions.
+         The composition root (Phi.Tui / Phi.Avalonia.Desktop Program.cs)
+         is the only consumer. -->
+    <IsPackable>false</IsPackable>
+    <!-- CA1710 — ExtensionLoadDiagnostic ends in "Diagnostic" by design
+         (it's a structured load failure, not a generic exception). -->
+    <NoWarn>$(NoWarn);CA1710</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Phi.Extensions\Phi.Extensions.csproj" />
+    <ProjectReference Include="..\Phi\Phi.Runtime.csproj" />
+  </ItemGroup>
+
+  <!-- The host package exposes implementation types that aren't part of
+       the public extension contract. Tests need access to verify behavior,
+       so we use InternalsVisibleTo at the assembly level rather than
+       making every type public. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Phi.Extensions.Host.Tests" />
+  </ItemGroup>
+
+</Project>

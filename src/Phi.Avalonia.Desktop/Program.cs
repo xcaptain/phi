@@ -97,6 +97,7 @@ internal static class Program
 
         using (session)
         {
+            session.HasUi = true;   // Avalonia hosts a real UI; surfaced via IPhiContext.Ui.HasUi
             var active = new ActiveSession(session);
             BuildAvaloniaApp(active, providerManager).StartWithClassicDesktopLifetime(args);
         }

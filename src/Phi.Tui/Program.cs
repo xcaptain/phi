@@ -49,6 +49,7 @@ catch (InvalidOperationException ex)
 
 using (session)
 {
+    session.HasUi = true;   // TUI hosts a real UI; surfaced via IPhiContext.Ui.HasUi to extensions
     var app = new PhiTuiApp(session, providerManager);
     app.Run();
 }

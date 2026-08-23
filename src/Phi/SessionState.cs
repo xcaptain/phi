@@ -54,5 +54,15 @@ public sealed record SessionState
     /// </summary>
     public int? AutoCompactThreshold { get; init; }
 
+    /// <summary>
+    /// Current resolved system prompt (includes built-in tool snippets +
+    /// any extension-added guidelines). Updated live by
+    /// <c>Session.AddExtensionPromptGuideline</c>. The model only sees
+    /// the value at harness-build time; mid-session updates land in the
+    /// UI display but not in the model's context until the next prompt
+    /// rebuild (Sprint 2).
+    /// </summary>
+    public string SystemPrompt { get; init; } = "";
+
     public static readonly SessionState Empty = new();
 }
