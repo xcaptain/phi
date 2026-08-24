@@ -76,18 +76,36 @@ internal static class Program
         // launch directory when no sessions exist yet).
         var providerManager = new ProviderManager();
         var defaultProvider = providerManager.ResolveDefaultProvider();
-        // The factory runs on every Session.LoadAsync call — the initial one
-        // here AND every ISession.NewSessionAsync / ResumeAsync a session
-        // navigates to — so CodingPack's tools survive session switching.
-        // A real IPhiUiBridge (AvaloniaPhiUiBridge) lands in Sprint 3; the
-        // no-op bridge keeps tools/hooks working meanwhile.
-        var env = SessionEnvironment.Default(providerManager, extensionRuntimeFactory: session =>
-        {
-            var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-            runtime.RegisterCompiledExtension(new CodingPackExt());
-            runtime.Initialize();
-            return runtime;
-        });
+        // Sprint 3: real PhiUiBridge for extensions. The sink wraps the
+        // chat page's projector + status bar + dialogs; PhiAvaloniaApp
+        // rebuilds the page on every session switch and the
+        // AvaloniaUiSink writes back via onSinkBuilt, so the bridge
+        // always forwards to the live UI. Before the first page is
+        // built, extensions get the no-op NullUiSink.
+        IUiSink currentSink = new NullUiSink();
+        var env = SessionEnvironment.Default(providerManager,
+            extensionRuntimeFactory: session =>
+            {
+                var bridge = new PhiUiBridge(() => currentSink);
+                var runtime = new ExtensionRuntime(session, bridge);
+                runtime.RegisterCompiledExtension(new CodingPackExt());
+                runtime.Initialize();
+                return runtime;
+            },
+            // Sprint 3b: Project Trust gate. Async factory runs on
+            // session creation (LoadAsync). The Avalonia sink's
+            // ConfirmAsync pops a modal Window — first start blocks
+            // on the dialog, later starts hit the cached decision in
+            // ~/.phi/trust.json.
+            extensionRuntimeFactoryAsync: async session =>
+            {
+                var bridge = new PhiUiBridge(() => currentSink);
+                var runtime = new ExtensionRuntime(session, bridge);
+                runtime.RegisterCompiledExtension(new CodingPackExt());
+                await runtime.DiscoverAndTrustProjectExtensionsAsync(session.Cwd);
+                runtime.Initialize();
+                return runtime;
+            });
 
         var recentWorkspaces = WorkspaceSessionStore.ListWorkspaces();
         var defaultCwd = recentWorkspaces.Count > 0
@@ -114,13 +132,14 @@ internal static class Program
             session.HasUi = true;   // Avalonia hosts a real UI; surfaced via IPhiContext.Ui.HasUi
 
             var active = new ActiveSession(session);
-            BuildAvaloniaApp(active, providerManager).StartWithClassicDesktopLifetime(args);
+            BuildAvaloniaApp(active, providerManager, sink => currentSink = sink)
+                .StartWithClassicDesktopLifetime(args);
         }
         return 0;
     }
 
-    public static AppBuilder BuildAvaloniaApp(ActiveSession active, ProviderManager providers) =>
-        AppBuilder.Configure(() => new PhiAvaloniaApp(active, providers))
+    public static AppBuilder BuildAvaloniaApp(ActiveSession active, ProviderManager providers, Action<IUiSink> onSinkBuilt) =>
+        AppBuilder.Configure(() => new PhiAvaloniaApp(active, providers, onSinkBuilt))
             .UsePlatformDetect()
             .LogToTrace();
 }

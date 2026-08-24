@@ -1,3 +1,4 @@
+using Phi.Extensions.Host;
 using Phi.Providers;
 using Phi.Tui.Components;
 using XenoAtom.Terminal;
@@ -26,12 +27,48 @@ public sealed class PhiTuiApp
 {
     private readonly ProviderManager _providers;
     private readonly State<ISession> _currentSession;
+    private readonly TuiDialogShower _dialogShower;
+    private readonly Action<IUiSink> _onSinkBuilt;
+
+    /// <summary>
+    /// Fired every time a chat page is built (initially + on every
+    /// session navigation). The composition root uses this to wire the
+    /// fresh sink into the extension runtime's bridge so calls land on
+    /// the new page's transcript + status bar instead of the disposed
+    /// outgoing ones.
+    /// </summary>
+    public event Action<IUiSink>? SinkBuilt;
+
+    /// <summary>
+    /// The most recently built sink. Exposed for tests; production code
+    /// reads <see cref="SinkBuilt"/> instead so it never observes a
+    /// half-built page.
+    /// </summary>
+    public IUiSink CurrentSink { get; private set; } = new NullUiSink();
 
     public PhiTuiApp(ISession initialSession, ProviderManager providers)
+        : this(initialSession, providers, null, null)
+    {
+    }
+
+    public PhiTuiApp(ISession initialSession, ProviderManager providers, TuiDialogShower? dialogShower)
+        : this(initialSession, providers, dialogShower, null)
+    {
+    }
+
+    public PhiTuiApp(
+        ISession initialSession,
+        ProviderManager providers,
+        TuiDialogShower? dialogShower,
+        Action<IUiSink>? onSinkBuilt)
     {
         ArgumentNullException.ThrowIfNull(initialSession);
         ArgumentNullException.ThrowIfNull(providers);
         _providers = providers;
+        // The dialog shower is optional in tests; in production
+        // Program.cs wires the real XenoAtom-backed implementation.
+        _dialogShower = dialogShower ?? new TuiDialogShower(() => null!);
+        _onSinkBuilt = onSinkBuilt ?? (_ => { });
         _currentSession = new State<ISession>(initialSession);
     }
 
@@ -76,6 +113,16 @@ public sealed class PhiTuiApp
 
         var transcript = new ChatTranscript();
         var statusBar = new PhiStatusBar(session.State.Model);
+
+        // Sprint 3: the bridge that backs this session's extension runtime
+        // resolves its sink lazily; rebind on every page build so
+        // extensions hitting the bridge after a /new or /sessions land on
+        // the new page's transcript + status bar (not the disposed
+        // outgoing ones).
+        var sink = new TuiUiSink(transcript, statusBar, _dialogShower);
+        CurrentSink = sink;
+        SinkBuilt?.Invoke(sink);
+        _onSinkBuilt(sink);
 
         var input = new PromptInput(session, _providers, transcript);
         input.SessionReplaced += OnSessionReplaced;

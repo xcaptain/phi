@@ -69,12 +69,13 @@ public static partial class SessionPaths
         Path.Combine(PhiHome, DefaultRootSegment);
 
     /// <summary>
-    /// Phi's data directory: where <see cref="DefaultRoot"/> (sessions)
-    /// and the credential / settings files live. Defaults to
-    /// <c>~/.phi</c> under the current user's profile — same convention
-    /// as the credential store. Tests can override the value to point at
-    /// a temp directory; the previous <c>PHI_HOME</c> env-var override has
-    /// been removed now that everything is file-based.
+    /// Phi's data directory: where <see cref="DefaultRoot"/> (sessions),
+    /// the credential / settings files, and the extension audit log
+    /// (<c>audit.log</c>) live. Defaults to <c>~/.phi</c> under the
+    /// current user's profile — the codebase uses this single constant
+    /// everywhere; there's no <c>PHI_HOME</c> env-var override (production
+    /// always uses the user's real <c>~/.phi</c>, tests redirect by
+    /// setting this property to a temp directory).
     /// </summary>
     public static string PhiHome { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),

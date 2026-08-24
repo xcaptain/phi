@@ -2,8 +2,8 @@ namespace Phi.Avalonia;
 
 /// <summary>
 /// Minimal file logger for diagnosing the desktop app without a console.
-/// Appends to <c>{PHI_HOME}/avalonia-debug.log</c>; write failures are
-/// ignored.
+/// Appends to <see cref="SessionPaths.PhiHome"/>/avalonia-debug.log (i.e.
+/// <c>~/.phi/avalonia-debug.log</c>); write failures are ignored.
 /// </summary>
 internal static class DeskLog
 {

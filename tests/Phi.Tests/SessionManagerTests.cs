@@ -19,9 +19,8 @@ public class SessionManagerTests : IDisposable
         _cwd = Path.Combine(Path.GetTempPath(), "phi-mgr-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_cwd);
         _phiHome = Path.Combine(Path.GetTempPath(), "phi-home-" + Guid.NewGuid().ToString("N"));
-        // Tests point SessionPaths.PhiHome at a per-test temp dir; the
-        // previous PHI_HOME env-var override is gone now that we keep all
-        // filesystem state in the file-based credential / settings files.
+        // Tests point SessionPaths.PhiHome at a per-test temp dir so we
+        // never touch the user's real ~/.phi during a test run.
         _previousPhiHome = SessionPaths.PhiHome;
         SessionPaths.PhiHome = _phiHome;
     }

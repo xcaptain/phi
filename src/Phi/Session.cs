@@ -184,7 +184,7 @@ public sealed class Session : ISession
             var runtime = BuildRuntime(env, provider, session.Record.Model, session.Record.ProviderName, cwd);
             runtime.Harness.ReplaceMessages(session.LoadMessages());
             session.ApplyRuntime(runtime);
-            session.AttachExtensionRuntime();
+            await session.AttachExtensionRuntimeAsync();
             return session;
         }
         else
@@ -193,7 +193,7 @@ public sealed class Session : ISession
             var provider = env.ProviderResolver.Resolve(providerName);
             var runtime = BuildRuntime(env, provider, model, providerName, cwd);
             session.ApplyRuntime(runtime);
-            session.AttachExtensionRuntime();
+            await session.AttachExtensionRuntimeAsync();
             return session;
         }
     }
@@ -207,6 +207,19 @@ public sealed class Session : ISession
     private void AttachExtensionRuntime()
     {
         _extensionRuntime = _env?.ExtensionRuntimeFactory?.Invoke(this);
+    }
+
+    /// <summary>
+    /// Async variant of <see cref="AttachExtensionRuntime"/>: lets the
+    /// composition root run async work (e.g. Project Trust confirm
+    /// dialog) before constructing the runtime. Sprint 3b.
+    /// </summary>
+    private async Task AttachExtensionRuntimeAsync()
+    {
+        if (_env?.ExtensionRuntimeFactoryAsync is { } asyncFactory)
+            _extensionRuntime = await asyncFactory(this);
+        else
+            _extensionRuntime = _env?.ExtensionRuntimeFactory?.Invoke(this);
     }
 
     /// <summary>

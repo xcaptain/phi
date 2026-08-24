@@ -18,7 +18,7 @@ for (var i = 0; i < args.Length; i++)
     else
     {
         Console.Error.WriteLine($"Unknown argument: {args[i]}");
-        Console.Error.WriteLine("Usage: phi [--session <id>]");
+        Console.Error.WriteLine("Usage: phi [--session <id]>");
         return 1;
     }
 }
@@ -33,18 +33,39 @@ for (var i = 0; i < args.Length; i++)
 // for /connect).
 var providerManager = new ProviderManager();
 var defaultProvider = providerManager.ResolveDefaultProvider();
-// The factory runs on every Session.LoadAsync call — the initial one here
-// AND every ISession.NewSessionAsync / ResumeAsync a session navigates to
-// (/new, /sessions) — so CodingPack's tools survive session switching. A
-// real IPhiUiBridge (TuiPhiUiBridge) lands in Sprint 3; for now the no-op
-// bridge keeps tools/hooks working (dialogs / notify are no-ops).
-var env = SessionEnvironment.Default(providerManager, extensionRuntimeFactory: session =>
-{
-    var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
-    runtime.RegisterCompiledExtension(new CodingPackExt());
-    runtime.Initialize();
-    return runtime;
-});
+
+// Sprint 3: real PhiUiBridge for extensions. The sink wraps the chat
+// page's transcript + status bar + dialog shower; PhiTuiApp rebuilds
+// the page on every session switch and updates `currentSink` via the
+// SinkBuilt callback below, so the bridge always forwards to the live
+// UI. Before PhiTuiApp builds its first page, extensions hitting the
+// bridge get the no-op NullUiSink (HasUi=false → dialogs return
+// defaults, no-ops are silent).
+IUiSink currentSink = new NullUiSink();
+var env = SessionEnvironment.Default(providerManager,
+    // Sync factory — used by /reload (which is intentionally sync).
+    extensionRuntimeFactory: session =>
+    {
+        var bridge = new PhiUiBridge(() => currentSink);
+        var runtime = new ExtensionRuntime(session, bridge);
+        runtime.RegisterCompiledExtension(new CodingPackExt());
+        runtime.Initialize();
+        return runtime;
+    },
+    // Async factory — used by Session.LoadAsync. Runs the Project
+    // Trust gate (asks the user via IUiSink.ConfirmAsync) before
+    // loading any project-level extensions under {cwd}/.phi/extensions/.
+    // First session start blocks on the dialog; subsequent starts
+    // hit the cached decision in ~/.phi/trust.json.
+    extensionRuntimeFactoryAsync: async session =>
+    {
+        var bridge = new PhiUiBridge(() => currentSink);
+        var runtime = new ExtensionRuntime(session, bridge);
+        runtime.RegisterCompiledExtension(new CodingPackExt());
+        await runtime.DiscoverAndTrustProjectExtensionsAsync(session.Cwd);
+        runtime.Initialize();
+        return runtime;
+    });
 
 Session session;
 try
@@ -65,7 +86,9 @@ using (session)
 {
     session.HasUi = true;   // TUI hosts a real UI; surfaced via IPhiContext.Ui.HasUi to extensions
 
-    var app = new PhiTuiApp(session, providerManager);
+    var app = new PhiTuiApp(session, providerManager,
+        new TuiDialogShower(() => null!),   // terminal app resolves late inside dialogs
+        onSinkBuilt: sink => currentSink = sink);
     app.Run();
 }
 return 0;

@@ -11,6 +11,8 @@ using Avalonia.VisualTree;
 using Material.Icons.Avalonia;
 using Phi.Avalonia.Components;
 using Phi.Avalonia.Controls;
+using Phi.Extensions;
+using Phi.Extensions.Host;
 using Phi.Providers;
 
 namespace Phi.Avalonia;
@@ -30,6 +32,7 @@ public sealed class ShellView : IDisposable
     private readonly ProviderManager _providers;
     private readonly Action<Action> _dispatchToUi;
     private readonly Action<Action> _postToUi;
+    private readonly Action<IUiSink>? _onSinkBuilt;
     private readonly ShellLayout _layout;
 
     private ChatPageView? _chatPage;
@@ -40,6 +43,11 @@ public sealed class ShellView : IDisposable
     private string? _lastTitle;
     private NavModel.GroupMode _groupMode = NavModel.GroupMode.ByWorkspace;
     private List<NavModel.Entry> _entries = [];
+
+    // The most recently built UI sink — kept here so actions triggered from
+    // the sidebar (e.g. "Reload extensions" on a session row) can surface
+    // results / errors through the live UI without re-resolving the bridge.
+    private IUiSink? _lastSink;
 
     // The row currently in rename-edit mode, if any, plus the top level
     // whose pointer presses commit the edit (see AttachRenameDismiss).
@@ -53,7 +61,8 @@ public sealed class ShellView : IDisposable
         ActiveSession active,
         ProviderManager providers,
         Action<Action>? dispatchToUi = null,
-        Action<Action>? postToUi = null)
+        Action<Action>? postToUi = null,
+        Action<IUiSink>? onSinkBuilt = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
@@ -61,6 +70,7 @@ public sealed class ShellView : IDisposable
         _providers = providers;
         _dispatchToUi = dispatchToUi ?? Dispatch;
         _postToUi = postToUi ?? Post;
+        _onSinkBuilt = onSinkBuilt;
 
         _layout = new ShellLayout();
 
@@ -214,6 +224,7 @@ public sealed class ShellView : IDisposable
 
         var menu = new EllipsisMenu();
         menu.AddItem("Rename", () => BeginRename(entry, title, renameBox, menu))
+            .AddItem("Reload extensions", () => ReloadExtensions())
             .AddItem("Delete", () => DeleteSessionRow(entry));
 
         // Enter commits; Esc cancels; blur always ends the edit (committing
@@ -495,6 +506,32 @@ public sealed class ShellView : IDisposable
 
     // ──────── Navigation (delegated to ISession) ────────
 
+    /// <summary>
+    /// Reload the active session's extension set: dispose the current
+    /// extension runtime (unloading ALCs, clearing hooks + event
+    /// dispatch, invalidating captured <c>IPhiApi</c> references) and
+    /// re-run the composition root's <c>ExtensionRuntimeFactory</c> so
+    /// CodingPack + every other compiled extension re-register
+    /// automatically. Wired to the per-session row's "Reload
+    /// extensions" ellipsis-menu entry — Avalonia has no slash
+    /// dispatcher by design, so this lives next to Rename / Delete on
+    /// the session row.
+    /// </summary>
+    private void ReloadExtensions()
+    {
+        try
+        {
+            _active.Current.ReloadExtensions();
+            DeskLog.Write("ShellView.ReloadExtensions: ok");
+            _lastSink?.Notify("Extensions reloaded.", NotifyLevel.Info);
+        }
+        catch (Exception ex)
+        {
+            DeskLog.Write($"ShellView.ReloadExtensions: threw: {ex}");
+            _lastSink?.FlashError($"Reload failed: {ex.Message}", persistent: true);
+        }
+    }
+
     private async Task NavigateToNewAsync(string? cwd = null)
     {
         try
@@ -537,6 +574,23 @@ public sealed class ShellView : IDisposable
         _showingChat = true;
         WatchSession(_active.Current);
         _postToUi(() => _chatPage?.PromptInput.FocusEditor());
+
+        // Sprint 3: build the extension UI sink for this chat page and
+        // notify the composition root so the runtime's PhiUiBridge
+        // resolves to it. The sink wraps the page's projector (for
+        // persistent transcript lines) + the main window (for dialog
+        // ownership); transient notifications also flow through the
+        // projector in Stage 1 (until the chat page grows a proper
+        // transient slot in Sprint 4). Kept here so sidebar actions
+        // (Reload extensions on a session row) can surface results.
+        if (_chatPage is { } page)
+        {
+            var sink = new AvaloniaUiSink(
+                page.Projector,
+                () => TopLevel.GetTopLevel(_layout) as Window);
+            _lastSink = sink;
+            _onSinkBuilt?.Invoke(sink);
+        }
     }
 
     /// <summary>
@@ -607,6 +661,7 @@ public sealed class ShellView : IDisposable
             _watchedSession.StateChanged -= OnSessionStateForNav;
         _chatPage?.Dispose();
         _chatPage = null;
+        _lastSink = null;
     }
 
     // ──────── Dispatcher helpers ────────

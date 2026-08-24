@@ -8,6 +8,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Styling;
 using MarkView.Avalonia;
+using Phi.Extensions.Host;
 using Material.Icons.Avalonia;
 using Phi.Providers;
 
@@ -33,6 +34,7 @@ public sealed partial class PhiAvaloniaApp : Application
 {
     private readonly ActiveSession? _active;
     private readonly ProviderManager? _providers;
+    private readonly Action<IUiSink>? _onSinkBuilt;
 
     /// <summary>
     /// Parameterless ctor for the headless test host and design-time
@@ -48,6 +50,11 @@ public sealed partial class PhiAvaloniaApp : Application
     }
 
     public PhiAvaloniaApp(ActiveSession active, ProviderManager providers)
+        : this(active, providers, null)
+    {
+    }
+
+    public PhiAvaloniaApp(ActiveSession active, ProviderManager providers, Action<IUiSink>? onSinkBuilt)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
@@ -57,6 +64,7 @@ public sealed partial class PhiAvaloniaApp : Application
         Name = "Phi";
         _active = active;
         _providers = providers;
+        _onSinkBuilt = onSinkBuilt;
     }
 
     public override void Initialize()
@@ -139,7 +147,7 @@ public sealed partial class PhiAvaloniaApp : Application
         switch (ApplicationLifetime)
         {
             case IClassicDesktopStyleApplicationLifetime desktop:
-                desktop.MainWindow = new MainWindow(_active, _providers);
+                desktop.MainWindow = new MainWindow(_active, _providers, _onSinkBuilt);
                 break;
             case ISingleViewApplicationLifetime singleView:
                 singleView.MainView = new ShellView(_active, _providers).Root;

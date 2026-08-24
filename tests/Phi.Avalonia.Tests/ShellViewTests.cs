@@ -303,7 +303,7 @@ public class ShellViewTests
             var row = shell.BuildSessionRow(new NavModel.Entry(NavModel.Kind.Session, "My session", "id-1"));
             var menu = FindEllipsisMenu(row);
             await Assert.That(menu).IsNotNull();
-            await Assert.That(menu!.ItemCount).IsEqualTo(2);
+            await Assert.That(menu!.ItemCount).IsEqualTo(3);
         }
     }
 
@@ -381,6 +381,9 @@ public class ShellViewTests
             var row = shell.BuildWorkspaceRow(new NavModel.Entry(NavModel.Kind.Workspace, "~/proj"));
             var menu = FindEllipsisMenu(row);
             await Assert.That(menu).IsNotNull();
+            // Workspace rows don't host the "Reload extensions" entry —
+            // that's a session-level action (resets the session's
+            // extension runtime, not the workspace's sessions).
             await Assert.That(menu!.ItemCount).IsEqualTo(2);
         }
     }

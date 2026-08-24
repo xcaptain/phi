@@ -28,4 +28,5 @@ internal sealed record LoadedExtension(
     IPhiExtension Instance,
     string AssemblyPath,
     Assembly Assembly,
-    ExtensionLoadContext? Alc);
+    ExtensionLoadContext? Alc,
+    ExtensionCapability DeclaredCapabilities);

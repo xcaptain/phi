@@ -8,7 +8,8 @@
     <!-- This is an EXTENSION — not part of Phi core. Phi.Tui / Phi.Avalonia.Desktop
          load the built dll at runtime via ExtensionLoader. The extension
          has zero reference to Phi (main runtime) or Phi.Extensions.Host;
-         it only references the PUBLIC Phi.Extensions contract. -->
+         it only references the PUBLIC Phi.Extensions contract plus Phi.Agent
+         (for TypedTool<T> + ToolResult primitives). -->
     <IsPackable>true</IsPackable>
     <AssemblyName>Phi.Extensions.HelloTool</AssemblyName>
     <RootNamespace>Phi.Extensions.HelloTool</RootNamespace>
@@ -16,6 +17,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
+    <ProjectReference Include="..\..\src\Phi.Agent\Phi.Agent.csproj" />
+    <!-- Phi.SchemaGen emits HelloTool.Parameters + ArgsTypeInfo from HelloArgs.
+         Same trick CodingPack uses (OutputItemType=Analyzer, ReferenceOutputAssembly=false). -->
+    <ProjectReference Include="..\..\src\Phi.SchemaGen\Phi.SchemaGen.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

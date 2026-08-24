@@ -99,7 +99,7 @@ Phi 库下面分：
 - `src/Phi/Prompt/`：UI-agnostic 输入建议提供器（ISuggestionProvider、SuggestionItem、SlashCommandProvider、SkillSuggestionProvider）
 - `src/Phi/ToolCards/`：跨 UI 的 tool 元数据（ToolDescriptor、ToolDescriptors）
 - `src/Phi/Chat/`：UI-agnostic chat 投影（ChatLine DU、ChatTranscriptProjector）——两个 UI 都订阅 projector 的 `Changed`，按稳定 `ChatLine.Id` DIFF 渲染
-- `src/Phi/` 根：`ISession`、`SessionState`、`Session`、`WorkspaceSessionStore`（扫 `{PHI_HOME}/sessions/*/index.jsonl` 合并所有工作区的会话）、compaction 等
+- `src/Phi/` 根：`ISession`、`SessionState`、`Session`、`WorkspaceSessionStore`（扫 `~/.phi/sessions/*/index.jsonl` 合并所有工作区的会话）、compaction 等
 
 Phi.Tui exe 下分：
 
@@ -146,13 +146,19 @@ sessions 按 `NavModel.GroupMode` 分组；每行 session 显示标题 + `Ellips
 （`Dispatcher.UIThread.Post`）把选中处理推迟到当前事件之后。`ActiveSession.Changed`
 的重建走 `dispatchToUi`（`Dispatcher.UIThread.Post`）。
 
-**跨工作区会话**：session 按 cwd 分目录存储（`{PHI_HOME}/sessions/{projectKey}/`）。
+**跨工作区会话**：session 按 cwd 分目录存储（`~/.phi/sessions/{projectKey}/`）。
 TUI 绑定进程 cwd，`/sessions` 只看当前目录；Avalonia 桌面不绑定进程 cwd，用
 `WorkspaceSessionStore` 合并所有工作区的会话，左侧导航按工作区分组展示。
 `ISession.ResumeAsync(id)` 会通过 `WorkspaceSessionStore.FindSession` 解析会话记录自己的
 `Cwd`（跨工作区 resume），`ISession.NewSessionAsync(cwd)` 可指定新会话的工作目录。
 `PromptInputView` 在新建（未持久化）会话的编辑器上方显示工作区选择器（来自记录的
 distinct cwd + "Choose folder…"），第一条消息到达后隐藏。
+
+**全局数据目录**：所有跨 session 的文件都落在 `SessionPaths.PhiHome`（常量，
+解析为 `~/.phi`）下 —— sessions index、credentials、trust.json、audit.log、
+avalonia-debug.log 都在这。**没有 `PHI_HOME` 环境变量覆盖**——生产总是用
+用户真实的 `~/.phi`，测试通过 `SessionPaths.PhiHome = tempDir` 重定向（一次设置，
+所有 reader 同步生效；缓存路径的 static 字段测试时也清掉）。
 
 ## 开发工作流
 

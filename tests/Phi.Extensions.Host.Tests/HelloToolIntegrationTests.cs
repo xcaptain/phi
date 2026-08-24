@@ -91,8 +91,10 @@ public class HelloToolIntegrationTests : IDisposable
         // Setup() ran without throwing (SetupResults empty).
         await Assert.That(runtime.SetupResults.Count).IsEqualTo(0);
 
-        // HelloTool registered "/hello" — it should be in the command registry.
-        await Assert.That(runtime.Commands.Keys).Contains("/hello");
+        // HelloTool no longer registers "/hello" in v1 — there's no UI
+        // dispatcher for extension commands yet (lands in Sprint 4); the
+        // Commands dictionary is reserved for the future dispatcher wire.
+        await Assert.That(runtime.Commands.Count).IsEqualTo(0);
 
         // ──────── Tool invocation (the "tool call 可用" criterion) ────────
         var tool = session.HarnessForTest().Tools.Single(t => t.Name == "hello");

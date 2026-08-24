@@ -57,6 +57,17 @@ public sealed record SessionEnvironment
     public Func<Session, IDisposable>? ExtensionRuntimeFactory { get; init; }
 
     /// <summary>
+    /// Async variant of <see cref="ExtensionRuntimeFactory"/> for
+    /// composition roots that need to do async work (e.g. Project
+    /// Trust confirm dialog) before constructing the runtime. Sprint 3b.
+    /// When both are set, the async factory takes precedence in
+    /// <c>LoadAsync</c>; the sync factory remains in use for
+    /// <c>ReloadExtensions</c> which is intentionally sync (it fires
+    /// from a slash command on the submit thread).
+    /// </summary>
+    public Func<Session, Task<IDisposable>>? ExtensionRuntimeFactoryAsync { get; init; }
+
+    /// <summary>
     /// Builds a <see cref="SessionEnvironment"/> with all compaction knobs
     /// at their defaults and no custom toolset. The composition root
     /// supplies an <see cref="IProviderResolver"/> (typically the
@@ -69,7 +80,8 @@ public sealed record SessionEnvironment
         IProviderResolver providerResolver,
         SystemPromptOptions? systemPrompt = null,
         int? maxTurns = null,
-        Func<Session, IDisposable>? extensionRuntimeFactory = null) =>
+        Func<Session, IDisposable>? extensionRuntimeFactory = null,
+        Func<Session, Task<IDisposable>>? extensionRuntimeFactoryAsync = null) =>
         new()
         {
             ProviderResolver = providerResolver,
@@ -81,5 +93,6 @@ public sealed record SessionEnvironment
             CompactionKeepRecentTokens = ContextWindow.DefaultCompactionKeepRecentTokens,
             Tools = null,
             ExtensionRuntimeFactory = extensionRuntimeFactory,
+            ExtensionRuntimeFactoryAsync = extensionRuntimeFactoryAsync,
         };
 }

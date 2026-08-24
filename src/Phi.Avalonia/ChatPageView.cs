@@ -53,6 +53,12 @@ public sealed class ChatPageView : IDisposable
         };
     }
 
+    /// <summary>
+    /// The projector that backs this chat page. Used by the shell to wire
+    /// extension-runtime UI bridges to the live transcript (Sprint 3).
+    /// </summary>
+    internal ChatTranscriptProjector Projector => _projector;
+
     /// <summary>The chat page layout (transcript + prompt input slots).</summary>
     public Control Root => _layout;
 

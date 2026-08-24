@@ -53,6 +53,17 @@ internal sealed class ExtensionRuntime : IDisposable
     /// <summary>The UI bridge the runtime forwards UI-bound calls to.</summary>
     public IPhiUiBridge UiBridge { get; }
 
+    /// <summary>
+    /// Capability enforcement policy for every <see cref="IPhiApi"/>
+    /// action that maps to a <see cref="ExtensionCapability"/>. Default
+    /// is <see cref="CapabilityEnforcementMode.Transparent"/> (v1): log
+    /// mismatches to <c>~/.phi/audit.log</c> but don't block. Hosts can
+    /// flip to <see cref="CapabilityEnforcementMode.Strict"/> (v1.5)
+    /// globally, or a future release can do it per-extension via
+    /// <c>PhiSettings</c>.
+    /// </summary>
+    public CapabilityEnforcementMode CapabilityEnforcement { get; set; } = CapabilityEnforcementMode.Transparent;
+
     /// <summary>The session this runtime is bound to.</summary>
     public Phi.Session Session => _session;
 
@@ -75,13 +86,44 @@ internal sealed class ExtensionRuntime : IDisposable
         {
             try
             {
-                _extensions.Add(ExtensionLoader.Load(path));
+                var loaded = ExtensionLoader.Load(path);
+                _extensions.Add(loaded);
+                AuditLogger.Write(AuditEvent.ExtensionLoaded(loaded.Name, loaded.Version, loaded.AssemblyPath));
             }
             catch (Exception ex)
             {
                 _loadResults.Add(new ExtensionLoadFailure(path, ex));
             }
         }
+    }
+
+    /// <summary>
+    /// Sprint 3b Project Trust: scan <paramref name="cwd"/> for project
+    /// extensions under <c>.phi/extensions/</c>, ask the user via
+    /// <see cref="UiBridge"/> whether to trust them, and load the approved
+    /// subset. Returns the gated assembly paths so callers (the
+    /// composition root, <see cref="ExtensionReloader"/>) can reuse them
+    /// for the next reload without re-scanning.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> DiscoverAndTrustProjectExtensionsAsync(string cwd)
+    {
+        var paths = Phi.ProjectExtensions.DiscoverAssemblyPaths(cwd);
+        if (paths.Count == 0) return [];
+        var gated = await ProjectTrustGate.GateAsync(cwd, paths, UiBridge);
+        foreach (var p in gated)
+        {
+            try
+            {
+                var loaded = ExtensionLoader.Load(p);
+                _extensions.Add(loaded);
+                AuditLogger.Write(AuditEvent.ExtensionLoaded(loaded.Name, loaded.Version, loaded.AssemblyPath));
+            }
+            catch (Exception ex)
+            {
+                _loadResults.Add(new ExtensionLoadFailure(p, ex));
+            }
+        }
+        return gated;
     }
 
     /// <summary>
@@ -99,7 +141,7 @@ internal sealed class ExtensionRuntime : IDisposable
             ?? throw new InvalidOperationException(
                 $"compile-time extension '{instance.GetType().FullName}' has no [PhiExtension] attribute");
 
-        _extensions.Add(new LoadedExtension(
+        var loaded = new LoadedExtension(
             Name: attr.Name,
             Version: attr.Version,
             Description: attr.Description,
@@ -107,7 +149,13 @@ internal sealed class ExtensionRuntime : IDisposable
             Instance: instance,
             AssemblyPath: "",
             Assembly: instance.GetType().Assembly,
-            Alc: null));
+            Alc: null,
+            DeclaredCapabilities: attr.Capabilities);
+        _extensions.Add(loaded);
+        // Compile-time extensions are referenced via ProjectReference, so
+        // AssemblyPath is empty — the audit log records "(embedded)" to
+        // distinguish them from dll-loaded ones.
+        AuditLogger.Write(AuditEvent.ExtensionLoaded(attr.Name, attr.Version, "(embedded)"));
     }
 
     /// <summary>
@@ -117,9 +165,14 @@ internal sealed class ExtensionRuntime : IDisposable
     /// </summary>
     public void Initialize()
     {
-        _eventDispatch = new EventDispatch(_session);
+        _eventDispatch = new EventDispatch(_session, UiBridge);
 
         var context = new PhiContext(_session, UiBridge);
+        // Sprint 3: hook handlers receive the real session-aware context
+        // (Ui.HasUi + PhiUiBridge) so permission-gate style hooks can ask
+        // the user for confirmation via the host UI. Without this the
+        // hook always sees a NullContext with HasUi=false and auto-blocks.
+        _hooks.ContextProvider = () => context;
         foreach (var ext in _extensions)
         {
             try
@@ -129,10 +182,12 @@ internal sealed class ExtensionRuntime : IDisposable
                 var api = new PhiApi(this, ext, context, gen);
                 _apisForTest[ext] = api;
                 ext.Instance.Setup(api);
+                AuditLogger.Write(AuditEvent.ExtensionSetupOk(ext.Name));
             }
             catch (Exception ex)
             {
                 _setupResults.Add(new ExtensionSetupFailure(ext, ex));
+                AuditLogger.Write(AuditEvent.ExtensionSetupFailed(ext.Name, ex.Message));
             }
         }
     }
@@ -178,11 +233,18 @@ internal sealed class ExtensionRuntime : IDisposable
     }
 
     /// <summary>
-    /// Records a command registration. Sprint 2 wires it into the UI's
-    /// <c>HandleInput</c> via a runtime command registry that the shell
-    /// consults before its hard-coded switch. The registry is exposed to
-    /// the TUI / Avalonia shell so <c>PromptInput</c> can route unknown
-    /// slash commands to extensions.
+    /// Records a command registration. The registration is stored in
+    /// <see cref="Commands"/>; the UI's slash dispatcher is responsible
+    /// for consulting it after built-in commands fall through.
+    /// <para>
+    /// Sprint 3 caveat: <see cref="Commands"/> is populated but no UI
+    /// dispatcher consults it yet — <c>PromptInput.HandleInput</c> only
+    /// routes built-in <c>/new</c> / <c>/sessions</c> / <c>/reload</c>
+    /// / <c>/exit</c>. Calling this is safe (the registration is held
+    /// for future dispatchers) but extensions shouldn't rely on user-
+    /// typed <c>/foo</c> hitting the handler until Sprint 4 lands the
+    /// dispatcher wire.
+    /// </para>
     /// </summary>
     public void RegisterCommand(
         LoadedExtension from,

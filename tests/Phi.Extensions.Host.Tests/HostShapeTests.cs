@@ -17,6 +17,7 @@ public class HostShapeTests
         {
             "AddPromptGuideline",
             "DiscoverAndLoad",
+            "DiscoverAndTrustProjectExtensionsAsync",
             "Dispose",
             "Initialize",
             "InvalidateAllGenerations",
@@ -38,6 +39,7 @@ public class HostShapeTests
 
     private static readonly string[] sourceArray =
         [
+            "CapabilityEnforcement",
             "Commands",
             "Extensions",
             "LoadResults",

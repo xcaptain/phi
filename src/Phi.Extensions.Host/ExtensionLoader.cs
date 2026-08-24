@@ -66,7 +66,8 @@ internal static class ExtensionLoader
             Instance: instance,
             AssemblyPath: Path.GetFullPath(assemblyPath),
             Assembly: assembly,
-            Alc: alc);
+            Alc: alc,
+            DeclaredCapabilities: attribute.Capabilities);
     }
 
     private static (Type type, PhiExtensionAttribute attr)? FindEntryType(

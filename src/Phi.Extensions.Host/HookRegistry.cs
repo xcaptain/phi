@@ -20,6 +20,17 @@ internal sealed class HookRegistry
     private readonly List<RegisteredHook> _toolResultHooks = [];
     private readonly List<RegisteredHook> _inputHooks = [];
 
+    /// <summary>
+    /// Resolves the <see cref="IPhiContext"/> handed to hook handlers.
+    /// Defaults to a context with <c>HasUi = false</c> + no-op UI bridge
+    /// for tests; the real <see cref="ExtensionRuntime"/> swaps in the
+    /// session-aware context at <c>Initialize</c> time. This is what
+    /// Sprint 3 wired up: without it, <c>ctx.Ui.HasUi</c> in
+    /// PermissionGate's hook always returns false and confirm dialogs
+    /// never fire.
+    /// </summary>
+    public Func<IPhiContext> ContextProvider { get; set; } = () => new NullContext();
+
     /// <summary>A hook handler with the extension identity (for audit + staleness).</summary>
     private sealed record RegisteredHook(
         LoadedExtension Extension,
@@ -79,11 +90,11 @@ internal sealed class HookRegistry
             {
                 if (hook.Handler is Func<PhiEvent, IPhiContext, ValueTask> asyncHandler)
                 {
-                    asyncHandler(ev, new NullContext()).AsTask().GetAwaiter().GetResult();
+                    asyncHandler(ev, ContextProvider()).AsTask().GetAwaiter().GetResult();
                 }
                 else if (hook.Handler is Action<PhiEvent, IPhiContext> syncHandler)
                 {
-                    syncHandler(ev, new NullContext());
+                    syncHandler(ev, ContextProvider());
                 }
             }
             catch (Exception)
@@ -121,9 +132,9 @@ internal sealed class HookRegistry
             try
             {
                 if (hook.Handler is Func<PhiEvent, IPhiContext, ValueTask> asyncHandler)
-                    asyncHandler(ev, new NullContext()).AsTask().GetAwaiter().GetResult();
+                    asyncHandler(ev, ContextProvider()).AsTask().GetAwaiter().GetResult();
                 else if (hook.Handler is Action<PhiEvent, IPhiContext> syncHandler)
-                    syncHandler(ev, new NullContext());
+                    syncHandler(ev, ContextProvider());
             }
             catch (Exception)
             {
@@ -156,9 +167,9 @@ internal sealed class HookRegistry
             try
             {
                 if (hook.Handler is Func<PhiEvent, IPhiContext, ValueTask> asyncHandler)
-                    asyncHandler(ev, new NullContext()).AsTask().GetAwaiter().GetResult();
+                    asyncHandler(ev, ContextProvider()).AsTask().GetAwaiter().GetResult();
                 else if (hook.Handler is Action<PhiEvent, IPhiContext> syncHandler)
-                    syncHandler(ev, new NullContext());
+                    syncHandler(ev, ContextProvider());
             }
             catch (Exception)
             {

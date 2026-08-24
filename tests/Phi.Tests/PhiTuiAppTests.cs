@@ -27,6 +27,26 @@ public class PhiTuiAppTests
     }
 
     [Test]
+    public async Task TwoArgCtor_SetsSinkAndDialogFallback_BuildsPageWithoutThrowing()
+    {
+        // Regression: the 2-arg ctor used to overwrite its own null-fallback
+        // assignments with the raw (null) parameters, leaving _dialogShower
+        // and _onSinkBuilt null. The next BuildCurrentPage call then NRE'd
+        // when constructing TuiUiSink. The ComputedVisual returned by
+        // BuildRoot defers BuildCurrentPage until render, so a test that
+        // only inspects the root won't catch this — we invoke the page
+        // builder directly via reflection to lock in the fix.
+        var session = new MockSession();
+        var app = new PhiTuiApp(session, new ProviderManager());
+
+        var page = typeof(PhiTuiApp)
+            .GetMethod("BuildCurrentPage", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .Invoke(app, null);
+
+        await Assert.That(page).IsNotNull();
+    }
+
+    [Test]
     public async Task StatusBarBinder_SameErrorFiredMultipleTimes_IsDedupedToOneTranscriptLine()
     {
         // One persistent error arrives, then the same error fires several

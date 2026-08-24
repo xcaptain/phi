@@ -44,6 +44,40 @@ internal sealed class PhiApi : IPhiApi
     /// <summary>Guards every action method against a stale generation.</summary>
     private void AssertAlive() => _generation.AssertAlive();
 
+    /// <summary>
+    /// Gate every action method that touches a host resource. Looks up
+    /// the method's required <see cref="ExtensionCapability"/> via
+    /// <see cref="CapabilityActionMap"/>; if the extension didn't include
+    /// it in <see cref="PhiExtensionAttribute.Capabilities"/>, either
+    /// log the mismatch (v1 transparent) or throw
+    /// <see cref="ExtensionError"/> (v1.5 strict, controlled by
+    /// <see cref="ExtensionRuntime.CapabilityEnforcement"/>). Both
+    /// branches write a JSONL record to <c>~/.phi/audit.log</c>.
+    /// </summary>
+    private void EnforceCapability(string methodName)
+    {
+        AssertAlive();
+        var required = CapabilityActionMap.RequiredFor(methodName);
+        if (required is null) return; // registration / identity — no cap required
+        var declared = _extension.DeclaredCapabilities;
+        if ((declared & required) == required) return; // declared — proceed
+
+        switch (_runtime.CapabilityEnforcement)
+        {
+            case CapabilityEnforcementMode.Transparent:
+                AuditLogger.Write(AuditEvent.CapabilityMismatch(
+                    _extension.Name, methodName, required.Value, declared));
+                break;
+            case CapabilityEnforcementMode.Strict:
+                AuditLogger.Write(AuditEvent.CapabilityBlocked(
+                    _extension.Name, methodName, required.Value, declared));
+                throw new ExtensionError(
+                    $"extension '{_extension.Name}' invoked {methodName}() without declaring " +
+                    $"{required}; add it to [PhiExtension(Capabilities = ...)] or set " +
+                    $"Phi.Extensions.Host.CapabilityEnforcement = Transparent to allow with a warning.");
+        }
+    }
+
     // ──────── Identity ────────
 
     public string Name => _extension.Name;
@@ -121,6 +155,7 @@ internal sealed class PhiApi : IPhiApi
 
     public void SubmitUserMessage(string text, MessageDelivery delivery = MessageDelivery.FollowUp)
     {
+        EnforceCapability(nameof(SubmitUserMessage));
         AssertAlive();
         ArgumentNullException.ThrowIfNull(text);
         var msg = new UserMessage { Content = text };
@@ -134,16 +169,23 @@ internal sealed class PhiApi : IPhiApi
         IReadOnlyDictionary<string, object?>? details = null,
         MessageDelivery delivery = MessageDelivery.FollowUp,
         bool triggerTurn = true)
-        => throw new NotImplementedException("SubmitCustomMessage lands in Sprint 4 (custom transcript lines + renderer).");
+    {
+        EnforceCapability(nameof(SubmitCustomMessage));
+        throw new NotImplementedException("SubmitCustomMessage lands in Sprint 4 (custom transcript lines + renderer).");
+    }
 
     public void SubmitTranscriptLine(TranscriptLine line)
-        => throw new NotImplementedException("SubmitTranscriptLine lands in Sprint 4.");
+    {
+        EnforceCapability(nameof(SubmitTranscriptLine));
+        throw new NotImplementedException("SubmitTranscriptLine lands in Sprint 4.");
+    }
 
     public Task AppendEntryAsync(string ns, IReadOnlyDictionary<string, object?> data)
         => throw new NotImplementedException("AppendEntryAsync lands in Sprint 2 (persistence pipeline).");
 
     public void Notify(string message, NotifyLevel level = NotifyLevel.Info)
     {
+        EnforceCapability(nameof(Notify));
         AssertAlive();
         _runtime.UiBridge.Notify(message, level);
     }

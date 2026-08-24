@@ -31,7 +31,8 @@ public class HookDispatchTests
         new(
             name, "0.0.0", "",
             typeof(HookDispatchTests), new FakePhiExtension(),
-            "", typeof(HookDispatchTests).Assembly, new ExtensionLoadContext());
+            "", typeof(HookDispatchTests).Assembly, new ExtensionLoadContext(),
+            DeclaredCapabilities: ExtensionCapability.None);
 
     private sealed class FakePhiExtension : IPhiExtension
     {
@@ -135,4 +136,56 @@ public class HookDispatchTests
         await Assert.That(result.Handled).IsTrue();
     }
 
+    [Test]
+    public async Task HookHandler_Receives_Context_FromContextProvider()
+    {
+        // Sprint 3 lock-in: the hook chain hands handlers the IPhiContext
+        // the runtime registered via ContextProvider (not a static NullContext).
+        // PermissionGate relies on ctx.Ui.HasUi being true so it can show
+        // the confirm dialog — a test that captures Ui.HasUi proves the
+        // wiring is correct end-to-end.
+        var realBridge = new PhiUiBridge(() => new StubSink { HasUi = true });
+        var fakeContext = new HookDispatchFakeContext(realBridge);
+        _registry.ContextProvider = () => fakeContext;
+
+        IPhiContext? captured = null;
+        var identity = FakeExt("test-ext");
+        _registry.RegisterToolCall(identity, (PhiEvent _, IPhiContext ctx) =>
+        {
+            captured = ctx;
+            return ValueTask.CompletedTask;
+        });
+
+        var tool = new HookWrappingTool(EchoTool(), _registry);
+        await tool.ExecuteAsync("echo", "call-1", [], default);
+
+        await Assert.That(captured).IsNotNull();
+        await Assert.That(captured!.Ui.HasUi).IsTrue();
+    }
+
+    /// <summary>Minimal context for testing the hook dispatcher's context wiring.</summary>
+    private sealed class HookDispatchFakeContext(IPhiUiBridge ui) : IPhiContext
+    {
+        public string Cwd => "";
+        public string Model => "";
+        public string ProviderName => "";
+        public string SessionId => "";
+        public string SystemPrompt => "";
+        public bool IsRunning => false;
+        public bool HasUi => false;
+        public IReadOnlyList<Phi.Agent.IAgentMessage> Transcript => [];
+        public IPhiUiBridge Ui => ui;
+    }
+
+    private sealed class StubSink : IUiSink
+    {
+        public bool HasUi { get; set; }
+        public void Notify(string message, NotifyLevel level) { }
+        public void NotifyStatus(string message) { }
+        public void FlashError(string message, bool persistent) { }
+        public void SubmitTranscriptLine(TranscriptLine line) { }
+        public Task<string?> ShowSelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout) => Task.FromResult<string?>(null);
+        public Task<bool> ShowConfirmAsync(string title, string message, TimeSpan? timeout) => Task.FromResult(false);
+        public Task<string?> ShowInputAsync(string title, string placeholder, TimeSpan? timeout) => Task.FromResult<string?>(null);
+    }
 }

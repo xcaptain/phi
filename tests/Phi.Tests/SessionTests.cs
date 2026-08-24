@@ -7,8 +7,8 @@ namespace Phi.Tests;
 public class SessionTests : IDisposable
 {
     // cwd is a unique temp directory that SessionPaths will compute a
-    // project key for. PHI_HOME is set to a per-test temp dir so sessions
-    // land in isolation.
+    // project key for. SessionPaths.PhiHome is redirected to a per-test
+    // temp dir so sessions land in isolation.
     private readonly string _cwd;
     private readonly string _phiHome;
     private readonly string _previousPhiHome;
