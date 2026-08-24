@@ -1,6 +1,5 @@
 using Avalonia;
 using Phi.Extensions.CodingPack;
-using Phi.Extensions;
 using Phi.Extensions.Host;
 using Phi.Providers;
 

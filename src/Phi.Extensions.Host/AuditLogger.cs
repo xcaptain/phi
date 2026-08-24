@@ -55,7 +55,12 @@ internal static class AuditLogger
     public static void Write(AuditEvent ev)
     {
         ArgumentNullException.ThrowIfNull(ev);
-        var json = JsonSerializer.Serialize(ev, AuditJson.Options);
+        // Source-gen TypeInfo: required under .NET 10's
+        // IsReflectionEnabledByDefault=false runtime default (and for
+        // NativeAOT). A plain JsonSerializerOptions with no
+        // TypeInfoResolver throws the famous "Reflection-based
+        // serialization has been disabled" error on the first call.
+        var json = JsonSerializer.Serialize(ev, AuditLogJsonContext.Default.AuditEvent);
         lock (Gate)
         {
             try
@@ -71,20 +76,6 @@ internal static class AuditLogger
                 // session continues.
             }
         }
-    }
-
-    private static class AuditJson
-    {
-        public static readonly JsonSerializerOptions Options = new()
-        {
-            // Compact one-line records — easier to grep, tail, and
-            // import into a real log store later.
-            WriteIndented = false,
-            // Lowercase keys (`"kind"`, `"extension"`, `"method"`) so
-            // grep commands like `grep '"kind":"capability"'` work
-            // without needing awk / sed.
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        };
     }
 }
 
