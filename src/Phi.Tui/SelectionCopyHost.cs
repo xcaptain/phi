@@ -121,9 +121,7 @@ public sealed class SelectionCopyHost : ContentVisual
 
     /// <summary>
     /// Shows the "Copied" toast — the same shape as the official ToastDemo
-    /// (<c>ToastService.Show</c>). <see cref="ToastHostSentinel"/> (installed
-    /// once in <c>PhiTuiApp.Run</c>) keeps the ToastHost animation clock warm
-    /// so this always appears, even when copies are seconds apart.
+    /// (<c>ToastService.Show</c>).
     /// </summary>
     private static void ShowCopiedToast(string message)
     {

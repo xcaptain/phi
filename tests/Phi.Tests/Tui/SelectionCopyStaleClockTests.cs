@@ -11,24 +11,31 @@ namespace Phi.Tests.Tui;
 
 /// <summary>
 /// Regression guard for the "second copy shows no toast" bug. XenoAtom's
-/// <c>ToastHost</c> has a stale-animation-clock bug: once its toast entries
-/// go empty, the next toast added later is instantly dismissed. The fix keeps
-/// an invisible sentinel toast alive so the clock never goes stale — this test
-/// verifies a copy made after a full idle gap still produces a toast that
-/// survives (i.e. is not instantly dismissed).
+/// <c>ToastHost</c> had a stale-animation-clock bug in 3.8.1: once its toast
+/// entries went empty, the next toast added later was instantly dismissed.
+/// Phi shipped a local sentinel-toast workaround; the sentinel was removed
+/// after upgrading to XenoAtom.Terminal.UI 3.9.0 (upstream fix landed there).
+/// <para>
+/// This test pins the upstream fix in place — no sentinel, just verify
+/// that a copy made after a full idle gap still produces a toast that
+/// survives (i.e. is not instantly dismissed). If XenoAtom regresses and
+/// the bug comes back, this test fails and the toast goes silent again —
+/// alerting the next maintainer to either bump the NuGet or restore the
+/// workaround.
+/// </para>
 /// </summary>
 [NotInParallel(TuiTestGroups.BindingManager)]
 public class SelectionCopyStaleClockTests
 {
     [Test]
-    public async Task CopyAfterGap_SecondToastSurvives()
+    public async Task CopyAfterGap_SecondToastSurvives_WithoutSentinel()
     {
+        // Deliberately NO ToastHostSentinel.Install: if 3.9.0's fix is real,
+        // this test passes. If the upstream bug returns, the second toast
+        // disappears and this test fails.
         var paragraph = new Paragraph("hello world hello again").HorizontalAlignment(Align.Stretch);
         var toastHost = new ToastHost(new SelectionCopyHost(paragraph));
         toastHost.DefaultDuration = TimeSpan.FromSeconds(1);
-        // Same workaround PhiTuiApp.Run applies: keep the ToastHost's
-        // animation clock warm so a copy after an idle gap still toasts.
-        ToastHostSentinel.Install(toastHost);
 
         var copies = new ConcurrentBag<string>();
         await using var fixture = new TerminalFixture(
@@ -36,23 +43,22 @@ public class SelectionCopyStaleClockTests
             size: new TerminalSize(60, 12),
             onCopy: text => copies.Add(text));
 
-        // First copy: "world". This creates the invisible sentinel toast
-        // plus the visible "Copied 5 chars" toast (2 entries).
+        // First copy: "world". One toast in flight.
         fixture.PushMouse(MouseDown(6, 0));
         fixture.PushMouse(MouseDrag(11, 0));
         fixture.PushMouse(MouseUp(11, 0));
         await fixture.WaitForClipboardCountAsync(1, TimeSpan.FromSeconds(3));
-        await fixture.WaitForEntryCountAsync(2, TimeSpan.FromSeconds(3));
+        await fixture.WaitForEntryCountAsync(1, TimeSpan.FromSeconds(3));
 
-        // Let the visible toast fully expire (duration 1s), leaving only the
-        // sentinel (entry count == 1). This idle period is what used to leave
-        // the host's animation clock stale and instantly dismiss the next
-        // toast.
+        // Let the toast fully expire so the host's entry list goes empty.
+        // This idle period is what used to leave the animation clock stale
+        // and instantly dismiss the next toast (the 3.8.1 bug).
         await Task.Delay(2500);
         Console.Error.WriteLine($"After first toast expired: entries={fixture.EntryCount}");
-        await Assert.That(fixture.EntryCount).IsEqualTo(1);
+        await Assert.That(fixture.EntryCount).IsEqualTo(0);
 
-        // Second copy: "again".
+        // Second copy: "again". The toast must appear and stay — if XenoAtom
+        // regresses, the host dismisses it on the very first tick.
         fixture.PushMouse(MouseDown(18, 0));
         fixture.PushMouse(MouseDrag(23, 0));
         fixture.PushMouse(MouseUp(23, 0));
@@ -60,10 +66,7 @@ public class SelectionCopyStaleClockTests
         await Task.Delay(300);
         Console.Error.WriteLine($"300ms after second copy: entries={fixture.EntryCount}");
 
-        // The second copy's toast must still be present (sentinel + toast,
-        // count == 2) rather than being instantly dismissed by the stale
-        // host clock.
-        await Assert.That(fixture.EntryCount).IsEqualTo(2);
+        await Assert.That(fixture.EntryCount).IsEqualTo(1);
     }
 
     private static TerminalMouseEvent MouseDown(int x, int y) => new()
@@ -167,7 +170,7 @@ public class SelectionCopyStaleClockTests
             var deadline = DateTime.UtcNow + timeout;
             while (DateTime.UtcNow < deadline)
             {
-                if (EntryCount <= count)
+                if (EntryCount >= count)
                     return;
                 await Task.Delay(20);
             }

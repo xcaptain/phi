@@ -93,10 +93,6 @@ public sealed class PhiTuiApp
         // SelectionCopyHost to confirm auto-copies); SelectionCopyHost wires
         // mouse drag-select / double-click → clipboard auto-copy.
         var toastHost = new ToastHost(new SelectionCopyHost(root));
-        // Workaround for a XenoAtom.Terminal.UI 3.8.1 ToastHost bug: without
-        // it, a toast shown after the previous one fully expired is dismissed
-        // instantly. Remove when the upstream fix ships and NuGet is bumped.
-        ToastHostSentinel.Install(toastHost);
         Terminal.Run(toastHost, () => TerminalLoopResult.Continue);
     }
 
