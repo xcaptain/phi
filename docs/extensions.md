@@ -3,16 +3,18 @@
 > 状态：**Phase 0（重命名）+ 架构重构已完成**。`SessionFactory` / `SessionNavigator` /
 > `SessionConfig` / `ISessionNavigator` 全部删除，扩展系统的核心点（`ISession`、
 > `Session.LoadAsync`、composition root、`Phi.Avalonia.ActiveSession`）已经稳定。
-> Sprint 0-2（`Phi.Extensions` / `Phi.Extensions.Host` 包骨架、loader、hooks、`/reload`）**代码已实现**
-> （`ExtensionLoader` / `ExtensionRuntime` / `HookRegistry` / `EventDispatch` / `ExtensionReloader` 均已落地，
-> `HelloTool` / `PermissionGate` 两个 demo 扩展齐全），但 §14 里程碑表尚未逐项勾掉——追踪状态以代码 + 测试为准，
-> 表格本身有滞后，读表时留意。
+> Sprint 0-4（包骨架、loader、hooks、`/reload`、UI Bridge、Capability、Project Trust、
+> Tool Card / Transcript Line 扩展点、Bundle 加载）**代码已实现**，但 §14 里程碑表
+> 部分条目（Sprint 0-3）尚未逐项勾掉——追踪状态以代码 + 测试为准，表格本身有滞后，
+> 读表时留意。
 > 对标实现：tau（~/github/tau）的 pi-extensions 形态，已生产验证。
 >
 > **本次修订对照当前代码（重构后）逐章节更新**。修改点散落在第 1 / 4 / 5 / 7 / 10 / 13 节，
 > 其余章节保持不变。
 >
-> §17（`McpPack`）新加：MCP 作为官方扩展 `McpPack` 的设计（**不进入 Phi 主体代码**）。
+> §16（`McpPack`）新加：MCP 作为官方扩展 `McpPack` 的设计（**不进入 Phi 主体代码**）。
+> 扩展参考实现以 `CodingPack`（默认）与 `CustomCardDemo`（最小 renderer 演示）为准，
+> 不再规划单独的 multi-agent 参考扩展。
 
 ## 设计目标
 
@@ -902,7 +904,7 @@ Phi.slnx
 │
 ├── Phi/                                    # runtime（已重命名为 Phi，去掉 Coding 前缀）
 │   ├── Phi.Runtime.csproj                  # net10.0，引用 Phi.Agent / Phi.Provider / Phi.SchemaGen
-│   │                                     # ⚠️ 不引用 ModelContextProtocol —— MCP 是 §17 McpPack 扩展的依赖，不是核心
+│   │                                     # ⚠️ 不引用 ModelContextProtocol —— MCP 是 §16 McpPack 扩展的依赖，不是核心
 │   ├── ISession.cs                          # ★ 重构后加了 NewSessionAsync / ResumeAsync / ListRecent / AvailableProviders / Id
 │   ├── Session.cs                           # ★ 重构后 ISession 是导航 API 的承载者；生命周期 = conversation
 │   ├── SessionEnvironment.cs               # ★ 新增（替换 SessionConfig）：composition root 构造一次，跨 session 共享
@@ -1075,8 +1077,7 @@ extensions/                                # 顶层目录，跟 src/ 平级—�
 ├── CodingPack/                          # Sprint 2.5+：第一个"真"扩展，Phi.Tui / Phi.Avalonia 编译期默认引用
 ├── HelloTool/                           # 附录 A，纯教学 demo（不被默认引用）
 ├── PermissionGate/                      # 附录 B，纯教学 demo（不被默认引用）
-├── MultiAgentPack/                      # Sprint 5+：官方参考扩展，演示 multi-agent 模式（§16）
-└── McpPack/                             # Sprint 6+：官方 MCP 客户端扩展（§17）
+└── McpPack/                             # Sprint 5+：官方 MCP 客户端扩展（§16）
 ```
 
 ### CPM 一行加依赖
@@ -1117,9 +1118,8 @@ extensions/                                # 顶层目录，跟 src/ 平级—�
 | **顶层命名空间** | **Phi.***（Phi / Phi.Agent / Phi.Provider / Phi.Extensions） | Phi.Agent 与 Phi 独立项目可单独分发 |
 | **`CodingSession` 命名** | **完全去掉 `Coding` 前缀 → `Session`** | 跟 `ISession` 接口名字对齐 |
 | **TUI/Avalonia 项目拆分** | **保持三个独立 csproj**（Phi / Phi.Tui / Phi.Avalonia） | 最小改动，最大可移植 |
-| **官方 Multi-Agent 参考扩展** | **在 `extensions/MultiAgentPack/` 单独维护**（不是 Phi 主体代码）；采用 "subagent as tool" 模式（§16）；证明 `IPhiApi` 原语足够，**不需要新增任何 `IPhiApi` 方法** | 锁住"subagent 是扩展能力不是 session 抽象"——避免以后有人污染 `ISession` 加 `SubAgents` |
-| **最小核心理念** | **核心 = "能跟 LLM 聊天 + 能写代码"**（Session + Harness + 4 个 builtin tools）。其它一切（MCP、multi-agent、permission gate、domain 集成、自定义 UI 卡片）**都通过扩展启用**，用户不装就不付代价 | 保持 `Phi.Runtime.csproj` 简洁；让"Phi 是什么"对所有用户一致；避免"我装的 Phi 跟你的不一样"这种 CI/可复现性问题 |
-| **MCP 通过官方 McpPack 扩展提供（不进入 Phi 主体代码）** | `extensions/McpPack/` 装上就用；用户配 `~/.phi/mcp-servers.json` 接入任何 MCP server；不想要 MCP 的用户完全不付这个代价。**专用服务扩展（figma / aws / notion / ...）由社区或 Phi 团队后续按需写**，不阻塞扩展平台本身的发布 | 跟 CodingPack / MultiAgentPack 平级；锁定"MCP 是生态集成能力不是核心能力"——以后有人说"我们 Phi 应该支持 MCP server"时直接指 §17 |
+| **最小核心理念** | **核心 = "能跟 LLM 聊天 + 能写代码"**（Session + Harness + 4 个 builtin tools）。其它一切（MCP、permission gate、domain 集成、自定义 UI 卡片）**都通过扩展启用**，用户不装就不付代价 | 保持 `Phi.Runtime.csproj` 简洁；让"Phi 是什么"对所有用户一致；避免"我装的 Phi 跟你的不一样"这种 CI/可复现性问题 |
+| **MCP 通过官方 McpPack 扩展提供（不进入 Phi 主体代码）** | `extensions/McpPack/` 装上就用；用户配 `~/.phi/mcp-servers.json` 接入任何 MCP server；不想要 MCP 的用户完全不付这个代价。**专用服务扩展（figma / aws / notion / ...）由社区或 Phi 团队后续按需写**，不阻塞扩展平台本身的发布 | 跟 CodingPack / PermissionGate 平级；锁定"MCP 是生态集成能力不是核心能力"——以后有人说"我们 Phi 应该支持 MCP server"时直接指 §16 |
 
 ---
 
@@ -1332,9 +1332,8 @@ public async Task Reload_OldPhiApi_ThrowsExtensionError()
 | **2** | Events + Hooks + `/reload` | `HookDispatch`（tool_call / tool_result / input）；所有 agent event 透传；`ExtensionReloader` + ALC GC dance；`PermissionGate` demo；`ReloadTests` 真卸载验证。`/reload` 已注册为 TUI slash 命令（`PromptInput.HandleInput`），调 `ISession.ReloadExtensions()`：内部 `RemoveExtensionTools`（释放 harness 对旧 assembly 的强引用） + dispose 旧 runtime + 重跑 `env.ExtensionRuntimeFactory` 重建 CodingPack 等 compiled extensions。回归测试 `CodingPack_Survives_ReloadExtensions` + `ReloadExtensions_WithoutEnv_Throws_LeavesSessionUsable` 锁死语义。**Avalonia 端 `/reload` 未接线**：`PromptInputView.HandleInput` 当前所有输入都走 `SubmitPrompt`，slash 调度器还是空骨架（`/new`/`/sessions` 等也没接）—— Avalonia 端 slash dispatcher 统一留到 Sprint 3 的 `AvaloniaPhiUiBridge` 一起做 | ✅ |
 | **2.5** | **CodingPack 抽出（架构重构）** | `extensions/CodingPack/` 第一个真扩展；搬出 BashTool/ReadTool/WriteTool/EditTool + coding prompt；端到端回归测试（`CodingPackIntegrationTests`，含 `CodingPack_Survives_NewSessionAsync` + `CodingPack_Survives_ReloadExtensions`）；906/906 测试 | ✅ |
 | **3** | UI Bridge 双端实现 + Capability 落地 | `TuiUiSink` + `AvaloniaUiSink` 实现 `IUiSink`；`PhiUiBridge` 用 lazy `Func<IUiSink>` accessor 转发，session 切换后自动重指新 sink；`select` / `confirm` / `input` 走 `TuiDialogShower` / `AvaloniaUiSink.ShowDialogAsync`；**TuiDialogShower** 通过 `Dispatcher.InvokeAsync` 跨线程 marshal，避免 hook 跨 async 边界调 dialog 时的 `Invalid thread access`；`Notify` / `NotifyStatus` / `FlashError` 双端接线；`HookRegistry.ContextProvider` 让 hook handler 拿到真 context（PermissionGate 接 ConfirmAsync 演示）；`/reload` TUI 是 slash 命令、Avalonia 是 session row 的 EllipsisMenu 项（跟 `Rename` / `Delete` 同位，遵循"Avalonia 不用 slash"约定）；`PermissionGate` demo 升级成「问用户」语义，UI 缺失时 fall back 到自动 block（与 Sprint 2 兼容） | ✅（UI Bridge 完成 + Capability Enforce + Project Trust v1） |
-| **4** | Tool Card + Transcript Line 扩展点 + Bundle 加载 | `RegisterToolCard` / `RegisterToolCardRenderer`；`RegisterTranscriptLineRenderer`；`CustomLine` 加入 `ChatLine` DU；`AvaloniaToolCardRegistry` 和 TUI registry 走 `PhiApi` 而不是静态表；ALC 解析 `runtimes/{rid}/` | ⏳ |
-| **5** | **官方 Multi-Agent 参考扩展 `MultiAgentPack`** | `extensions/MultiAgentPack/` 第一个完整 demo 扩展，演示 "subagent as tool" 模式（§16）；含端到端测试；作为其它扩展的参考样板 | ⏳ |
-| **6** | **官方 MCP 客户端扩展 `McpPack`**（§17） | `extensions/McpPack/`；读 `~/.phi/mcp-servers.json`；stdio + HTTP/SSE transport；`tools/list` → `api.RegisterTool`；`On("session_start"/"reload")` 管理 server 生命周期；端到端测试（mock JSON-RPC server）；**证明 MCP 完全不需要进入 Phi 主体代码** | ⏳ |
+| **4** | Tool Card + Transcript Line 扩展点 + Bundle 加载 | `RegisterToolCard` / `RegisterToolCardRenderer`；`RegisterTranscriptLineRenderer`；`CustomLine` 加入 `ChatLine` DU；`AvaloniaToolCardRegistry` 和 TUI registry 走 `PhiApi` 而不是静态表；ALC 解析 `runtimes/{rid}/`；`extensions/CustomCardDemo/` 作为最小参考扩展；端到端测试（Host/TUI/Avalonia） | ✅ |
+| **5** | **官方 MCP 客户端扩展 `McpPack`**（§16） | `extensions/McpPack/`；读 `~/.phi/mcp-servers.json`；stdio + HTTP/SSE transport；`tools/list` → `api.RegisterTool`；`On("session_start"/"reload")` 管理 server 生命周期；端到端测试（mock JSON-RPC server）；**证明 MCP 完全不需要进入 Phi 主体代码** | ⏳ |
 
 每个 sprint：
 1. 先写测试，跑通再写实现
@@ -1468,572 +1467,14 @@ public sealed class PermissionGate : IPhiExtension
 
 ---
 
-## §16 官方 Multi-Agent 参考扩展 (`MultiAgentPack`)
 
-> **定位**：本节展示如何用现有 `IPhiApi` 原语（**零新增**）构建一个能用的 multi-agent
-> 系统。代码就是 Phi 仓库 `extensions/MultiAgentPack/` 的最终形态。
-> 其它扩展作者可以直接复制本节作为起点。
 
-### 16.1 为什么需要"官方"扩展
 
-Sprint 4 之后，扩展系统的每个原语（`RegisterTool` / `AddPromptGuideline` / `SubmitTranscriptLine` /
-`On<>`）都已经在 HelloTool 和 PermissionGate 里用过。**但都没有展示子会话编排**。
 
-`MultiAgentPack` 是 Phi 项目官方维护的"参考实现"，目的是：
 
-1. **验证 API 完备性**——multi-agent 是公认的复杂用例；如果现有 API 写不动，
-   就暴露了需要补的接口。结论：**全部能写，不需要补**。
-2. **为社区树立样板**——其它人写自己的 multi-agent 扩展时直接抄。
-3. **可装可用**——用户装上就把自己的 Phi 变成 multi-agent。
-
-### 16.2 模式：`Subagent as Tool`
-
-```
-用户输入: "调研 X 技术选型，然后给 Phi 提一个集成方案"
-   │
-   ▼
-Main Agent (Session A, 全套 builtin tools + delegate tool)
-   │
-   │ think → 并行调 3 次 delegate
-   │
-   ├──► tool_call: delegate(agent="explorer", prompt="查 Phi 当前 provider 管理...")
-   │      │
-   │      │ DelegateTool 内部:
-   │      │   1. Session.LoadAsync(cwd, envExplorer) → childExplorer
-   │      │   2. childExplorer.SubmitPrompt(prompt)
-   │      │   3. 等到 IsRunning=false
-   │      │   4. 取 State.Messages 最后一个 AssistantMessage.Text
-   │      │   5. childExplorer.Dispose()
-   │      │   6. return ToolResult(textBlock: resultText)
-   │      │
-   │      ▼
-   │   返回 "Phi.ProviderManager 实现了 catalog + credential + factory，..."
-   │
-   ├──► tool_call: delegate(agent="researcher", prompt="查 .NET 10 AssemblyLoadContext...")
-   │      │
-   │      ▼
-   │   返回 "ALC 用 isCollectible=true 支持 /reload..."
-   │
-   └──► tool_call: delegate(agent="explorer", prompt="查 Phi 已有的跨进程状态...")
-          │
-          ▼
-      返回 "Phi.Avalonia.ActiveSession 是 Avalonia 端的 session holder..."
-
-       ← (3 个 delegate 并发跑; main 端在等)
-   │
-   ▼
-Main Agent 拿到 3 个结果 → 写集成方案
-```
-
-**关键约束**：
-- 子 session **不能**回到 `ISession` 加 `SubAgents` 属性 —— multi-agent 是**扩展能力**，
-  不是 `Session` 抽象的一部分。
-- 子 session **完全**活在 `DelegateTool.ExecuteAsync` 的栈上；`using` 结束就 Dispose，
-  provider 的 HTTP transport 释放。
-- 主 agent 看子 session 的方式只有一条：**通过子 session 的 tool result 拿到最终文本**。
-
-### 16.3 用到的 `IPhiApi` / `ISession` 能力（全部已有，零新增）
-
-| 需求 | 用什么 |
-|---|---|
-| 起子 session | `Session.LoadAsync(cwd, env, providerName, model)`（`public static`，扩展直接调） |
-| 子 session 用独立 system prompt | `SessionEnvironment.Default(...).WithSystemPrompt(spec.SystemPrompt)` |
-| 子 session 用独立工具白名单 | `SessionEnvironment.WithTools(...)`（v1 用 system prompt 里的"only use X"约束；v2 接 catalog 过滤） |
-| 等子 session 完成 | 轮询 `session.State.IsRunning`（v2 改 `await session.StateChanged`） |
-| 拿结果 | `session.State.Messages.OfType<AssistantMessage>().LastOrDefault()?.Text` |
-| 清理 | `using var child = ...` |
-| 显示进度 | `api.SubmitTranscriptLine(...)` + `api.RegisterTranscriptLineRenderer(...)` |
-| 取消传播 | `CancellationTokenSource.CreateLinkedTokenSource(ct).Token.Register(child.Cancel)` |
-| 持久化（可选） | `api.AppendEntryAsync("multi-agent:log", dict)` 把每次 spawn 写盘 |
-
-**没有一行需要改 `IPhiApi`**。
-
-### 16.4 项目结构
-
-```
-extensions/MultiAgentPack/
-├── MultiAgentPack.csproj
-├── MultiAgentPack.cs              # 主入口（IPhiExtension 实现）
-├── SubAgentSpec.cs                # 子 agent 配置 record
-├── DelegateTool.cs                 # 主 agent 调用的 tool，内部跑子 session
-├── SubAgentProgressLine.cs        # 自定义 transcript 行 record
-├── SubAgentProgressRenderer.cs     # SubmitTranscriptLineRenderer 的实现（如果想要独立可换实现）
-├── Configuration/
-│   ├── DefaultSubAgents.cs         # 内置 explorer / researcher 的 spec
-│   └── SubAgentConfigLoader.cs     # 可选：~/.phi/multi-agent.json 加载
-└── MultiAgentPack.Tests/
-    ├── DelegateToolTests.cs
-    ├── MultiAgentPackTests.cs
-    └── Fixtures/
-        ├── StubSubAgentRunner.cs
-        └── FakeProviderResolver.cs
-```
-
-`csproj`：
-
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <IsPackable>true</IsPackable>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
-    <ProjectReference Include="..\..\..\src\Phi\Phi.Runtime.csproj" />
-    <!-- Phi.Extensions 还不存在 (Sprint 0)，暂时直接引用 Phi.Runtime 拿 ISession / Session -->
-  </ItemGroup>
-</Project>
-```
-
-> **注**：Sprint 0 完成后 Phi.Extensions 拆出来，csproj 切换成只依赖 `Phi.Extensions`，
-> `Phi.Runtime` 不再是 public 包的一部分。
-
-### 16.5 完整代码
-
-#### `MultiAgentPack.cs` —— 入口
-
-```csharp
-using Phi.Extensions;
-
-namespace MultiAgentPack;
-
-[PhiExtension(
-    Name = "multi-agent-pack",
-    Version = "1.0.0",
-    Description = "Spawn parallel subagents via the 'delegate' tool. " +
-                  "Built-in roles: 'explorer' (codebase) and 'researcher' (web).")]
-public sealed class MultiAgentPack : IPhiExtension
-{
-    public void Setup(IPhiApi api)
-    {
-        // 1) 让 main agent 知道有 delegate tool，以及什么时候用
-        api.AddPromptGuideline("""
-            For complex tasks spanning multiple domains, use the 'delegate' tool
-            to spawn subagents. Issue multiple delegate calls across DIFFERENT
-            roles in one turn to run them in parallel. Each call blocks until
-            the subagent finishes; its final answer is returned as the tool result.
-            """);
-
-        // 2) 把 subagent 目录暴露给 DelegateTool
-        var specs = DefaultSubAgents.All;   // 静态字典，name → SubAgentSpec
-
-        // 3) 注册 delegate tool
-        api.RegisterTool(
-            new DelegateTool(api, specs),
-            new ToolContribution
-            {
-                PromptSnippet =
-                    "delegate: spawn a subagent with a specific role (e.g. 'explorer', 'researcher'), " +
-                    "block until it finishes, and return its final answer.",
-                PromptGuidelines =
-                {
-                    "Issue parallel delegate calls across different roles when the task spans multiple domains.",
-                    "Keep each subagent's prompt focused — they're single-purpose.",
-                },
-                Capabilities = ToolCapabilities.ReadLocalFiles | ToolCapabilities.Network,
-            });
-
-        // 4) 注册 subagent 进度的 transcript renderer（host 的 ChatTranscript 会按 type 路由）
-        api.RegisterTranscriptLineRenderer("multi-agent:subagent-progress", (line, expanded) =>
-        {
-            var role = line.Details?.TryGetValue("role", out var r) == true
-                ? r?.ToString() ?? "?" : "?";
-            var status = line.Details?.TryGetValue("status", out var s) == true
-                ? s?.ToString() ?? "running" : "running";
-            var preview = Truncate(line.Content, expanded ? 400 : 80);
-            return new SubAgentProgressLine(line.Id, role, status, preview);
-        });
-    }
-
-    private static string Truncate(string s, int max) =>
-        s.Length <= max ? s : s[..max] + "…";
-}
-```
-
-#### `SubAgentSpec.cs` —— 配置 record
-
-```csharp
-namespace MultiAgentPack;
-
-/// <summary>
-/// Configuration for one subagent role. The extension ships two built-ins
-/// (explorer / researcher) and users can add their own via
-/// <see cref="DefaultSubAgents"/> override or, in v2, a JSON config file.
-/// </summary>
-public sealed record SubAgentSpec(
-    string Role,
-    string Description,
-    string SystemPrompt,
-    string? ModelOverride,
-    IReadOnlyList<string> ToolAllowList);
-
-public static class DefaultSubAgents
-{
-    public static IReadOnlyDictionary<string, SubAgentSpec> All { get; } =
-        new Dictionary<string, SubAgentSpec>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["explorer"] = new(
-                Role: "explorer",
-                Description: "Read-only codebase explorer. Returns file paths + concise summaries.",
-                SystemPrompt: """
-                    You are a read-only codebase explorer.
-                    Use read/grep tools only. Do not modify any files.
-                    Return a concise summary with file paths and line numbers.
-                    """,
-                ModelOverride: null,
-                ToolAllowList: ["read", "grep"]),
-
-            ["researcher"] = new(
-                Role: "researcher",
-                Description: "Web researcher. Returns findings with source URLs.",
-                SystemPrompt: """
-                    You are a web researcher.
-                    Use search/fetch tools only.
-                    Always cite your sources with URLs.
-                    Return findings as a structured summary.
-                    """,
-                ModelOverride: null,
-                ToolAllowList: ["search", "fetch"]),
-        };
-}
-```
-
-#### `DelegateTool.cs` —— 子 session 编排核心
-
-```csharp
-using System.Text.Json.Nodes;
-using Phi.Agent;
-using Phi.Extensions;
-
-namespace MultiAgentPack;
-
-/// <summary>
-/// The 'delegate' tool. Forks a child <see cref="Phi.Session"/> with a focused
-/// system prompt and (optionally) tool whitelist, runs the agent loop to
-/// completion, returns the final assistant message as a string.
-/// </summary>
-public sealed class DelegateTool : Tool
-{
-    private readonly IPhiApi _api;
-    private readonly IReadOnlyDictionary<string, SubAgentSpec> _specs;
-
-    public DelegateTool(IPhiApi api, IReadOnlyDictionary<string, SubAgentSpec> specs)
-    {
-        _api = api;
-        _specs = specs;
-    }
-
-    public override string Name => "delegate";
-    public override string Description =>
-        "Spawn a subagent (role: e.g. 'explorer' or 'researcher'), block until it finishes, " +
-        "return its final answer. Issue multiple calls in one turn for parallel work.";
-
-    public override JsonObject Parameters => new()
-    {
-        ["type"] = "object",
-        ["properties"] = new JsonObject
-        {
-            ["agent"]  = new() { ["type"] = "string",
-                                 ["description"] = "Role name (must match a registered subagent spec)." },
-            ["prompt"] = new() { ["type"] = "string",
-                                 ["description"] = "Task for the subagent. Be specific and self-contained." },
-        },
-        ["required"] = new JsonArray("agent", "prompt"),
-    };
-
-    public override async Task<ToolResult> ExecuteAsync(
-        string toolName, string toolCallId, JsonObject arguments,
-        CancellationToken cancellationToken)
-    {
-        var agent = arguments["agent"]?.GetValue<string>();
-        var prompt = arguments["prompt"]?.GetValue<string>();
-
-        if (string.IsNullOrWhiteSpace(agent) || string.IsNullOrWhiteSpace(prompt))
-            return new ToolResult(
-                [new TextBlock("delegate: 'agent' and 'prompt' are both required.")],
-                IsError: true);
-
-        if (!_specs.TryGetValue(agent!, out var spec))
-            return new ToolResult(
-                [new TextBlock($"delegate: unknown agent '{agent}'. Available: " +
-                                string.Join(", ", _specs.Keys))],
-                IsError: true);
-
-        var progressId = $"subagent:{Guid.NewGuid():N}";
-        try
-        {
-            Announce(progressId, spec.Role, "running",
-                     $"🤖 [{spec.Role}] starting: {Truncate(prompt!, 60)}",
-                     new() { ["prompt_preview"] = Truncate(prompt!, 200) });
-
-            var child = await SpawnAsync(spec, prompt!, cancellationToken);
-            try
-            {
-                var result = await WaitForResultAsync(child, spec.Role, progressId, cancellationToken);
-                Announce(progressId, spec.Role, "done",
-                         $"✅ [{spec.Role}] done: {Truncate(result, 60)}",
-                         new() { ["result_preview"] = Truncate(result, 200) });
-                return new ToolResult([new TextBlock(result)]);
-            }
-            finally
-            {
-                // 子 session 必须显式 Dispose，否则 provider 的 HttpClient 不释放
-                child.Dispose();
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            Announce(progressId, spec.Role, "cancelled",
-                     $"🚫 [{spec.Role}] cancelled", null);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            Announce(progressId, spec.Role, "error",
-                     $"❌ [{spec.Role}] error: {ex.Message}",
-                     new() { ["error"] = ex.Message });
-            return new ToolResult(
-                [new TextBlock($"delegate: subagent '{spec.Role}' failed: {ex.Message}")],
-                IsError: true);
-        }
-    }
-
-    /// <summary>
-    /// Loads a child session with the subagent's focused environment.
-    /// Cancellation token is linked to the tool's token, so cancelling the
-    /// parent cancels the child.
-    /// </summary>
-    private async Task<Phi.Session> SpawnAsync(
-        SubAgentSpec spec, string prompt, CancellationToken toolCt)
-    {
-        // 子 session 跟主 session 共用 provider resolver + cwd；env 不同
-        var childEnv = SessionEnvironment.Default(_api.Context.ProviderResolver)
-            .WithSystemPrompt(spec.SystemPrompt);
-
-        // 当前实现: 工具白名单靠 system prompt 约束（v1 没有 Tool 过滤 API）；
-        // v2 走 ToolContribution 过滤。ToolAllowList 字段保留给将来。
-        _ = spec.ToolAllowList;
-
-        return await Phi.Session.LoadAsync(
-            cwd: _api.Context.Cwd,
-            env: childEnv,
-            providerName: _api.Context.ProviderName,
-            model: spec.ModelOverride ?? _api.Context.Model);
-    }
-
-    /// <summary>
-    /// Polls the child session until it settles. v2: subscribe to
-    /// StateChanged for event-driven completion instead of polling.
-    /// </summary>
-    private static async Task<string> WaitForResultAsync(
-        Phi.Session child, string role, string progressId, CancellationToken ct)
-    {
-        var pollInterval = TimeSpan.FromMilliseconds(50);
-        while (child.State.IsRunning)
-        {
-            ct.ThrowIfCancellationRequested();
-            await Task.Delay(pollInterval, ct);
-        }
-
-        var last = child.State.Messages.OfType<AssistantMessage>().LastOrDefault();
-        if (last?.Text is { Length: > 0 } text) return text;
-
-        throw new InvalidOperationException(
-            $"subagent '{role}' produced no assistant text (stopReason={last?.StopReason})");
-    }
-
-    private void Announce(string id, string role, string status, string content,
-                          Dictionary<string, object?>? extraDetails)
-    {
-        var details = extraDetails is null
-            ? new Dictionary<string, object?> { ["role"] = role, ["status"] = status }
-            : new Dictionary<string, object?>(extraDetails) { ["role"] = role, ["status"] = status };
-
-        _api.SubmitTranscriptLine(new TranscriptLine(
-            Type: "multi-agent:subagent-progress",
-            Id: id,
-            Content: content,
-            Details: details));
-    }
-
-    private static string Truncate(string s, int max) =>
-        s.Length <= max ? s : s[..max] + "…";
-}
-```
-
-#### `SubAgentProgressLine.cs` —— 自定义 transcript 行
-
-```csharp
-namespace MultiAgentPack;
-
-/// <summary>
-/// One row in the transcript for a running / finished / failed subagent.
-/// TUI / Avalonia render this however their registered
-/// <see cref="Phi.Extensions.TranscriptLineRenderer"/> chooses — by
-/// default a compact "🤖 [role] ..." line.
-/// </summary>
-public sealed record SubAgentProgressLine(
-    string Id,
-    string Role,
-    string Status,    // "running" | "done" | "cancelled" | "error"
-    string Preview) : Phi.Extensions.ChatLine(Id);
-```
-
-> **注**：`TranscriptLine` 类型（被 `SubmitTranscriptLine` 接受）和 `ChatLine` DU
-> （被 host 渲染）是两个不同的概念。`TranscriptLine` 是**扩展用的 DTO**（带 type
-> string + JSON details）；`ChatLine` 是**host 渲染用的 DU**（带具体子类型）。`TranscriptLineRenderer`
-> 负责从 DTO 到 DU 的转换（返回 `ChatLine`）。**这里直接返回 `SubAgentProgressLine` 必须是
-> host 的 DU 子类型**——所以 `SubAgentProgressLine` 在 host 的 DU 里也得定义，扩展
-> 自己不能造 host 不知道的类型。**v2 会改成扩展返回 `CustomLine` 让 host 走 registered
-> renderer**——本参考实现假定 host 是 Avalonia/TUI 主仓，DU 跟参考扩展一起 evolve。
-
-### 16.6 测试
-
-#### `DelegateToolTests.cs` —— 子 session 编排的关键路径
-
-```csharp
-using Phi.Agent;
-using Phi.Provider;
-using Phi.Tests.Helpers;  // 假设 host 提供 StubProvider / FakeProviderResolver
-
-namespace MultiAgentPack.Tests;
-
-[NotInParallel("multi-agent")]
-public class DelegateToolTests : IDisposable
-{
-    private readonly FakeProviderResolver _resolver = new();
-    private readonly InMemoryPhiApi _api;
-
-    public DelegateToolTests()
-    {
-        _api = new InMemoryPhiApi(
-            resolver: _resolver,
-            cwd: "/test",
-            providerName: "stub",
-            model: "stub-model");
-    }
-
-    [Test]
-    public async Task Unknown_Agent_Returns_ErrorResult()
-    {
-        var tool = new DelegateTool(_api, DefaultSubAgents.All);
-        var result = await tool.ExecuteAsync(
-            "delegate", "call-1",
-            JsonNode.Parse("""{"agent":"nope","prompt":"x"}""").AsObject(),
-            CancellationToken.None);
-
-        await Assert.That(result.IsError).IsTrue();
-        await Assert.That(result.Content[0].As<TextBlock>().Text)
-            .Contains("unknown agent");
-    }
-
-    [Test]
-    public async Task Spawns_Subagent_With_Focused_SystemPrompt()
-    {
-        // 验证：env 传进去的 system prompt 真的被子 session 用上
-        _resolver.Providers["stub"] = StubProvider.Echo(StubProvider.TextTurn("ok"));
-        var tool = new DelegateTool(_api, DefaultSubAgents.All);
-
-        var result = await tool.ExecuteAsync(
-            "delegate", "call-1",
-            JsonNode.Parse("""{"agent":"explorer","prompt":"find Foo"}""").AsObject(),
-            CancellationToken.None);
-
-        await Assert.That(result.IsError).IsFalse();
-        // StubProvider.Echo 返回 "ok"，所以结果包含 "ok"
-        await Assert.That(result.Content[0].As<TextBlock>().Text).Contains("ok");
-
-        // 关键：捕获子 session 创建时的 env，看 system prompt 是否被 override
-        await Assert.That(_api.LastSpawnedEnv?.SystemPrompt)
-            .Contains("read-only codebase explorer");
-    }
-
-    [Test]
-    public async Task Cancellation_Propagates_To_Child()
-    {
-        // 用一个 blocks 的 provider —— 子 session 永远不结束，直到被 cancel
-        _resolver.Providers["stub"] = StubProvider.FirstCallBlocks(new TaskCompletionSource());
-        var tool = new DelegateTool(_api, DefaultSubAgents.All);
-
-        using var cts = new CancellationTokenSource();
-        var task = tool.ExecuteAsync(
-            "delegate", "call-1",
-            JsonNode.Parse("""{"agent":"explorer","prompt":"x"}""").AsObject(),
-            cts.Token);
-
-        // 等子 session 进入 IsRunning=true
-        await SpinWait.SpinUntil(() => _api.LastSpawnedSession?.State.IsRunning == true,
-            TimeSpan.FromSeconds(2));
-
-        cts.Cancel();
-
-        await Assert.That(async () => await task).Throws<OperationCanceledException>();
-        // 子 session 必须被 cancel
-        await Assert.That(_api.LastSpawnedSession!.State.IsRunning).IsFalse();
-    }
-
-    public void Dispose() { /* cleanup */ }
-}
-```
-
-> **InMemoryPhiApi** 是一个测试用的 `IPhiApi` mock，记所有调用。完整实现约 100 行，
-> 放在 `MultiAgentPack.Tests/Fixtures/`。**这是社区扩展作者的模板** —— 自己写
-> in-memory `IPhiApi` mock 来 unit-test 工具的编排逻辑，不依赖真实 host。
-
-### 16.7 给其它扩展作者的建议
-
-#### 抄什么
-
-| 模式 | 在 `MultiAgentPack` 哪里 |
-|---|---|
-| **在 `Setup` 里 `AddPromptGuideline` 教 main agent 怎么用你的扩展** | `MultiAgentPack.cs:18-22` |
-| **用 `ToolContribution`（不是裸 `RegisterTool`）让 tool 自动出现在 system prompt 的可用工具段** | `MultiAgentPack.cs:33-43` |
-| **`SubmitTranscriptLine` + `RegisterTranscriptLineRenderer` 给你的扩展提供 transcript 可见性** | `MultiAgentPack.cs:45-52` + `Announce` helper |
-| **`try/finally Dispose` 你的子资源**（provider / child session / disposable handles） | `DelegateTool.cs:70-79` |
-| **取消 token 用 `CreateLinkedTokenSource` 而不是裸 token** | `SpawnAsync` 内部（v2） |
-| **结构化错误信息用 `ToolResult.IsError: true` 而不是抛异常** | `unknown agent` 分支 |
-
-#### 不要抄什么
-
-| 反模式 | 原因 |
-|---|---|
-| ❌ 不要在 `Setup` 里启动后台线程 | 同步 `Setup` 是契约；后台 work 应该挂在 `On("session_start")` 里 |
-| ❌ 不要直接调 `File.ReadAllText` 等 BCL | 走 `IPhiContext.Ui`（读文件等应在 v1.5 capability 后走声明 API） |
-| ❌ 不要在 extension 里 catch + 吞掉异常 | 让 `ExtensionError` 抛上去，由 host 的 audit log 记录 |
-| ❌ 不要持有 `ISession` 引用跨 turn | 扩展可能被 reload；用 `IDisposable On(...)` 而不是直接存 `session` 引用 |
-| ❌ 不要把 child session 的 transcript 全文塞回 main agent | 只回最终 assistant message 的文本；其余让 main agent 自己 `delegate` 进一步问 |
-
-### 16.8 已知限制 / 未来工作
-
-| 当前限制 | 后续何时 |
-|---|---|
-| 工具白名单靠 system prompt 约束，没真过滤 | Sprint 2：扩展拿到的 `IPhiContext.Tools` 变成可枚举的；`ToolContribution` 过滤 API 公开 |
-| 用 50ms 轮询 `IsRunning` | Sprint 2：扩展能 `await session.StateChanged`（`Session` 已经 raise `StateChanged`） |
-| 单 `delegate` tool 内部串行等；多个 `delegate` 在 main agent 一 turn 内并发由 LLM 驱动 | 已支持（model 自己 fire 多个 tool_call，host 并发执行）；不需要改 |
-| 没有 subagent transcript 自动 forward 回 main | Sprint 4：`CustomLine` 进 `ChatLine` DU + host 渲染支持折叠的 subagent 视图 |
-| 不能 resume subagent（必须每次从头跑） | Sprint 5+：`ISession.ResumeAsync` 已经支持，扩展只需要存 sessionId |
-| 大型结果（>10K tokens）走 model context | v2：`ToolResult` 改支持 file reference，主 agent 用 `read` 看完整结果 |
-
-### 16.9 为什么这一节放在最后
-
-`MultiAgentPack` 是 Sprint 5 的交付物。它依赖 Sprint 1-4 的所有 API：
-
-- Sprint 1：`IPhiApi.RegisterTool` + `AddPromptGuideline` + `SubmitTranscriptLine`
-- Sprint 2：`Phi.Extensions.Host` 加载 + lifecycle + generation guard（保证 `/reload` 后旧 PhiApi 失效）
-- Sprint 3：`IPhiUiBridge` + `TuiPhiUiBridge` / `AvaloniaPhiUiBridge`
-- Sprint 4：`RegisterTranscriptLineRenderer` + `ChatLine` DU 的 `CustomLine`
-
-**没有这些前置 sprint 就写不出能跑的 `MultiAgentPack`**——但反过来，**有了这些 sprint 后写 `MultiAgentPack` 不需要任何新的 API**。这就是 §16 的核心结论：**当前 `IPhiApi` 设计已经在 multi-agent 这个公认复杂用例上自洽**。
-
----
-
----
-
-## §17 官方 MCP 客户端扩展 (`McpPack`)
+## §16 官方 MCP 客户端扩展 (`McpPack`)
 
 > **定位**：MCP（Model Context Protocol）通过官方扩展 `McpPack` 提供，**不进入 Phi 主体代码**。
-> 本节是 §16 MultiAgentPack 之后的第二个"参考扩展"——展示"外部协议适配器"在 Extensions 平台上的形态。
 > 用户不装 McpPack 就完全不付 MCP 相关的任何代价（运行时、内存、API surface、UI）。
 >
 > **依赖官方 SDK**：McpPack 用 NuGet `ModelContextProtocol`（微软官方 C# MCP SDK，仓库
@@ -2042,16 +1483,16 @@ public class DelegateToolTests : IDisposable
 > McpPack 只负责"把 SDK 的 client 接到 Phi 生命周期上 + 把 MCP tool 包成 Phi tool"。
 > 当前 SDK 跟踪到 MCP 协议 spec `2025-06-18`（SDK 2.x 线的稳定分支），McpPack 的 `ModelContextProtocol` 引用跟着升级即可。
 >
-> **本次修订**：原 §17 是手写 stdio transport + JSON-RPC 的方案；
-> 改成"用 SDK"后代码量 -25%、跨平台 QA 消失、协议升级 0 工作量。详见 §17.7 / §17.11 / §17.16 / 附录 C。
+> **本次修订**：原 §16 是手写 stdio transport + JSON-RPC 的方案；
+> 改成"用 SDK"后代码量 -25%、跨平台 QA 消失、协议升级 0 工作量。详见 §16.7 / §16.11 / §16.16 / 附录 C。
 
-### 17.1 最小核心理念
+### 16.1 最小核心理念
 
 ```
 Phi 核心（始终装、最小）                Phi 扩展生态（可选装）
 ─────────────────────────                ──────────────────────────
 Session / Harness / AgentLoop             CodingPack (bash/read/write/edit)
-ISession 导航 API                         MultiAgentPack (delegate tool)
+ISession 导航 API                         CustomCardDemo (tool card 渲染演示)
 4 个 builtin tools                         McpPack (MCP 客户端)   ← 本节
 tool / hook / event 原语                    PermissionGate (tool_call 拦截)
 tool card / transcript line 渲染           Phi.Figma (figma 集成, 假设)
@@ -2066,12 +1507,12 @@ TUI / Avalonia 双端 shell                  Phi.Aws (AWS 集成, 假设)
 
 `McpPack` 是典型扩展：它让 Phi **能跟 MCP server 生态对话**，但 80% 的"基本使用"（只用 builtin tools）完全不依赖它。
 
-### 17.2 McpPack 做与不做的明确边界
+### 16.2 McpPack 做与不做的明确边界
 
 #### 做
 
 - 读 `~/.phi/mcp-servers.json` 拿 server 配置
-- 为每个 server spawn 一个 stdio 子进程（或开 HTTP/SSE 连接，Sprint 6.5+）
+- 为每个 server spawn 一个 stdio 子进程（或开 HTTP/SSE 连接，Sprint 5.5+）
 - 跑 JSON-RPC `initialize` + `tools/list`
 - **每个 MCP tool → 一个 `Phi.Tool`**，通过 `api.RegisterTool` 注册
 - 模型调 MCP tool → `Phi.Tool.ExecuteAsync` → JSON-RPC `tools/call` → 结果
@@ -2084,10 +1525,10 @@ TUI / Avalonia 双端 shell                  Phi.Aws (AWS 集成, 假设)
 - **不做** OAuth / token 管理（用户自己填 `env` 字段，sprint 6.5+ 加 host API）
 - **不做** MCP-specific tool cards（用通用 `ToolDescriptor(ToolKind.Generic, ...)`，TUI/Avalonia 自渲染）
 - **不做** MCP resource / prompt 模板支持（v2，先聚焦 tools）
-- **不做** HTTP/SSE transport（Sprint 6 v1 只做 stdio；HTTP/SSE 在 v2 + Cross-platform 一起做）
+- **不做** HTTP/SSE transport（Sprint 5 v1 只做 stdio；HTTP/SSE 在 v2 + Cross-platform 一起做）
 - **不做** Phi 主体代码任何改动
 
-### 17.3 配置文件格式
+### 16.3 配置文件格式
 
 `~/.phi/mcp-servers.json`：
 
@@ -2132,7 +1573,7 @@ TUI / Avalonia 双端 shell                  Phi.Aws (AWS 集成, 假设)
 
 **加密**：`env` 里如果放 token 会明文写盘。v1.5+ 借鉴 `PhiSettings` 的做法（操作系统 keyring 优先，文件 fallback 配权限位 0600）。
 
-### 17.4 Tool 命名与冲突解决
+### 16.4 Tool 命名与冲突解决
 
 MCP tool 名是 `server` 维度的（每个 server 可能都有 `get_file`）。直接用会冲突。McpPack 强制前缀：
 
@@ -2153,7 +1594,7 @@ string PhiToolName(string serverKey, string mcpToolName) =>
 
 下划线分隔，跟现有 Phi 工具名（`read` / `write` / `bash` / `edit`）兼容。模型在 tool 选择时看到 `mcp__figma__get_file` 自带 server 来源信息。
 
-### 17.5 项目结构
+### 16.5 项目结构
 
 ```
 extensions/McpPack/
@@ -2190,7 +1631,7 @@ extensions/McpPack/
 
 **总规模估算**：~280 行（含 fixture），比手写 transport 路径（~410 行）**少 ~30%** —— SDK 把 transport / JSON-RPC / 握手 / 错误码处理 / 进程管理全包了。
 
-### 17.6 入口：`McpPack.cs`
+### 16.6 入口：`McpPack.cs`
 
 ```csharp
 using ModelContextProtocol.Client;
@@ -2273,7 +1714,7 @@ public sealed class McpPack : IPhiExtension
 > （1）从 config 文件构造 SDK 接受的 transport；
 > （2）把 SDK 暴露的 tools 列表翻译成 Phi tools。
 
-### 17.7 Transport：用官方 SDK，不自己写
+### 16.7 Transport：用官方 SDK，不自己写
 
 **v1 不实现 transport**。`ModelContextProtocol` NuGet（微软官方，跟 MCP spec 同步升级，
 版本 2.2.0 对应当前协议规范 `2025-06-18`）已经提供了：
@@ -2325,7 +1766,7 @@ internal static class McpTransportFactory
 
 - **MCP 协议细节很微妙**——JSON-RPC over stdio、notification 过滤、id 匹配、错误码分类、`ContentBlock` 类型多态，
   每一个都是踩坑点
-  （原版 §17.7 自己写的 `Read until we get a response with matching id` 就是最常见的错误源——遗漏 notification 会让协议死锁）
+  （原版 §16.7 自己写的 `Read until we get a response with matching id` 就是最常见的错误源——遗漏 notification 会让协议死锁）
 - **SDK 跟踪 spec 自动升级**——我们写代码时是 spec v1，今天 spec `2025-06-18`，SDK 已经跟上了；
   spec 再升级，**我们什么都不用改**，升 NuGet 包版本即可
 - **跨平台细节 SDK 都处理了**：Windows 上 stdin/stdout 是 named pipe，Unix 上是 fd；process group cleanup；
@@ -2365,7 +1806,7 @@ internal sealed class ProtocolVersionTracker
 
 用户运行 `/extensions` 能看到每个 MCP server 协商到的版本；不匹配的版本（比如 McpPack 期望 v2 但 server 只支持 v1）会被 SDK 协商降级并记录在 audit log。
 
-### 17.8 Tool 适配器
+### 16.8 Tool 适配器
 
 ```csharp
 // McpToolAdapter.cs
@@ -2424,7 +1865,7 @@ public sealed class McpToolAdapter : Tool
 > 直接给 Phi.Tool 用，不需要额外序列化。v2 spec 的 `StructuredContent` 走 `result.StructuredContent`
 > 字段（typed C# object），McpPack v1 只读 `result.Content`（content blocks），够用。
 
-### 17.9 错误映射
+### 16.9 错误映射
 
 ```csharp
 // McpErrorMapper.cs
@@ -2436,7 +1877,7 @@ namespace McpPack;
 /// <summary>
 /// Maps SDK's <see cref="CallToolResult"/> (MCP protocol spec types) to Phi's
 /// <see cref="ToolResult"/>. SDK 已把 JSON-RPC / transport / protocol errors
-/// 抛成 typed exception（见 §17.8 的 catch 分支），这里只处理 happy path 的
+/// 抛成 typed exception（见 §16.8 的 catch 分支），这里只处理 happy path 的
 /// content blocks 翻译。
 /// </summary>
 internal static class McpErrorMapper
@@ -2479,7 +1920,7 @@ internal static class McpErrorMapper
 > `StructuredContent` 支持再加）。如果 server 返回 structured content + text content，
 > McpPack 只读 text —— 这种 server 应该升级 McpPack 到 v2 + Phi 域加 `StructuredMessage`。
 
-### 17.10 Lifecycle 与 reload
+### 16.10 Lifecycle 与 reload
 
 ```
 T0  ── phi.exe 启动
@@ -2512,7 +1953,7 @@ T5  ── session_shutdown (TUI exit / /exit / navigation to new session)
 - **不强绑定到进程**：reload 时旧 client 全部 dispose，新 client 全部 spawn。
 - `GenerationGuard` 保证 reload 期间 in-flight 的 `McpClient.CallToolAsync` 不会写到已 dispose 的 `_stdin`。
 
-### 17.11 测试策略
+### 16.11 测试策略
 
 #### 单元测试（mock `IMcpClient`）
 
@@ -2599,20 +2040,19 @@ public async Task StdioServer_ListTools_RealSubprocess()
 > 内部 `try { Close(); } catch {}` + `process.WaitForExit(2s)` + `Dispose()`。
 > 我们 **不**自己管 process lifecycle。
 
-### 17.12 McpPack 跟其它官方扩展的关系
+### 16.12 McpPack 跟其它官方扩展的关系
 
 | 能力 | 由谁提供 | 备注 |
 |---|---|---|
 | `mcp__figma__get_file` 这种工具 | **McpPack**（薄包装） | 任何有 MCP server 的服务都自动有 |
 | figma 特定的 tool card（带缩略图） | **(假设的) Phi.Figma 扩展** | McpPack 只做通用 card |
 | `/figma export` slash 命令 | **(假设的) Phi.Figma** | McpPack 不注册 slash |
-| 设计审查 sub-agent | **MultiAgentPack**（复用） | 通过 `delegate` tool 调 McpPack 的 figma tools |
 | figma MCP 连接的 lifecycle | **McpPack** | `On("session_start")` 自动接，`On("session_shutdown")` 自动断 |
 | 阻拦"在 production 调 figma delete" | **PermissionGate** | 跟 MCP 无关，所有 tool 都拦 |
 
-**McpPack 是基础设施层**，MultiAgentPack / PermissionGate 是横切关注点，专用服务扩展是 UX 层。**三层不重叠**。
+**McpPack 是基础设施层**，PermissionGate / CodingPack 是横切关注点，专用服务扩展是 UX 层。**三层不重叠**。
 
-### 17.13 哪些场景 McpPack 够用，哪些需要专用扩展
+### 16.13 哪些场景 McpPack 够用，哪些需要专用扩展
 
 | 场景 | McpPack | 专用扩展？ |
 |---|---|---|
@@ -2625,7 +2065,7 @@ public async Task StdioServer_ListTools_RealSubprocess()
 
 **判定原则**：如果"拿到 tool 结果就能直接用模型解释"，McpPack 够；如果"需要专门的渲染 / 专门的 workflow / 专门的错误处理"，写专用扩展。
 
-### 17.14 安全考量
+### 16.14 安全考量
 
 `~/.phi/mcp-servers.json` 里的 `command` / `args` 是**任意可执行**。这跟 Phi.Extensions 的整体安全模型一致：
 
@@ -2634,7 +2074,7 @@ public async Task StdioServer_ListTools_RealSubprocess()
 - **`ProcessSpawn` capability 必填**：`[PhiExtension(..., Capabilities = Network | ProcessSpawn)]` —— McpPack 显式声明。Sprint 3 的 capability 强制启用后，用户在 status bar 能看到 "McpPack: Network + ProcessSpawn"。
 - **MCP server 本身的代码 = 任意可执行**（同 §9 风险 T1）—— 跟 `dotnet add package` 装个会 `rm -rf` 的 postinstall 是一类风险。`README` 写明"只配你信任的 MCP server"。
 
-### 17.15 跟 §9 安全模型的关系
+### 16.15 跟 §9 安全模型的关系
 
 MCP 走 `ProcessSpawn` capability（第 9 节 v1.5 启用）。McpPack 显式声明它是 **唯一一个需要 ProcessSpawn 的官方扩展**。Sprint 3 上线后：
 
@@ -2642,26 +2082,21 @@ MCP 走 `ProcessSpawn` capability（第 9 节 v1.5 启用）。McpPack 显式声
 ~/.phi/extensions/
 ├── McpPack.dll            Capabilities = Network | ProcessSpawn ✓
 ├── CodingPack.dll         Capabilities = FileSystem* ✓
-├── MultiAgentPack.dll     Capabilities = FileSystemRead ✓
+├── CustomCardDemo.dll     Capabilities = TranscriptWrite ✓
 └── PermissionGate.dll     Capabilities = None ✓
 ```
 
 用户在 status bar / `/extensions` 命令里能看到每个扩展的 capability 声明。McpPack 是唯一有 `ProcessSpawn` 的，**用户想禁用 MCP 直接 disable McpPack 即可**，不影响其它扩展。
 
-### 17.16 为什么这一节放在 MultiAgentPack 之后 + 跟 SDK 对齐
+### 16.16 为什么这一节放在最后 + 跟 SDK 对齐
 
-跟 §16 同样的逻辑：
-
-- **依赖 Sprint 1-4 的所有 API**：`RegisterTool` + `On(event)` + `AddPromptGuideline` + `Capability`
-- **不依赖 §16 MultiAgentPack**：可以独立并行开发，但 Sprint 5 排在 Sprint 6 是因为：
-  - MultiAgentPack 验证了"用 IPhiApi 组合外部能力"的模式
-  - McpPack 是"用 IPhiApi 接入外部协议"的另一种形态，先让社区看到 MultiAgentPack 再放 McpPack，扩散风险更小
+- **依赖 Sprint 1-4 的所有 API**：`RegisterTool` + `On(event)` + `AddPromptGuideline` + `Capability` + `RegisterToolCard`
 - **跟官方 SDK 对齐**：McpPack 走 NuGet `ModelContextProtocol`，跟着 spec 自动升级（spec `2025-06-18`
   → SDK 2.2.0 → McpPack 自动获取 typed `StructuredContent`、Resource / Prompt 模板等 v2 新能力），
   **不需要**每次 spec 更新重写 McpPack
-- **Sprint 6 之前**就能给已经有 MCP server 的用户写一份 README "如何用 McpPack" —— 即使代码在 Sprint 6 才合入，文档先稳定
+- **Sprint 5 之前**就能给已经有 MCP server 的用户写一份 README "如何用 McpPack" —— 即使代码在 Sprint 5 才合入，文档先稳定
 
-**为什么不自己写 transport**（重申 §17.7 的核心论点）：
+**为什么不自己写 transport**（重申 §16.7 的核心论点）：
 
 | 自己写 | 用 `ModelContextProtocol` SDK |
 |---|---|
@@ -2679,7 +2114,7 @@ MCP 走 `ProcessSpawn` capability（第 9 节 v1.5 启用）。McpPack 显式声
 
 ## 附录 C：MCP 客户端扩展的最小骨架（v1 stdio + SDK）
 
-把上面 §17.5 + §17.6 + §17.7 + §17.8 + §17.9 拼起来，**v1 的最小可用 McpPack 是 ~280 行**（不含测试）：
+把上面 §16.5 + §16.6 + §16.7 + §16.8 + §16.9 拼起来，**v1 的最小可用 McpPack 是 ~280 行**（不含测试）：
 
 | 文件 | 行数估算 | 备注 |
 |---|---|---|
@@ -2695,5 +2130,5 @@ MCP 走 `ProcessSpawn` capability（第 9 节 v1.5 启用）。McpPack 显式声
 
 测试 ~250 行（fake `IMcpClient` + echo MCP server + 端到端）。**不用**自己 mock JSON-RPC —— SDK 的 `IMcpClient` interface 专为此设计。
 
-**整个 Sprint 6 是一个 sprint**。如果只想 ship stdio transport + 最简 error handling，**~2 周 1 人**。
+**整个 Sprint 5 是一个 sprint**。如果只想 ship stdio transport + 最简 error handling，**~2 周 1 人**。
 ```

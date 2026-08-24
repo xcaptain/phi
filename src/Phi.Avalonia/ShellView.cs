@@ -11,6 +11,7 @@ using Avalonia.VisualTree;
 using Material.Icons.Avalonia;
 using Phi.Avalonia.Components;
 using Phi.Avalonia.Controls;
+using Phi.Chat;
 using Phi.Extensions;
 using Phi.Extensions.Host;
 using Phi.Providers;
@@ -33,6 +34,7 @@ public sealed class ShellView : IDisposable
     private readonly Action<Action> _dispatchToUi;
     private readonly Action<Action> _postToUi;
     private readonly Action<IUiSink>? _onSinkBuilt;
+    private readonly Func<IExtensionRenderers?>? _renderersAccessor;
     private readonly ShellLayout _layout;
 
     private ChatPageView? _chatPage;
@@ -62,7 +64,8 @@ public sealed class ShellView : IDisposable
         ProviderManager providers,
         Action<Action>? dispatchToUi = null,
         Action<Action>? postToUi = null,
-        Action<IUiSink>? onSinkBuilt = null)
+        Action<IUiSink>? onSinkBuilt = null,
+        Func<IExtensionRenderers?>? renderersAccessor = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
@@ -71,6 +74,7 @@ public sealed class ShellView : IDisposable
         _dispatchToUi = dispatchToUi ?? Dispatch;
         _postToUi = postToUi ?? Post;
         _onSinkBuilt = onSinkBuilt;
+        _renderersAccessor = renderersAccessor;
 
         _layout = new ShellLayout();
 
@@ -569,7 +573,8 @@ public sealed class ShellView : IDisposable
             _active.Current,
             pickFolder: PickFolderAsync,
             postToUi: _postToUi,
-            dispatchToUi: _dispatchToUi);
+            dispatchToUi: _dispatchToUi,
+            renderers: _renderersAccessor?.Invoke());
         _layout.ViewHost.Content = _chatPage.Root;
         _showingChat = true;
         WatchSession(_active.Current);

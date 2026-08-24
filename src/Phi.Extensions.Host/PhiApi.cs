@@ -116,17 +116,25 @@ internal sealed class PhiApi : IPhiApi
         string toolName,
         ToolDescriptor descriptor,
         Rendering.ToolCardRenderer? renderer = null)
-        => throw new NotImplementedException("RegisterToolCard lands in Sprint 4 (Tool Card registry wiring).");
+    {
+        AssertAlive();
+        ArgumentException.ThrowIfNullOrWhiteSpace(toolName);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        _runtime.RegisterToolCard(_extension, toolName, descriptor, renderer);
+    }
 
     public void RegisterTranscriptLineRenderer(
         string lineType,
         Rendering.TranscriptLineRenderer renderer)
-        => throw new NotImplementedException("RegisterTranscriptLineRenderer lands in Sprint 4 (CustomLine in ChatLine DU).");
+    {
+        AssertAlive();
+        _runtime.RegisterTranscriptLineRenderer(_extension, lineType, renderer);
+    }
 
     public void RegisterMessageRenderer(
         string customType,
         Rendering.MessageRenderer renderer)
-        => throw new NotImplementedException("RegisterMessageRenderer lands in Sprint 4.");
+        => throw new NotImplementedException("RegisterMessageRenderer lands in Sprint 4 (custom-typed assistant messages).");
 
     // ──────── Events ────────
 
@@ -177,7 +185,8 @@ internal sealed class PhiApi : IPhiApi
     public void SubmitTranscriptLine(TranscriptLine line)
     {
         EnforceCapability(nameof(SubmitTranscriptLine));
-        throw new NotImplementedException("SubmitTranscriptLine lands in Sprint 4.");
+        AssertAlive();
+        _runtime.SubmitTranscriptLine(line);
     }
 
     public Task AppendEntryAsync(string ns, IReadOnlyDictionary<string, object?> data)

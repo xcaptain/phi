@@ -1,5 +1,6 @@
 using Phi.Agent;
 using Phi.Chat;
+using Phi.Extensions;
 using Phi.Resources;
 using Phi.Tui.Components.ToolCards;
 using XenoAtom.Terminal.UI;
@@ -83,11 +84,11 @@ public sealed class ChatTranscript : IDisposable
     /// synchronously; subsequent updates arrive through
     /// <see cref="ChatTranscriptProjector.Changed"/>.
     /// </summary>
-    public void Bind(ISession session)
+    public void Bind(ISession session, IExtensionRenderers? renderers = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _projector?.Dispose();
-        _projector = new ChatTranscriptProjector(session);
+        _projector = new ChatTranscriptProjector(session, renderers);
         _projector.Changed += OnProjectorChanged;
         // Render the initial projection (resume edge).
         OnProjectorChanged(_projector.Current);
@@ -113,6 +114,20 @@ public sealed class ChatTranscript : IDisposable
     {
         ArgumentNullException.ThrowIfNull(message);
         _projector?.SubmitPersistentError(message);
+    }
+
+    /// <summary>
+    /// Adds an extension-submitted custom line into the projector. The
+    /// UI sink (<see cref="Phi.Extensions.Host.IUiSink"/>) routes
+    /// <c>IPhiApi.SubmitTranscriptLine</c> here; the projector converts it
+    /// into a <see cref="CustomLine"/> and the transcript renders it via
+    /// whatever renderer the extension registered (falling back to a plain
+    /// text bubble).
+    /// </summary>
+    public void SubmitCustomLine(Phi.Extensions.TranscriptLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        _projector?.SubmitCustomLine(line.Type, line.Id, line.Content, line.Details);
     }
 
     /// <summary>
@@ -206,8 +221,45 @@ public sealed class ChatTranscript : IDisposable
         AssistantTextLine a => CreateAssistantTextVisual(a),
         ToolCallLine tc => CreateToolCallVisual(tc),
         PersistentErrorLine e => CreatePersistentErrorVisual(e),
+        CustomLine cu => CreateCustomLineVisual(cu),
         _ => throw new InvalidOperationException($"Unknown line type: {line.GetType()}"),
     };
+
+    /// <summary>
+    /// Renders an extension-submitted <see cref="CustomLine"/>. Dispatches
+    /// by <see cref="CustomLine.LineType"/> to the renderer the extension
+    /// registered via <c>IPhiApi.RegisterTranscriptLineRenderer</c>; the
+    /// renderer returns a <see cref="Visual"/> which is wrapped directly.
+    /// Without a registered renderer the line falls back to a plain text
+    /// bubble of <see cref="CustomLine.Content"/>.
+    /// </summary>
+    private LineVisual CreateCustomLineVisual(CustomLine line)
+    {
+        if (_projector?.Renderers?.TryGetTranscriptLineRenderer(line.LineType, out var r) == true
+            && r is Phi.Extensions.Rendering.TranscriptLineRenderer renderer)
+        {
+            var dto = new TranscriptLine(line.LineType, line.Id, line.Content, line.Details);
+            var fragment = renderer(dto, Expanded: false);
+            if (fragment is Visual visual)
+                return new StaticVisual(visual);
+            if (fragment is string text)
+                return CreateCustomTextVisual(text);
+        }
+        return CreateCustomTextVisual(line);
+    }
+
+    /// <summary>Fallback plain-text bubble for a <see cref="CustomLine"/> with no renderer.</summary>
+    private static StaticVisual CreateCustomTextVisual(CustomLine line)
+    {
+        var markup = new Markup(Escape(line.Content)) { Wrap = true };
+        return new StaticVisual(markup);
+    }
+
+    private static StaticVisual CreateCustomTextVisual(string text)
+    {
+        var markup = new Markup(Escape(text)) { Wrap = true };
+        return new StaticVisual(markup);
+    }
 
     private static StaticVisual CreateUserTextVisual(UserTextLine line)
     {
@@ -270,7 +322,7 @@ public sealed class ChatTranscript : IDisposable
 
     private ToolCallVisual CreateToolCallVisual(ToolCallLine line)
     {
-        var card = ToolCardRegistry.For(line.ToolName);
+        var card = ToolCardRegistry.For(line.ToolName, _projector?.Renderers);
         // The projector stores arguments as a JSON string so the line stays
         // serializable; the TUI card needs the original ToolCall object to
         // extract path/offset/limit/command/etc. for the title and body.

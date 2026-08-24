@@ -31,7 +31,7 @@ public class HookDispatchTests
         new(
             name, "0.0.0", "",
             typeof(HookDispatchTests), new FakePhiExtension(),
-            "", typeof(HookDispatchTests).Assembly, new ExtensionLoadContext(),
+            "", typeof(HookDispatchTests).Assembly, new ExtensionLoadContext(Path.GetTempPath()),
             DeclaredCapabilities: ExtensionCapability.None);
 
     private sealed class FakePhiExtension : IPhiExtension

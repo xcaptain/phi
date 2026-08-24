@@ -1,6 +1,8 @@
 using System.Reflection;
 using Phi.Agent;
+using Phi.Chat;
 using Phi.Extensions.Events;
+using Phi.Extensions.Rendering;
 
 namespace Phi.Extensions.Host;
 
@@ -31,7 +33,7 @@ namespace Phi.Extensions.Host;
 /// <c>PhiEvent</c>s for observation handlers.
 /// </para>
 /// </summary>
-internal sealed class ExtensionRuntime : IDisposable
+internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
 {
     private readonly Phi.Session _session;
     private readonly List<LoadedExtension> _extensions = [];
@@ -42,6 +44,21 @@ internal sealed class ExtensionRuntime : IDisposable
     // Per-extension generation token. InvalidateAllGenerations() on reload
     // flips every one so captured PhiApi references throw (GenerationGuard).
     private readonly Dictionary<LoadedExtension, ExtensionGeneration> _generations = [];
+
+    // ── Renderer registries (IExtensionRenderers) ──
+    // Registered during Setup via api.RegisterToolCard /
+    // api.RegisterTranscriptLineRenderer; consulted by the TUI / Avalonia
+    // chat components (via Phi.Chat.IExtensionRenderers) to give extension
+    // tools a custom card and extension lines a custom visual.
+
+    /// <summary>Tool name → display descriptor (icon / title / kind).</summary>
+    private readonly Dictionary<string, ToolDescriptor> _toolDescriptors = new(StringComparer.Ordinal);
+
+    /// <summary>Tool name → card renderer (body content producer).</summary>
+    private readonly Dictionary<string, ToolCardRenderer> _toolCardRenderers = new(StringComparer.Ordinal);
+
+    /// <summary>TranscriptLine.Type → renderer (produces the host visual fragment).</summary>
+    private readonly Dictionary<string, TranscriptLineRenderer> _transcriptLineRenderers = new(StringComparer.Ordinal);
 
     public ExtensionRuntime(Phi.Session session, IPhiUiBridge uiBridge)
     {
@@ -295,6 +312,93 @@ internal sealed class ExtensionRuntime : IDisposable
         }
     }
 
+    // ──────── IExtensionRenderers ────────
+
+    /// <inheritdoc />
+    public bool TryGetToolDescriptor(string toolName, out ToolDescriptor descriptor)
+    {
+        if (_toolDescriptors.TryGetValue(toolName, out descriptor))
+            return true;
+        // Fall through to the built-in table (bash / read / write / edit).
+        descriptor = ToolDescriptors.For(toolName);
+        return false;
+    }
+
+    /// <inheritdoc />
+    public bool TryGetToolCardRenderer(string toolName, out object renderer)
+    {
+        if (_toolCardRenderers.TryGetValue(toolName, out var r))
+        {
+            renderer = r;
+            return true;
+        }
+        renderer = null!;
+        return false;
+    }
+
+    /// <inheritdoc />
+    public bool TryGetTranscriptLineRenderer(string lineType, out object renderer)
+    {
+        if (_transcriptLineRenderers.TryGetValue(lineType, out var r))
+        {
+            renderer = r;
+            return true;
+        }
+        renderer = null!;
+        return false;
+    }
+
+    // ──────── Renderer registration (called by PhiApi during Setup) ────────
+
+    /// <summary>
+    /// Registers a custom tool card: a descriptor (icon / title / kind)
+    /// plus an optional body renderer. Called by
+    /// <see cref="PhiApi.RegisterToolCard"/>. The UI chat components
+    /// consult this via <see cref="IExtensionRenderers"/> to render the
+    /// tool's card.
+    /// </summary>
+    public void RegisterToolCard(
+        LoadedExtension from,
+        string toolName,
+        ToolDescriptor descriptor,
+        ToolCardRenderer? renderer)
+    {
+        ArgumentNullException.ThrowIfNull(toolName);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        _toolDescriptors[toolName] = descriptor;
+        if (renderer is not null)
+            _toolCardRenderers[toolName] = renderer;
+    }
+
+    /// <summary>
+    /// Registers a renderer for a custom transcript line type. Called by
+    /// <see cref="PhiApi.RegisterTranscriptLineRenderer"/>. The UI chat
+    /// components invoke this via <see cref="IExtensionRenderers"/> when
+    /// a <see cref="Phi.Chat.CustomLine"/> with a matching
+    /// <see cref="Phi.Chat.CustomLine.LineType"/> arrives.
+    /// </summary>
+    public void RegisterTranscriptLineRenderer(
+        LoadedExtension from,
+        string lineType,
+        TranscriptLineRenderer renderer)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(lineType);
+        ArgumentNullException.ThrowIfNull(renderer);
+        _transcriptLineRenderers[lineType] = renderer;
+    }
+
+    /// <summary>
+    /// Submits an extension-produced transcript line into the host's chat
+    /// projector. Called by <see cref="PhiApi.SubmitTranscriptLine"/>.
+    /// Routed through the UI bridge so the line lands on the live
+    /// projector (which the host UI owns), not on a stale reference.
+    /// </summary>
+    public void SubmitTranscriptLine(TranscriptLine line)
+    {
+        ArgumentNullException.ThrowIfNull(line);
+        UiBridge.SubmitTranscriptLine(line);
+    }
+
     public void Dispose()
     {
         _eventDispatch?.Dispose();
@@ -308,6 +412,9 @@ internal sealed class ExtensionRuntime : IDisposable
         _extensions.Clear();
         _apisForTest.Clear();
         _generations.Clear();
+        _toolDescriptors.Clear();
+        _toolCardRenderers.Clear();
+        _transcriptLineRenderers.Clear();
         _hooks.Dispose();
     }
 }

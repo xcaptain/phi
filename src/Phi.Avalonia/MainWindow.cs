@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
+using Phi.Chat;
 using Phi.Extensions.Host;
 using Phi.Providers;
 using SukiUI.Controls;
@@ -19,11 +20,20 @@ public sealed class MainWindow : SukiWindow
     private readonly ShellView _shell;
 
     public MainWindow(ActiveSession active, ProviderManager providers)
-        : this(active, providers, null)
+        : this(active, providers, null, null)
     {
     }
 
     public MainWindow(ActiveSession active, ProviderManager providers, Action<IUiSink>? onSinkBuilt)
+        : this(active, providers, onSinkBuilt, null)
+    {
+    }
+
+    public MainWindow(
+        ActiveSession active,
+        ProviderManager providers,
+        Action<IUiSink>? onSinkBuilt,
+        Func<IExtensionRenderers?>? renderersAccessor)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
@@ -60,7 +70,7 @@ public sealed class MainWindow : SukiWindow
         IsMenuVisible = false;
         IsTitleBarVisible = true;
 
-        _shell = new ShellView(active, providers, onSinkBuilt: onSinkBuilt);
+        _shell = new ShellView(active, providers, onSinkBuilt: onSinkBuilt, renderersAccessor: renderersAccessor);
         Content = _shell.Root;
 
         Closed += (_, _) => _shell.Dispose();

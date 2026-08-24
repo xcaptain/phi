@@ -1,4 +1,3 @@
-using System.Text;
 using Phi.Extensions;
 using Phi.Extensions.Host;
 using Phi.Tui.Components;
@@ -64,27 +63,12 @@ internal sealed class TuiUiSink : IUiSink
 
     public void SubmitTranscriptLine(TranscriptLine line)
     {
-        // Sprint 3 wiring: render transcript lines submitted by extensions
-        // as a persistent info line so they survive the transient slot
-        // and are visible in scrollback. Sprint 4 introduces CustomLine +
-        // RegisterTranscriptLineRenderer for type-specific renderers; this
-        // fallback keeps the path observable end-to-end today.
-        var body = FormatCustomLine(line);
-        _transcript.AddPersistentError(body);
-    }
-
-    private static string FormatCustomLine(TranscriptLine line)
-    {
-        var sb = new StringBuilder();
-        sb.Append('[').Append(line.Type).Append("] ");
-        sb.Append(line.Content);
-        if (line.Details is { Count: > 0 } d)
-        {
-            sb.Append("  ");
-            foreach (var kv in d)
-                sb.Append(kv.Key).Append('=').Append(kv.Value).Append(' ');
-        }
-        return sb.ToString().TrimEnd();
+        // Sprint 4: the line lands in the projector as a CustomLine. The
+        // transcript renderer dispatches by LineType to whatever renderer
+        // the extension registered; without one it falls back to a plain
+        // text bubble. (Before Sprint 4 this routed to the persistent
+        // error slot, which polluted the transcript with non-error lines.)
+        _transcript.SubmitCustomLine(line);
     }
 
     public Task<string?> ShowSelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout)

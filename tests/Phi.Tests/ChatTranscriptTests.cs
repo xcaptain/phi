@@ -202,4 +202,69 @@ public class ChatTranscriptTests
         var grid = (XenoAtom.Terminal.UI.Controls.Grid)card.BodyState.Value!;
         await Assert.That(grid.Cells.Count).IsEqualTo(2);
     }
+
+    [Test]
+    public async Task SubmitCustomLine_AddsCustomLineVisual_WithoutRenderer_FallsBackToText()
+    {
+        var session = new MockSession();
+        var transcript = new ChatTranscript();
+        transcript.Bind(session);
+        var before = transcript.Flow.Items.Count;
+
+        // No renderer registered for "my-ext:progress" → the fallback plain
+        // text bubble is used. The line must still land in the flow.
+        transcript.SubmitCustomLine(new Phi.Extensions.TranscriptLine(
+            Type: "my-ext:progress",
+            Id: "line-1",
+            Content: "Building…",
+            Details: new Dictionary<string, object?> { ["percent"] = 42 }));
+
+        await Assert.That(transcript.Flow.Items.Count).IsEqualTo(before + 1);
+    }
+
+    [Test]
+    public async Task SubmitCustomLine_WithRegisteredRenderer_UsesRendererVisual()
+    {
+        var session = new MockSession();
+        // A fake renderers source that registers a custom renderer for
+        // "my-ext:styled" returning a simple Visual.
+        var renderers = new FakeExtensionRenderers();
+        var transcript = new ChatTranscript();
+        transcript.Bind(session, renderers);
+
+        transcript.SubmitCustomLine(new Phi.Extensions.TranscriptLine(
+            Type: "my-ext:styled",
+            Id: "line-2",
+            Content: "fancy body"));
+
+        await Assert.That(transcript.Flow.Items.Count).IsEqualTo(1);
+    }
+
+    /// <summary>Stub renderer registry for the TUI-side routing test.</summary>
+    private sealed class FakeExtensionRenderers : Phi.Chat.IExtensionRenderers
+    {
+        public bool TryGetToolDescriptor(string toolName, out Phi.Agent.ToolDescriptor descriptor)
+        {
+            descriptor = Phi.Agent.ToolDescriptors.For(toolName);
+            return false;
+        }
+
+        public bool TryGetToolCardRenderer(string toolName, out object renderer)
+        {
+            renderer = null!;
+            return false;
+        }
+
+        public bool TryGetTranscriptLineRenderer(string lineType, out object renderer)
+        {
+            if (lineType == "my-ext:styled")
+            {
+                renderer = new Phi.Extensions.Rendering.TranscriptLineRenderer((line, expanded) =>
+                    new XenoAtom.Terminal.UI.Controls.Markup("[green]" + line.Content + "[/]"));
+                return true;
+            }
+            renderer = null!;
+            return false;
+        }
+    }
 }

@@ -1,3 +1,4 @@
+using Phi.Chat;
 using Phi.Extensions.Host;
 using Phi.Providers;
 using Phi.Tui.Components;
@@ -29,6 +30,7 @@ public sealed class PhiTuiApp
     private readonly State<ISession> _currentSession;
     private readonly TuiDialogShower _dialogShower;
     private readonly Action<IUiSink> _onSinkBuilt;
+    private readonly Func<IExtensionRenderers?>? _renderersAccessor;
 
     /// <summary>
     /// Fired every time a chat page is built (initially + on every
@@ -47,12 +49,12 @@ public sealed class PhiTuiApp
     public IUiSink CurrentSink { get; private set; } = new NullUiSink();
 
     public PhiTuiApp(ISession initialSession, ProviderManager providers)
-        : this(initialSession, providers, null, null)
+        : this(initialSession, providers, null, null, null)
     {
     }
 
     public PhiTuiApp(ISession initialSession, ProviderManager providers, TuiDialogShower? dialogShower)
-        : this(initialSession, providers, dialogShower, null)
+        : this(initialSession, providers, dialogShower, null, null)
     {
     }
 
@@ -61,6 +63,16 @@ public sealed class PhiTuiApp
         ProviderManager providers,
         TuiDialogShower? dialogShower,
         Action<IUiSink>? onSinkBuilt)
+        : this(initialSession, providers, dialogShower, onSinkBuilt, null)
+    {
+    }
+
+    public PhiTuiApp(
+        ISession initialSession,
+        ProviderManager providers,
+        TuiDialogShower? dialogShower,
+        Action<IUiSink>? onSinkBuilt,
+        Func<IExtensionRenderers?>? renderersAccessor)
     {
         ArgumentNullException.ThrowIfNull(initialSession);
         ArgumentNullException.ThrowIfNull(providers);
@@ -69,6 +81,7 @@ public sealed class PhiTuiApp
         // Program.cs wires the real XenoAtom-backed implementation.
         _dialogShower = dialogShower ?? new TuiDialogShower(() => null!);
         _onSinkBuilt = onSinkBuilt ?? (_ => { });
+        _renderersAccessor = renderersAccessor;
         _currentSession = new State<ISession>(initialSession);
     }
 
@@ -124,7 +137,10 @@ public sealed class PhiTuiApp
         input.SessionReplaced += OnSessionReplaced;
         input.Build();
 
-        transcript.Bind(session);
+        // Sprint 4: hand the extension renderers to the projector so custom
+        // transcript lines / tool cards / descriptors route to the
+        // registered renderers instead of the static fallbacks.
+        transcript.Bind(session, _renderersAccessor?.Invoke());
         StatusBarBinder.Bind(statusBar, transcript, session);
 
         // Empty session? Show a slogan in the transient region; the first

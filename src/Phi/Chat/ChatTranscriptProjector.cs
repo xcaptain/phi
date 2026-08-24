@@ -20,6 +20,7 @@ namespace Phi.Chat;
 public sealed class ChatTranscriptProjector : IDisposable
 {
     private readonly ISession _session;
+    private readonly IExtensionRenderers? _renderers;
     private readonly List<ChatLine> _lines = [];
     private readonly Dictionary<string, int> _indexById = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _toolCallIndexByToolCallId = new(StringComparer.Ordinal);
@@ -41,10 +42,21 @@ public sealed class ChatTranscriptProjector : IDisposable
     /// <summary>The current projection in line order. Stable Ids.</summary>
     public IReadOnlyList<ChatLine> Current => _lines;
 
-    public ChatTranscriptProjector(ISession session)
+    /// <summary>
+    /// Extension-registered renderers (tool cards / transcript lines /
+    /// descriptors), when the host loaded any. Null in a host with no
+    /// extension runtime (persistence-only sessions, headless tests).
+    /// The projector holds the reference for the chat components to
+    /// consult; the projector itself only uses it to enrich projected
+    /// lines.
+    /// </summary>
+    public IExtensionRenderers? Renderers => _renderers;
+
+    public ChatTranscriptProjector(ISession session, IExtensionRenderers? renderers = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _session = session;
+        _renderers = renderers;
         _session.HarnessEvent += Apply;
         _session.StateChanged += OnStateChanged;
         OnStateChanged(_session.State);
@@ -81,6 +93,33 @@ public sealed class ChatTranscriptProjector : IDisposable
     {
         ArgumentNullException.ThrowIfNull(message);
         AddLine(new PersistentErrorLine(NewId("er"), message));
+        Notify();
+    }
+
+    /// <summary>
+    /// Adds a custom extension-submitted line. <paramref name="lineType"/>
+    /// is the discriminator the host uses to look up a renderer (registered
+    /// via <c>IPhiApi.RegisterTranscriptLineRenderer</c>); without one the
+    /// host renders <paramref name="content"/> as a plain-text bubble.
+    /// <paramref name="details"/> is opaque structured data for the
+    /// registered renderer only.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="id"/> is the extension-provided stable line id (used
+    /// by renderers for DIFF). When empty the projector assigns one; pass a
+    /// stable id when the extension wants to update the same logical line
+    /// in place across multiple submissions.
+    /// </remarks>
+    public void SubmitCustomLine(
+        string lineType,
+        string? id,
+        string content,
+        IReadOnlyDictionary<string, object?>? details = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(lineType);
+        ArgumentNullException.ThrowIfNull(content);
+        var lineId = string.IsNullOrWhiteSpace(id) ? NewId("cu") : id;
+        AddLine(new CustomLine(lineId, lineType, content, details));
         Notify();
     }
 
@@ -293,7 +332,12 @@ public sealed class ChatTranscriptProjector : IDisposable
             Id: id,
             ToolCallId: call.Id,
             ToolName: call.Name,
-            Descriptor: ToolDescriptors.For(call.Name),
+            // Sprint 4: an extension can override the display descriptor
+            // (icon / title / kind) via IPhiApi.RegisterToolCard; fall back
+            // to the built-in table otherwise.
+            Descriptor: _renderers is { } r && r.TryGetToolDescriptor(call.Name, out var d)
+                ? d
+                : ToolDescriptors.For(call.Name),
             ArgumentsJson: SerializeArgs(call.Arguments),
             ResultState: ToolResultState.Pending,
             ResultText: null,

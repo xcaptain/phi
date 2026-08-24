@@ -5,6 +5,7 @@ using Phi.Providers;
 
 namespace Phi.Avalonia;
 
+
 /// <summary>
 /// One chat page bound to a single session. Owns the projector that
 /// projects the session's chat state, and wires the projector into the
@@ -26,13 +27,14 @@ public sealed class ChatPageView : IDisposable
         ISession session,
         Func<Task<string?>>? pickFolder = null,
         Action<Action>? postToUi = null,
-        Action<Action>? dispatchToUi = null)
+        Action<Action>? dispatchToUi = null,
+        IExtensionRenderers? renderers = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
         ArgumentNullException.ThrowIfNull(session);
 
-        _projector = new ChatTranscriptProjector(session);
+        _projector = new ChatTranscriptProjector(session, renderers);
 
         _transcript = new TranscriptView(dispatchToUi);
         _promptInput = new PromptInputView(

@@ -7,6 +7,7 @@ using MarkView.Avalonia;
 using Phi.Agent;
 using Phi.Avalonia.Components.ToolCards;
 using Phi.Chat;
+using Phi.Extensions;
 using Phi.Resources;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 
@@ -39,6 +40,7 @@ public sealed class TranscriptView
     private readonly TranscriptLayout _layout;
     private readonly Dictionary<string, LineHandle> _visualsByLineId = new(StringComparer.Ordinal);
     private readonly Action<Action> _dispatchToUi;
+    private IExtensionRenderers? _renderers;
 
     /// <summary>The transcript layout (the scrolling view + lines slot).</summary>
     public Control Root => _layout;
@@ -70,6 +72,7 @@ public sealed class TranscriptView
     public void Bind(ChatTranscriptProjector projector)
     {
         ArgumentNullException.ThrowIfNull(projector);
+        _renderers = projector.Renderers;
         projector.Changed += lines => _dispatchToUi(() => OnProjectorChanged(lines));
         RenderInitial(projector.Current);
         // Switched to a new (long) session — show the latest, not the
@@ -193,7 +196,7 @@ public sealed class TranscriptView
 
     // ──────── Handle creation ────────
 
-    private static LineHandle CreateHandle(ChatLine line) => line switch
+    private LineHandle CreateHandle(ChatLine line) => line switch
     {
         UserTextLine u => new StaticHandle(CreateUserTextBubble(u)),
         SkillInvocationLine s => new StaticHandle(CreateSkillInvocationBubble(s)),
@@ -202,8 +205,71 @@ public sealed class TranscriptView
         AssistantTextLine a => CreateAssistantTextHandle(a),
         ToolCallLine tc => CreateToolCallHandle(tc),
         PersistentErrorLine e => new StaticHandle(CreatePersistentErrorBubble(e)),
+        CustomLine cu => CreateCustomLineHandle(cu),
         _ => new StaticHandle(new TextBlock { Text = $"[unknown line: {line.GetType().Name}]" }),
     };
+
+    /// <summary>
+    /// Renders an extension-submitted <see cref="CustomLine"/>. Dispatches
+    /// by <see cref="CustomLine.LineType"/> to the renderer the extension
+    /// registered via <c>IPhiApi.RegisterTranscriptLineRenderer</c>; the
+    /// renderer returns a <see cref="Control"/> which is wrapped in a
+    /// transcript row. Without a registered renderer the line falls back
+    /// to a plain text bubble of <see cref="CustomLine.Content"/>.
+    /// </summary>
+    private LineHandle CreateCustomLineHandle(CustomLine line)
+    {
+        if (_renderers?.TryGetTranscriptLineRenderer(line.LineType, out var r) == true
+            && r is Phi.Extensions.Rendering.TranscriptLineRenderer renderer)
+        {
+            var dto = new TranscriptLine(line.LineType, line.Id, line.Content, line.Details);
+            var fragment = renderer(dto, Expanded: false);
+            if (fragment is Control control)
+                return new StaticHandle(control);
+            if (fragment is string text)
+                return new StaticHandle(CreateCustomTextBubble(text));
+        }
+        return new StaticHandle(CreateCustomTextBubble(line));
+    }
+
+    /// <summary>Fallback plain-text bubble for a <see cref="CustomLine"/> with no renderer.</summary>
+    private static Border CreateCustomTextBubble(CustomLine line)
+    {
+        return new Border
+        {
+            Padding = new Thickness(12, 10),
+            CornerRadius = new CornerRadius(10),
+            Background = AvaloniaTheme.ContainerBackground,
+            BorderBrush = AvaloniaTheme.ControlBorder,
+            BorderThickness = new Thickness(1),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Child = new SelectableTextBlock
+            {
+                Text = line.Content,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = AvaloniaTheme.TextPrimary,
+            },
+        };
+    }
+
+    private static Border CreateCustomTextBubble(string text)
+    {
+        return new Border
+        {
+            Padding = new Thickness(12, 10),
+            CornerRadius = new CornerRadius(10),
+            Background = AvaloniaTheme.ContainerBackground,
+            BorderBrush = AvaloniaTheme.ControlBorder,
+            BorderThickness = new Thickness(1),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Child = new SelectableTextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = AvaloniaTheme.TextPrimary,
+            },
+        };
+    }
 
     private static Grid CreateUserTextBubble(UserTextLine line)
     {
@@ -328,9 +394,9 @@ public sealed class TranscriptView
         return new AssistantTextHandle(markdown, markdown);
     }
 
-    private static ToolCallHandle CreateToolCallHandle(ToolCallLine line)
+    private ToolCallHandle CreateToolCallHandle(ToolCallLine line)
     {
-        var card = AvaloniaToolCardRegistry.For(line.ToolName);
+        var card = AvaloniaToolCardRegistry.For(line.ToolName, _renderers);
         System.Text.Json.Nodes.JsonNode? args = null;
         if (!string.IsNullOrEmpty(line.ArgumentsJson) && line.ArgumentsJson != "{}")
             args = System.Text.Json.Nodes.JsonNode.Parse(line.ArgumentsJson);

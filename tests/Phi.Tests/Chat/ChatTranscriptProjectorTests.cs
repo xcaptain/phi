@@ -278,6 +278,42 @@ public class ChatTranscriptProjectorTests
     }
 
     [Test]
+    public async Task SubmitCustomLine_AddsCustomLine_WithGivenFields()
+    {
+        var session = new MockSession();
+        using var projector = new ChatTranscriptProjector(session);
+        var fired = 0;
+        projector.Changed += _ => fired++;
+
+        projector.SubmitCustomLine("my-ext:progress", "line-1", "Building…",
+            new Dictionary<string, object?> { ["percent"] = 42 });
+
+        await Assert.That(fired).IsEqualTo(1);
+        await Assert.That(projector.Current).Count().IsEqualTo(1);
+        await Assert.That(projector.Current[0]).IsTypeOf<CustomLine>();
+        var line = (CustomLine)projector.Current[0];
+        await Assert.That(line.LineType).IsEqualTo("my-ext:progress");
+        await Assert.That(line.Content).IsEqualTo("Building…");
+        await Assert.That(line.Details!["percent"]).IsEqualTo(42);
+        // Explicit id is preserved (renderers DIFF on it).
+        await Assert.That(line.Id).IsEqualTo("line-1");
+    }
+
+    [Test]
+    public async Task SubmitCustomLine_EmptyId_AssignsGeneratedId()
+    {
+        var session = new MockSession();
+        using var projector = new ChatTranscriptProjector(session);
+
+        projector.SubmitCustomLine("ext:thing", id: null, content: "body");
+
+        await Assert.That(projector.Current[0]).IsTypeOf<CustomLine>();
+        var line = (CustomLine)projector.Current[0];
+        await Assert.That(line.Id).IsNotEmpty();
+        await Assert.That(line.Id).StartsWith("cu");
+    }
+
+    [Test]
     public async Task ClearAndLoad_ReplacesProjectionEntirely()
     {
         var session = new MockSession();

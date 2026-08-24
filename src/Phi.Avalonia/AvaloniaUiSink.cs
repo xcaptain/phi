@@ -1,4 +1,3 @@
-using System.Text;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -85,7 +84,12 @@ internal sealed class AvaloniaUiSink : IUiSink
     public void SubmitTranscriptLine(TranscriptLine line)
     {
         DeskLog.Write($"extension.transcript[{line.Type}]: {line.Content}");
-        PostUi(() => _projector.SubmitPersistentError(FormatCustomLine(line)));
+        // Sprint 4: the line lands in the projector as a CustomLine. The
+        // transcript renderer dispatches by LineType to whatever renderer
+        // the extension registered; without one it falls back to a plain
+        // text bubble. (Before Sprint 4 this routed to the persistent
+        // error slot, which polluted the transcript with non-error lines.)
+        PostUi(() => _projector.SubmitCustomLine(line.Type, line.Id, line.Content, line.Details));
     }
 
     public async Task<string?> ShowSelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout)
@@ -202,19 +206,5 @@ internal sealed class AvaloniaUiSink : IUiSink
     {
         if (Dispatcher.UIThread.CheckAccess()) action();
         else Dispatcher.UIThread.Post(action, DispatcherPriority.Background);
-    }
-
-    private static string FormatCustomLine(TranscriptLine line)
-    {
-        var sb = new StringBuilder();
-        sb.Append('[').Append(line.Type).Append("] ");
-        sb.Append(line.Content);
-        if (line.Details is { Count: > 0 } d)
-        {
-            sb.Append("  ");
-            foreach (var kv in d)
-                sb.Append(kv.Key).Append('=').Append(kv.Value).Append(' ');
-        }
-        return sb.ToString().TrimEnd();
     }
 }

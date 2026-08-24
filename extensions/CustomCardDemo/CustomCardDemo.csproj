@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <OutputType>Library</OutputType>
+    <IsPackable>true</IsPackable>
+    <AssemblyName>Phi.Extensions.CustomCardDemo</AssemblyName>
+    <RootNamespace>Phi.Extensions.CustomCardDemo</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
+    <ProjectReference Include="..\..\src\Phi.Agent\Phi.Agent.csproj" />
+    <ProjectReference Include="..\..\src\Phi.SchemaGen\Phi.SchemaGen.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+</Project>

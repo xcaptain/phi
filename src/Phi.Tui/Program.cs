@@ -42,12 +42,18 @@ var defaultProvider = providerManager.ResolveDefaultProvider();
 // bridge get the no-op NullUiSink (HasUi=false → dialogs return
 // defaults, no-ops are silent).
 IUiSink currentSink = new NullUiSink();
+// Stashed so the UI can resolve the session's extension renderers
+// (tool cards / transcript lines) after LoadAsync has built the runtime.
+// Each new session rebuilds the runtime and re-stashes it; the UI's
+// renderers accessor reads whatever is current.
+Phi.Extensions.Host.ExtensionRuntime? currentRuntime = null;
 var env = SessionEnvironment.Default(providerManager,
     // Sync factory — used by /reload (which is intentionally sync).
     extensionRuntimeFactory: session =>
     {
         var bridge = new PhiUiBridge(() => currentSink);
         var runtime = new ExtensionRuntime(session, bridge);
+        currentRuntime = runtime;
         runtime.RegisterCompiledExtension(new CodingPackExt());
         runtime.Initialize();
         return runtime;
@@ -61,6 +67,7 @@ var env = SessionEnvironment.Default(providerManager,
     {
         var bridge = new PhiUiBridge(() => currentSink);
         var runtime = new ExtensionRuntime(session, bridge);
+        currentRuntime = runtime;
         runtime.RegisterCompiledExtension(new CodingPackExt());
         await runtime.DiscoverAndTrustProjectExtensionsAsync(session.Cwd);
         runtime.Initialize();
@@ -88,7 +95,8 @@ using (session)
 
     var app = new PhiTuiApp(session, providerManager,
         new TuiDialogShower(() => null!),   // terminal app resolves late inside dialogs
-        onSinkBuilt: sink => currentSink = sink);
+        onSinkBuilt: sink => currentSink = sink,
+        renderersAccessor: () => currentRuntime);
     app.Run();
 }
 return 0;

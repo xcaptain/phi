@@ -24,7 +24,13 @@ public class HostShapeTests
             "RegisterCommand",
             "RegisterCompiledExtension",
             "RegisterTool",
+            "RegisterToolCard",
+            "RegisterTranscriptLineRenderer",
+            "SubmitTranscriptLine",
             "SubscribeEvent",
+            "TryGetToolCardRenderer",
+            "TryGetToolDescriptor",
+            "TryGetTranscriptLineRenderer",
         };
         var actual = typeof(ExtensionRuntime)
             .GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)

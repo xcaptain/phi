@@ -93,3 +93,27 @@ public sealed record ToolCallLine(
 /// every <c>LastError</c> snapshot that arrives with a non-null value.
 /// </summary>
 public sealed record PersistentErrorLine(string Id, string Message) : ChatLine(Id);
+
+// ──────── Extensions ────────
+
+/// <summary>
+/// One transcript line submitted by an extension via
+/// <c>IPhiApi.SubmitTranscriptLine</c>. The projector converts the
+/// extension's <c>TranscriptLine</c> DTO into this DU variant, then fires
+/// <see cref="ChatTranscriptProjector.Changed"/> like every other line.
+/// <para>
+/// <see cref="LineType"/> is the discriminator the host uses to look up
+/// a renderer (convention: <c>"&lt;extension-name&gt;:&lt;kind&gt;"</c>).
+/// When no renderer is registered for <see cref="LineType"/>, the host
+/// falls back to a plain-text bubble using <see cref="Content"/>.
+/// <see cref="Details"/> is opaque structured data — only the
+/// registered renderer knows how to interpret it (e.g. a progress bar
+/// reads <c>["percent"]</c>, a sub-agent progress line reads
+/// <c>["role"]</c> + <c>["status"]</c>).
+/// </para>
+/// </summary>
+public sealed record CustomLine(
+    string Id,
+    string LineType,
+    string Content,
+    IReadOnlyDictionary<string, object?>? Details) : ChatLine(Id);

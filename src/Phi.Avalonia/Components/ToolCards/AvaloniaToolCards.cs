@@ -3,7 +3,9 @@ using System.Text.Json.Nodes;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Phi.Agent;
+using Phi.Chat;
 using Phi.Extensions.CodingPack.Tools.Details;
+using Phi.Extensions.Rendering;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 
 namespace Phi.Avalonia.Components.ToolCards;
@@ -35,14 +37,21 @@ public interface IAvaloniaToolCard
 
 /// <summary>
 /// Resolves the <see cref="IAvaloniaToolCard"/> implementation for a given
-/// tool name. Adding a new tool means writing one
-/// <see cref="AvaloniaToolCardBase"/> subclass and adding a switch arm
-/// here — same shape as the TUI's <c>ToolCardRegistry</c>.
+/// tool name. An extension can override the card for a custom tool via
+/// <c>IPhiApi.RegisterToolCard</c>; when a renderer is registered for the
+/// name (passed through <paramref name="renderers"/>), the card wraps it.
+/// Otherwise a built-in switch produces the card for the known tools
+/// (read / write / edit / bash) with a generic fallback.
 /// </summary>
 public static class AvaloniaToolCardRegistry
 {
-    public static IAvaloniaToolCard For(string name) => name switch
+    public static IAvaloniaToolCard For(string name, Phi.Chat.IExtensionRenderers? renderers = null) => name switch
     {
+        // Extension-registered card renderer wins; the returned fragment
+        // (an Avalonia Control) becomes the card body on completion.
+        _ when renderers?.TryGetToolCardRenderer(name, out var r) == true
+            && r is Phi.Extensions.Rendering.ToolCardRenderer renderer
+            => new CustomToolCardView(renderer),
         "read" => new ReadToolCardView(),
         "write" => new WriteToolCardView(),
         "edit" => new EditToolCardView(),
@@ -413,6 +422,73 @@ public sealed class BashToolCardView : AvaloniaToolCardBase
     /// </summary>
     private static string ExtractText(IReadOnlyList<ContentBlock> content, int index) =>
         content.OfType<Phi.Agent.TextBlock>().ElementAtOrDefault(index)?.Text ?? "";
+}
+
+/// <summary>
+/// Card produced for a tool whose card was overridden by an extension via
+/// <c>IPhiApi.RegisterToolCard</c>. The extension's
+/// <see cref="Phi.Extensions.Rendering.ToolCardRenderer"/> produces the
+/// body content on completion; the returned <see cref="object"/> is cast
+/// to an Avalonia <see cref="Control"/> and used as the detail body. If
+/// the renderer returns something Avalonia can't render (or returns null),
+/// the card falls back to the generic truncated-output body.
+/// <para>
+/// Pending state mirrors the generic card: a <c>› toolName</c> header.
+/// </para>
+/// </summary>
+public sealed class CustomToolCardView : AvaloniaToolCardBase
+{
+    private readonly Phi.Extensions.Rendering.ToolCardRenderer _renderer;
+
+    public CustomToolCardView(Phi.Extensions.Rendering.ToolCardRenderer renderer)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        _renderer = renderer;
+    }
+
+    protected override void OnShowPending(ToolCall toolCall)
+    {
+        SetHeader(AvaloniaToolCardHelpers.PendingGlyph, toolCall.Name, "");
+    }
+
+    protected override void OnComplete(ToolCall toolCall, ToolResult result)
+    {
+        var status = AvaloniaToolCardHelpers.StatusGlyph(result.IsError);
+        SetHeader(status, toolCall.Name, "");
+
+        // The extension's renderer produces the body; only use it when it
+        // yields something Avalonia can actually render.
+        object? fragment;
+        try
+        {
+            fragment = _renderer(toolCall.Arguments, result);
+        }
+        catch
+        {
+            fragment = null; // a throwing renderer must not break the transcript
+        }
+
+        if (fragment is Control control)
+        {
+            SetLazyDetailBody(() => control);
+            return;
+        }
+
+        if (fragment is string text)
+        {
+            SetLazyDetailBody(() => AvaloniaToolCardHelpers.BodyText(
+                text,
+                foreground: result.IsError ? AvaloniaTheme.Danger : null));
+            return;
+        }
+
+        SetLazyDetailBody(() => AvaloniaToolCardHelpers.BodyText(
+            Truncate(result.Text),
+            foreground: result.IsError ? AvaloniaTheme.Danger : null));
+    }
+
+    private static string Truncate(string text) =>
+        text.Length > 240 ? text[..237] + "…" : text;
 }
 
 /// <summary>Fallback card for unknown tool names (MCP tools etc.).</summary>

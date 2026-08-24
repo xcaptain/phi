@@ -1,4 +1,5 @@
 using Avalonia;
+using Phi.Chat;
 using Phi.Extensions.CodingPack;
 using Phi.Extensions.Host;
 using Phi.Providers;
@@ -82,11 +83,17 @@ internal static class Program
         // always forwards to the live UI. Before the first page is
         // built, extensions get the no-op NullUiSink.
         IUiSink currentSink = new NullUiSink();
+        // Stashed so the UI can resolve the session's extension renderers
+        // (tool cards / transcript lines) after LoadAsync has built the
+        // runtime. Each new session rebuilds the runtime and re-stashes it;
+        // the UI's renderers accessor reads whatever is current.
+        ExtensionRuntime? currentRuntime = null;
         var env = SessionEnvironment.Default(providerManager,
             extensionRuntimeFactory: session =>
             {
                 var bridge = new PhiUiBridge(() => currentSink);
                 var runtime = new ExtensionRuntime(session, bridge);
+                currentRuntime = runtime;
                 runtime.RegisterCompiledExtension(new CodingPackExt());
                 runtime.Initialize();
                 return runtime;
@@ -100,6 +107,7 @@ internal static class Program
             {
                 var bridge = new PhiUiBridge(() => currentSink);
                 var runtime = new ExtensionRuntime(session, bridge);
+                currentRuntime = runtime;
                 runtime.RegisterCompiledExtension(new CodingPackExt());
                 await runtime.DiscoverAndTrustProjectExtensionsAsync(session.Cwd);
                 runtime.Initialize();
@@ -131,14 +139,22 @@ internal static class Program
             session.HasUi = true;   // Avalonia hosts a real UI; surfaced via IPhiContext.Ui.HasUi
 
             var active = new ActiveSession(session);
-            BuildAvaloniaApp(active, providerManager, sink => currentSink = sink)
+            BuildAvaloniaApp(
+                active,
+                providerManager,
+                sink => currentSink = sink,
+                renderersAccessor: () => currentRuntime)
                 .StartWithClassicDesktopLifetime(args);
         }
         return 0;
     }
 
-    public static AppBuilder BuildAvaloniaApp(ActiveSession active, ProviderManager providers, Action<IUiSink> onSinkBuilt) =>
-        AppBuilder.Configure(() => new PhiAvaloniaApp(active, providers, onSinkBuilt))
+    public static AppBuilder BuildAvaloniaApp(
+        ActiveSession active,
+        ProviderManager providers,
+        Action<IUiSink> onSinkBuilt,
+        Func<IExtensionRenderers?>? renderersAccessor = null) =>
+        AppBuilder.Configure(() => new PhiAvaloniaApp(active, providers, onSinkBuilt, renderersAccessor))
             .UsePlatformDetect()
             .LogToTrace();
 }

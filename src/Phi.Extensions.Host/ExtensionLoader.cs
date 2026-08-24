@@ -28,11 +28,18 @@ internal static class ExtensionLoader
         if (!File.Exists(assemblyPath))
             throw new FileNotFoundException($"extension assembly not found: {assemblyPath}", assemblyPath);
 
-        var alc = new ExtensionLoadContext();
+        var extensionDir = Path.GetDirectoryName(Path.GetFullPath(assemblyPath))
+            ?? Environment.CurrentDirectory;
+        var alc = new ExtensionLoadContext(extensionDir);
         Assembly assembly;
         try
         {
             assembly = alc.LoadFromAssemblyPath(assemblyPath);
+            // Bundle support: install the native P/Invoke resolver (reads
+            // runtimes/{rid}/native/) right after the assembly loads so any
+            // DllImport in the extension's code (or its deps) resolves from
+            // the bundle. No-op when the bundle has no native/ directory.
+            alc.InstallNativeResolver(assembly);
         }
         catch (Exception ex)
         {
