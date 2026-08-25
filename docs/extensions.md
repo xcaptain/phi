@@ -1,2134 +1,3003 @@
-# Phi 扩展系统设计
+> pi can create extensions. Ask it to build one for your use case.
+> 这份文档抄自 pi 的设计，我们的目标是跟 pi 的设计保持一致，避免自己的小巧思，影响了整体设计
 
-> 状态：**Phase 0（重命名）+ 架构重构已完成**。`SessionFactory` / `SessionNavigator` /
-> `SessionConfig` / `ISessionNavigator` 全部删除，扩展系统的核心点（`ISession`、
-> `Session.LoadAsync`、composition root、`Phi.Avalonia.ActiveSession`）已经稳定。
-> Sprint 0-4（包骨架、loader、hooks、`/reload`、UI Bridge、Capability、Project Trust、
-> Tool Card / Transcript Line 扩展点、Bundle 加载）**代码已实现**，但 §14 里程碑表
-> 部分条目（Sprint 0-3）尚未逐项勾掉——追踪状态以代码 + 测试为准，表格本身有滞后，
-> 读表时留意。
-> 对标实现：tau（~/github/tau）的 pi-extensions 形态，已生产验证。
->
-> **本次修订对照当前代码（重构后）逐章节更新**。修改点散落在第 1 / 4 / 5 / 7 / 10 / 13 节，
-> 其余章节保持不变。
->
-> §16（`McpPack`）新加：MCP 作为官方扩展 `McpPack` 的设计（**不进入 Phi 主体代码**）。
-> 扩展参考实现以 `CodingPack`（默认）与 `CustomCardDemo`（最小 renderer 演示）为准，
-> 不再规划单独的 multi-agent 参考扩展。
+# Extensions
 
-## 设计目标
+Extensions are TypeScript modules that extend pi's behavior. They can subscribe to lifecycle events, register custom tools callable by the LLM, add commands, and more.
 
-让 Phi 在保持现有 TUI / Avalonia 双端结构不变的前提下，变成一个**可扩展的 host**：用户写一个 C# 类库，引用 `Phi.Extensions` 包，实现 `IPhiExtension.Setup(IPhiApi)`，编译产出 dll（managed-only）或 bundle（带 `runtimes/`），放到 `~/.phi/extensions/` 或 `<project>/.phi/extensions/` 下，重新启动（或 `/reload`）后立即生效——**复用所有现有 UI**（transcript / prompt / status bar / tool card / slash 分发）。
+> **Placement for /reload:** Put extensions in `~/.pi/agent/extensions/` (global) or `.pi/extensions/` (project-local) for auto-discovery. Use `pi -e ./path.ts` only for quick tests. Extensions in auto-discovered locations can be hot-reloaded with `/reload`.
 
-扩展能做什么：
+**Key capabilities:**
+- **Custom tools** - Register tools the LLM can call via `pi.registerTool()`
+- **Event interception** - Block or modify tool calls, inject context, customize compaction
+- **User interaction** - Prompt users via `ctx.ui` (select, confirm, input, notify)
+- **Custom UI components** - Full TUI components with keyboard input via `ctx.ui.custom()` for complex interactions
+- **Custom commands** - Register commands like `/mycommand` via `pi.registerCommand()`
+- **Session persistence** - Store state that survives restarts via `pi.appendEntry()`
+- **Custom rendering** - Control how tool calls/results and messages appear in TUI
 
-| 能力 | API 入口 | 用户最终体验 |
-|---|---|---|
-| 注册自定义工具 | `api.RegisterTool(tool, contribution?)` | 模型能调，转录区有 card |
-| 注册 slash 命令 | `api.RegisterCommand("/foo", handler, ...)` | TUI 输入 / Avalonia 侧栏识别 |
-| 监听事件 | `api.On<TEvent>(handler)` | 14+ 个 agent / lifecycle / hook 事件 |
-| 提交 prompt | `api.SubmitUserMessage(...)` | 后台任务往对话塞消息 |
-| 写转录行 | `api.SubmitTranscriptLine(...)` | 自定义 UI 行进转录 |
-| 持久化 | `api.AppendEntryAsync("ns", data)` | 跟随 session 写盘，resume 自动重放 |
-| 系统提示注入 | `api.AddPromptGuideline(text)` | 注入到 system prompt |
-| 拦截 tool 调用 | `On<ToolCallHookEvent>` → `ToolCallHookResult` | 改参数 / 拦截 / 加守卫 |
-| 拦截 tool 结果 | `On<ToolResultHookEvent>` → `ToolResultHookResult` | 改返回内容 / 改 details |
-| 拦截用户输入 | `On<InputEvent>` → `InputHookResult` | 改写 prompt / 消费 |
-| 通知用户 | `api.Notify(message, level)` | TUI toast / Avalonia 通知 |
-| 询问用户 | `await api.Context.Ui.SelectAsync(...)` | 复用现有 select / confirm / input |
-| 自定义 Tool Card | `api.RegisterToolCard(name, descriptor, renderer?)` | 双端按 descriptor 渲染 |
-| 自定义 Transcript Line | `api.RegisterTranscriptLineRenderer(type, fn)` | 自定义行类型 + 渲染 |
+**Example use cases:**
+- Permission gates (confirm before `rm -rf`, `sudo`, etc.)
+- Git checkpointing (stash at each turn, restore on branch)
+- Path protection (block writes to `.env`, `node_modules/`)
+- Custom compaction (summarize conversation your way)
+- Conversation summaries (see `summarize.ts` example)
+- Interactive tools (questions, wizards, custom dialogs)
+- Stateful tools (todo lists, connection pools)
+- External integrations (file watchers, webhooks, CI triggers)
+- Games while you wait (see `snake.ts` example)
 
----
+See [examples/extensions/](../examples/extensions/) for working implementations.
 
-## 1. 架构总览
+## Table of Contents
 
-完全照搬 tau 的"runtime 是 session 的伴生对象"形态。`Session` 在 `ApplyRuntime` 时持有一个 `ExtensionRuntime`，runtime 负责发现 → 加载 → 安装 hooks → 与 session 事件总线双向通信。
+- [Quick Start](#quick-start)
+- [Extension Locations](#extension-locations)
+- [Available Imports](#available-imports)
+- [Writing an Extension](#writing-an-extension)
+  - [Extension Styles](#extension-styles)
+- [Events](#events)
+  - [Lifecycle Overview](#lifecycle-overview)
+  - [Resource Events](#resource-events)
+  - [Session Events](#session-events)
+  - [Agent Events](#agent-events)
+  - [Model Events](#model-events)
+  - [Tool Events](#tool-events)
+- [ExtensionContext](#extensioncontext)
+- [ExtensionCommandContext](#extensioncommandcontext)
+- [ExtensionAPI Methods](#extensionapi-methods)
+- [State Management](#state-management)
+- [Custom Tools](#custom-tools)
+  - [Dynamic Tool Loading](#dynamic-tool-loading)
+- [Custom UI](#custom-ui)
+- [Error Handling](#error-handling)
+- [Mode Behavior](#mode-behavior)
+- [Examples Reference](#examples-reference)
 
-```
-                     ┌─────────────────────────────────────────────┐
-                     │ Phi (runtime)                               │
-                     │                                             │
-    user prompt ─►   │ Session  ─── LoadAsync(cwd, env, …)         │ ◄── SteeringQueue / FollowUpQueue
-                     │   │      (composition root, was              │
-                     │   │       SessionFactory)                    │
-                     │   Harness                                    │
-                     │   AgentLoop                                  │ ─► HarnessEvent (TurnStart, ToolExec*, TurnEnd…)
-                     │   SessionEnvironment  ◄───────────────────────│─── resolver / prompt opts / compaction
-                     │   SessionRuntime        (internal, holds env) │─── injected via ApplyRuntime
-                     │   │                                          │
-                     │   ┌──────────────────────┐                   │
-                     │   │ ExtensionRuntime      │ ◄── /reload       │
-                     │   │                      │     (teardown +    │
-                     │   │  ┌─ LoadedExt   │     │      re-import)   │
-                     │   │  │   tools      │     │                   │
-                     │   │  │   commands   │     │ ─► wrapped into IReadOnlyList<Tool>
-                     │   │  │   guidelines │     │ ─► appended to SlashCommandRegistry
-                     │   │  │   line render│     │ ─► fed into SystemPromptBuilder
-                     │   │  │   tool cards │     │ ─► installed into AvaloniaToolCardRegistry / TUI registry
-                     │   │  │   handlers   │     │                   │
-                     │   │  └──────────────┘     │                   │
-                     │   │                      │                   │
-                     │   │  Tool wrappers       │ ─► hook tool_call / tool_result around every Tool
-                     │   │  Hook dispatch       │ ─► turn_start / turn_end / tool_execution_* / session_*
-                     │   │  GenerationGuard     │ ─► stale-after-/reload → ExtensionError
-                     │   └──────────────────────┘                   │
-                     └────────────┬────────────────────────────────┘
-                                  │ IPhiUiBridge
-                  ┌───────────────┴───────────────┐
-                  ▼                               ▼
-          Phi.Tui                          Phi.Avalonia
-          TuiPhiUiBridge                   AvaloniaPhiUiBridge
-                                          (uses ActiveSession for reactive binding)
-```
+## Quick Start
 
-**关键不变量**：
+Create `~/.pi/agent/extensions/my-extension.ts`:
 
-- `ExtensionRuntime` 是 session 的内部对象，**生命周期 = session 生命周期**，由 `SessionRuntime` 在 `Session.LoadAsync`（原 `SessionFactory.BuildRuntime`）里构造，跟随 `ApplyRuntime` 注入到 `Session`。
-- `IPhiApi` 是**唯一**扩展可见的入口。session / Harness / AgentLoop 的内部状态不暴露。
-- 所有 UI 都是**已存在的 UI**。扩展不构造 Visual / Control，只调接口；接口由 host 的 bridge 实现。
-- TUI / Avalonia 共用同一份 `IPhiUiBridge` 协议——两边各实现一个，扩展代码完全不知道宿主是哪个。
-- **`SessionEnvironment` 替代了旧的 `SessionConfig`**：它是 composition root 构造一次的**跨 session 上下文**（provider resolver / system prompt options / compaction knobs），`Session.LoadAsync` 接收它并注入到 `SessionRuntime.Environment`。Extension runtime 在 reload 时复用同一 env，避免扩展改了 env 就被覆盖。
-- **Avalonia 端的 `ActiveSession`**（`src/Phi.Avalonia/ActiveSession.cs`）是 XenoAtom `State<T>` 在 Avalonia 侧的等价物——一个 current-session 容器 + `Changed` 事件。Sprint 0+ 不需要为扩展重写它，但 hooks 内部用到的 `IPhiContext.Ui` 要从 session 的 bridge 转发到 `ActiveSession.Current` 上拿到的 session（详见 §6）。
+```typescript
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
----
+export default function (pi: ExtensionAPI) {
+  // React to events
+  pi.on("session_start", async (_event, ctx) => {
+    ctx.ui.notify("Extension loaded!", "info");
+  });
 
-## 2. 目录与发现
-
-跟 tau 严格对齐：
-
-| 路径 | 加载时机 |
-|---|---|
-| `~/.phi/extensions/*.dll` | 默认 |
-| `~/.phi/extensions/<dir>/<dir>.dll` | bundle 默认（带 `runtimes/`，Sprint 3+） |
-| `<project>/.phi/extensions/*.dll` | 项目信任通过后 + `--project-extensions` |
-| `--extension PATH`（CLI / Settings） | 显式，无论 `--no-extensions` 与否 |
-
-**入口点契约**：
-
-```csharp
-[PhiExtension("my-cool-ext", Version = "1.0.0",
-             Capabilities = ExtensionCapability.Network | ExtensionCapability.FileSystemRead)]
-public sealed class MyCoolExt : IPhiExtension
-{
-    public void Setup(IPhiApi api) { ... }
-}
-```
-
-用 `[PhiExtension]` attribute 标注名字，避免反射遍历所有 `IPhiExtension` 实现。`IPhiExtension.Setup` 必须是同步方法——async setup 太容易写出 race condition，且 action 方法要求 session 已绑定，setup 时 session 还没绑。
-
-**Manifest（v1 跳过）**：v1 不引入 manifest 配 `*.phi.json`，因为 .NET 项目本身就是 `csproj`，用户装 dll 就行。后续要做"扩展自带 sub-tool"时再加 manifest，声明 entry assembly / dependencies / project-trust category。
-
-**v1 一个 dll 限一个 `[PhiExtension]` class**，避免多 class 增加 manifest 复杂度。v2 再放宽。
-
----
-
-## 3. 加载机制：AssemblyLoadContext
-
-跟 tau 的 synthetic module 不同，C# 的标准做法是 **`AssemblyLoadContext`**（ALC）：每个扩展一个 ALC，可独立卸载（`/reload` 用），扩展依赖的程序集冲突不会污染 host。
-
-### 3.1 两个包切分
-
-**`Phi.Extensions`**（公开包，扩展直接引用）：
-- `IPhiExtension` / `IPhiApi` / `IPhiContext` / `IPhiUiBridge`
-- 所有事件 payload record
-- `[PhiExtension]` attribute
-- `ExtensionError` / `NotifyLevel` / `MessageDelivery`
-- `Capability` `[Flags]` 枚举（v1 不强制，attribute 留位，Sprint 3+ 启用）
-
-**`Phi.Extensions.Host`**（私有包，Phi 自己引用，扩展**拿不到**）：
-- `ExtensionLoader` / `ExtensionLoadContext` / `ExtensionRuntime`
-- `LoadedExtension` / `DiscoveredExtension`
-- 工具包装、hook dispatch、generation guard、ALC 解析
-
-```
-Phi.Extensions            ←── 扩展引用（netstandard2.0）
-        ▲
-Phi.Extensions.Host       ←── Phi 自己用，不发给扩展
-        ▲
-   Extensions/*.dll       (loaded into isolated ALC per extension)
-```
-
-**为什么分**：
-- 隔离 API 边界：扩展看不到 Phi 内部类型，无法反向调用未公开 API。
-- 版本独立：`Phi.Extensions` 可以 `netstandard2.0` 发布，不跟随 Phi 主版本。扩展升级 Phi 后扩展代码不动。
-- 测试独立：`Phi.Extensions.Tests` 不依赖 Phi 主项目，跑得更快。
-
-### 3.2 ALC 加载流程（两阶段）
-
-> **Sprint 1 实现细节**：原设计是单步"Load 时实例化 + 调 Setup"，但 Setup 需要
-> 一个 session-bound 的 `IPhiApi`（action 方法要求 session 已绑定），所以实际拆成两步：
-> **Load**（无 session）只实例化并返回 `LoadedExtension`；**Initialize**（session 已 bound
-> 之后）才调 `Setup`。这跟 tau 的 "setup() 在 session 创建后调" 一致。
-
-**第一阶段：`ExtensionLoader.Load`**
-
-```csharp
-public static class ExtensionLoader
-{
-    public static LoadedExtension Load(string dllPath, ExtensionLoadContext alc)
-    {
-        // 1. loadFromAssemblyPath（不解析依赖，依赖解析到 alc.Resolving）
-        var asm = alc.LoadFromAssemblyPath(dllPath);
-
-        // 2. 找 [PhiExtension("name", ...)] attribute
-        //    找不到 → ExtensionLoadDiagnostic("missing attribute")
-        //    找到多个 → ExtensionLoadDiagnostic("v1 allows one per assembly")
-        //    反射异常（缺 transitive deps） → 把 LoaderException 信息透传
-        var (entryType, attribute) = FindEntryType(asm, dllPath);
-
-        // 3. 实例化（try/catch 记录诊断，永不让扩展崩 host）
-        IPhiExtension instance;
-        try
-        {
-            instance = (IPhiExtension)Activator.CreateInstance(entryType)!;
-        }
-        catch (Exception ex)
-        {
-            // ActivationFailed; ALC 已 try-unload 避免泄漏
-            throw new ExtensionLoadDiagnostic(
-                $"failed to instantiate '{entryType.FullName}': {ex.Message}", ex);
-        }
-
-        // 注意：Load 不调 Setup。Setup 需要 IPhiApi，而 IPhiApi 需要 Session。
-        return new LoadedExtension(
-            attribute.Name, attribute.Version, attribute.Description,
-            entryType, instance, Path.GetFullPath(dllPath), asm, alc);
+  pi.on("tool_call", async (event, ctx) => {
+    if (event.toolName === "bash" && event.input.command?.includes("rm -rf")) {
+      const ok = await ctx.ui.confirm("Dangerous!", "Allow rm -rf?");
+      if (!ok) return { block: true, reason: "Blocked by user" };
     }
+  });
+
+  // Register a custom tool
+  pi.registerTool({
+    name: "greet",
+    label: "Greet",
+    description: "Greet someone by name",
+    parameters: Type.Object({
+      name: Type.String({ description: "Name to greet" }),
+    }),
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      return {
+        content: [{ type: "text", text: `Hello, ${params.name}!` }],
+        details: {},
+      };
+    },
+  });
+
+  // Register a command
+  pi.registerCommand("hello", {
+    description: "Say hello",
+    handler: async (args, ctx) => {
+      ctx.ui.notify(`Hello ${args || "world"}!`, "info");
+    },
+  });
 }
 ```
 
-**第二阶段：`ExtensionRuntime.Initialize`**（session 已 bound 后调）
+Test with `--extension` (or `-e`) flag:
 
-```csharp
-public void Initialize()
+```bash
+pi -e ./my-extension.ts
+```
+
+## Extension Locations
+
+> **Security:** Extensions run with your full system permissions and can execute arbitrary code. Only install from sources you trust.
+
+Extensions are auto-discovered from trusted locations. Project-local `.pi/extensions` entries load only after the project is trusted.
+
+| Location | Scope |
+|----------|-------|
+| `~/.pi/agent/extensions/*.ts` | Global (all projects) |
+| `~/.pi/agent/extensions/*/index.ts` | Global (subdirectory) |
+| `.pi/extensions/*.ts` | Project-local |
+| `.pi/extensions/*/index.ts` | Project-local (subdirectory) |
+
+Additional paths via `settings.json`:
+
+```json
 {
-    // 一个 session 一个 PhiContext（共享给所有 extension）
-    var context = new PhiContext(_session, _uiBridge);
-    foreach (var ext in _extensions)
-    {
-        try
-        {
-            // 每 extension 一个 PhiApi 实例——同样的 context，不同的
-            // GenerationGuard（见 §7.1）。Sprint 2 真正实现，目前 stub。
-            var api = new PhiApi(this, ext, context);
-            ext.Instance.Setup(api);
-        }
-        catch (Exception ex)
-        {
-            // Setup 抛异常不杀其它 extension；写进 SetupResults audit log
-            _setupResults.Add(new ExtensionSetupFailure(ext, ex));
-        }
-    }
+  "packages": [
+    "npm:@foo/bar@1.0.0",
+    "git:github.com/user/repo@v1"
+  ],
+  "extensions": [
+    "/path/to/local/extension.ts",
+    "/path/to/local/extension/dir"
+  ]
 }
 ```
 
-Composition root 完整流程：
+To share extensions via npm or git as pi packages, see [packages.md](packages.md).
 
-```csharp
-// Phi.Tui/Program.cs 或 Phi.Avalonia.Desktop/Program.cs
-var session = await Phi.Session.LoadAsync(cwd, env, ...);   // 阶段零：composition root
-session.HasUi = true;                                          // 标志 UI 已 attached
+## Available Imports
 
-using var runtime = new ExtensionRuntime(session, uiBridge);    // 持有 lifetime
-runtime.DiscoverAndLoad(extensionPaths);                          // 阶段一：Load
-runtime.Initialize();                                             // 阶段二：Setup
-// runtime.Dispose() 时所有 ALC unload
-```
+| Package | Purpose |
+|---------|---------|
+| `@earendil-works/pi-coding-agent` | Extension types (`ExtensionAPI`, `ExtensionContext`, events) |
+| `typebox` | Schema definitions for tool parameters |
+| `@earendil-works/pi-ai` | AI utilities (`StringEnum` for Google-compatible enums) |
+| `@earendil-works/pi-tui` | TUI components for custom rendering |
 
-**为什么不合并成一步**：Setup 的 IPhiContext 投影 `Session.SystemPrompt` 等字段，
-而这些字段是 `Session.LoadAsync`（即 `ApplyRuntime`）之后才填充的。Load 阶段
-session 还没 ready，Setup 会抛"session not bound"——所以必须分两阶段。
+npm dependencies work too. Add a `package.json` next to your extension (or in a parent directory), run `npm install`, and imports from `node_modules/` are resolved automatically.
 
-### 3.3 ALC 的 Resolving 事件
+For distributed pi packages installed with `pi install` (npm or git), runtime deps must be in `dependencies`. Package installation uses production installs (`npm install --omit=dev`) by default, so `devDependencies` are not available at runtime; when `npmCommand` is configured, git packages use plain `install` for compatibility with wrappers.
 
-扩展引用的第三方 dll（Newtonsoft.Json、SkiaSharp 之类）按"扩展目录优先"解析，**不**冒泡到 host ALC。一个扩展用 Newtonsoft.Json 12，另一个用 13，互不打架。
+Node.js built-ins (`node:fs`, `node:path`, etc.) are also available.
 
-```csharp
-public sealed class ExtensionLoadContext : AssemblyLoadContext
-{
-    private readonly string _extensionDir;
+## Writing an Extension
 
-    public ExtensionLoadContext(string extensionDir)
-        : base(isCollectible: true)  // 关键：可卸载
-    {
-        _extensionDir = extensionDir;
-        Resolving += OnResolving;   // 解析失败时给本扩展一次机会
-    }
+An extension exports a default factory function that receives `ExtensionAPI`. The factory can be synchronous or asynchronous:
 
-    private Assembly? OnResolving(AssemblyLoadContext ctx, AssemblyName name)
-    {
-        // 查 runtimes/{rid}/native/ 加载 native deps（Sprint 3+）
-        // 当前 v1：返回 null，冒泡到默认 ALC（依赖 host 的 runtimeconfig）
-        return null;
-    }
+```typescript
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-    protected override Assembly? Load(AssemblyName name)
-    {
-        // v1 留空：纯托管扩展直接走默认解析
-        // Sprint 3+：在这里拦截 runtimes/{rid}/native/** native deps
-        return null;
-    }
+export default function (pi: ExtensionAPI) {
+  // Subscribe to events
+  pi.on("event_name", async (event, ctx) => {
+    // ctx.ui for user interaction
+    const ok = await ctx.ui.confirm("Title", "Are you sure?");
+    ctx.ui.notify("Done!", "info");
+    ctx.ui.setStatus("my-ext", "Processing...");  // Footer status
+    ctx.ui.setWidget("my-ext", ["Line 1", "Line 2"]);  // Widget above editor (default)
+  });
+
+  // Register tools, commands, shortcuts, flags
+  pi.registerTool({ ... });
+  pi.registerCommand("name", { ... });
+  pi.registerShortcut("ctrl+x", { ... });
+  pi.registerFlag("my-flag", { ... });
 }
 ```
 
-**关键点 `isCollectible: true`**——ALC 可卸载是 `/reload` 的前提。
+Extensions are loaded via [jiti](https://github.com/unjs/jiti), so TypeScript works without compilation.
 
-### 3.4 ALC 卸载（`/reload`）
+If the factory returns a `Promise`, pi awaits it before continuing startup. That means async initialization completes before `session_start`, before `resources_discover`, and before provider registrations queued via `pi.registerProvider()` are flushed.
 
-`alc.Unload()` 异步，但 .NET 不会真正释放内存，除非：
+### Async factory functions
 
-```csharp
-public static void UnloadSafely(AssemblyLoadContext alc)
-{
-    alc.Unload();
-    for (int i = 0; i < 3; i++)
-    {
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
-    }
-    // 验证：WeakReference 监控，确保 dll 真正卸载
+Use an async factory for one-time startup work such as fetching remote configuration or dynamically discovering available models.
+
+```typescript
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+export default async function (pi: ExtensionAPI) {
+  const response = await fetch("http://localhost:1234/v1/models");
+  const payload = (await response.json()) as {
+    data: Array<{
+      id: string;
+      name?: string;
+      context_window?: number;
+      max_tokens?: number;
+    }>;
+  };
+
+  pi.registerProvider("local-openai", {
+    baseUrl: "http://localhost:1234/v1",
+    apiKey: "$LOCAL_OPENAI_API_KEY",
+    api: "openai-completions",
+    models: payload.data.map((model) => ({
+      id: model.id,
+      name: model.name ?? model.id,
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: model.context_window ?? 128000,
+      maxTokens: model.max_tokens ?? 4096,
+    })),
+  });
 }
 ```
 
-tau 的 Python `sys.modules` 卸载简单粗暴，C# 必须做这个 GC dance，否则 reload 后旧 dll 还在内存里。**这是 v1 实现细节里最容易踩坑的地方之一**——Sprint 2 必须写专门的 reload 泄漏测试。
+This pattern makes the fetched models available during normal startup and to `pi --list-models`.
 
----
+### Long-lived resources and shutdown
 
-## 4. `IPhiApi` 形态
+Extension factories may run in invocations that never start a session. Do not start background resources such as processes, sockets, file watchers, or timers from the factory.
 
-完全镜像 tau 的 `ExtensionAPI`，但用 C# 习惯的命名和类型。
+Defer background resource startup until `session_start` or the command/tool/event that needs the resource. Register an idempotent `session_shutdown` handler to close any session-scoped resources you start.
 
-```csharp
-public interface IPhiApi
+### Extension Styles
+
+**Single file** - simplest, for small extensions:
+
+```
+~/.pi/agent/extensions/
+└── my-extension.ts
+```
+
+**Directory with index.ts** - for multi-file extensions:
+
+```
+~/.pi/agent/extensions/
+└── my-extension/
+    ├── index.ts        # Entry point (exports default function)
+    ├── tools.ts        # Helper module
+    └── utils.ts        # Helper module
+```
+
+**Package with dependencies** - for extensions that need npm packages:
+
+```
+~/.pi/agent/extensions/
+└── my-extension/
+    ├── package.json    # Declares dependencies and entry points
+    ├── package-lock.json
+    ├── node_modules/   # After npm install
+    └── src/
+        └── index.ts
+```
+
+```json
+// package.json
 {
-    string Name { get; }
-    string Version { get; }
-    IPhiContext Context { get; }
-
-    // ──────── 注册（同步，setup 内调用） ────────
-
-    void RegisterTool(Tool tool, ToolContribution? contribution = null);
-    void RegisterCommand(string name, PhiCommandHandler handler,
-                         string description = "",
-                         string usage = "",
-                         IReadOnlyList<string>? aliases = null);
-    void AddPromptGuideline(string guideline);
-    void RegisterToolCard(string toolName,
-                          ToolDescriptor descriptor,
-                          IToolCardRenderer? renderer = null);
-    void RegisterTranscriptLineRenderer(string lineType,
-                                         TranscriptLineRenderer renderer);
-    void RegisterMessageRenderer(string customType, MessageRenderer renderer);
-
-    IDisposable On(string eventName, Func<PhiEvent, IPhiContext, ValueTask> handler);
-    IDisposable On(string eventName, Action<PhiEvent, IPhiContext> handler);
-
-    // ──────── 行动（session 已绑定后调用，绑定前调用 → ExtensionError） ────────
-
-    void SubmitUserMessage(string text,
-                           MessageDelivery delivery = MessageDelivery.FollowUp);
-    void SubmitCustomMessage(string text,
-                             string customType,
-                             IReadOnlyDictionary<string, object?>? details = null,
-                             MessageDelivery delivery = MessageDelivery.FollowUp,
-                             bool triggerTurn = true);
-    void SubmitTranscriptLine(TranscriptLine line);
-
-    Task AppendEntryAsync(string ns, IReadOnlyDictionary<string, object?> data);
-
-    void Notify(string message, NotifyLevel level = NotifyLevel.Info);
-
-    void SwitchModel(string model);
-    void SwitchProvider(IPhiProvider provider, string providerName, string model);
-}
-
-public interface IPhiContext
-{
-    string Cwd { get; }
-    string Model { get; }
-    string ProviderName { get; }
-    string? SessionId { get; }
-    string SystemPrompt { get; }
-    bool IsRunning { get; }
-    bool HasUi { get; }
-    IReadOnlyList<IAgentMessage> Transcript { get; }
-    IPhiUiBridge Ui { get; }
+  "name": "my-extension",
+  "dependencies": {
+    "zod": "^3.0.0",
+    "chalk": "^5.0.0"
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  }
 }
 ```
 
-### 4.0 `IPhiContext` 与现有 `ISession` 的映射
+Run `npm install` in the extension directory, then imports from `node_modules/` work automatically.
 
-`IPhiContext` 的字段**全部**可以从现有 `ISession` + 即将新增的 bridge 字段派生。Sprint 0+ 实现时，`PhiApi` 内部持有一个 `Session` 引用 + 一个 `IPhiUiBridge`：
+## Events
 
-| `IPhiContext` 字段 | 来源（现有 `ISession` / 新增） |
-|---|---|
-| `Cwd` | `ISession.Cwd`（直接有） |
-| `Model` | `ISession.State.Model`（已有） |
-| `ProviderName` | `ISession.State.ProviderName`（已有） |
-| `SessionId` | `ISession.Id`（已有） |
-| `SystemPrompt` | **需要**：`Session._systemPrompt` 当前是 `private`，新增 `ISession.SystemPrompt { get; }` |
-| `IsRunning` | `ISession.State.IsRunning`（已有） |
-| `HasUi` | **新增字段**（composition root 在 UI 模式下设 true，未来 headless 模式设 false） |
-| `Transcript` | `ISession.State.Messages`（已有） |
-| `Ui` | **新增**：`Session` 持有一个 `IPhiUiBridge _uiBridge`（UI 层在 init 时注入；详见 §6） |
+### Lifecycle Overview
 
-**关键点**：`IPhiContext` 不是新的"session 状态字段"，而是 `ISession` 的**只读投影**。`PhiApi` 构造时拿一个 `Session` + 一个 `IPhiUiBridge`，所有 getter 转发过去。`PhiApi` 自己**不持有任何状态**——reload 时旧 `PhiApi` 立即失效（详见 §7），新 `PhiApi` 用新的 Session 重新构造。
+```
+pi starts
+  │
+  ├─► project_trust (user/global and CLI extensions only, before project resources load)
+  ├─► session_start { reason: "startup" }
+  └─► resources_discover { reason: "startup" }
+      │
+      ▼
+user sends prompt ─────────────────────────────────────────┐
+  │                                                        │
+  ├─► (extension commands checked first, bypass if found)  │
+  ├─► input (can intercept, transform, or handle)          │
+  ├─► (skill/template expansion if not handled)            │
+  ├─► before_agent_start (can inject message, modify system prompt)
+  ├─► agent_start                                          │
+  ├─► message_start / message_update / message_end         │
+  │                                                        │
+  │   ┌─── turn (repeats while LLM calls tools) ───┐       │
+  │   │                                            │       │
+  │   ├─► turn_start                               │       │
+  │   ├─► context (can modify messages)            │       │
+  │   ├─► before_provider_headers (can mutate headers)     |
+  │   ├─► before_provider_request (can inspect or replace payload)
+  │   ├─► after_provider_response (status + headers, before stream consume)
+  │   │                                            │       │
+  │   │   LLM responds, may call tools:            │       │
+  │   │     ├─► tool_execution_start               │       │
+  │   │     ├─► tool_call (can block)              │       │
+  │   │     ├─► tool_execution_update              │       │
+  │   │     ├─► tool_result (can modify)           │       │
+  │   │     └─► tool_execution_end                 │       │
+  │   │                                            │       │
+  │   └─► turn_end                                 │       │
+  │                                                        │
+  ├─► agent_end                                            │
+  └─► agent_settled (no retry/compaction/follow-up left)   │
+                                                           │
+user sends another prompt ◄────────────────────────────────┘
+
+/new (new session) or /resume (switch session)
+  ├─► session_before_switch (can cancel)
+  ├─► session_shutdown
+  ├─► session_start { reason: "new" | "resume", previousSessionFile? }
+  └─► resources_discover { reason: "startup" }
+
+/fork or /clone
+  ├─► session_before_fork (can cancel)
+  ├─► session_shutdown
+  ├─► session_start { reason: "fork", previousSessionFile }
+  └─► resources_discover { reason: "startup" }
+
+/name or pi.setSessionName()
+  └─► session_info_changed
+
+/compact or auto-compaction
+  ├─► session_before_compact (can cancel or customize)
+  ├─► session_compact (success)
+  └─► session_compact_failed (failure or abort)
+
+/tree navigation
+  ├─► session_before_tree (can cancel or customize)
+  └─► session_tree
+
+/model or Ctrl+P (model selection/cycling)
+  ├─► thinking_level_select (if model change changes/clamps thinking level)
+  └─► model_select
+
+thinking level changes (settings, keybinding, pi.setThinkingLevel())
+  └─► thinking_level_select
+
+exit (Ctrl+C, Ctrl+D, SIGHUP, SIGTERM)
+  └─► session_shutdown
 ```
 
-### 4.1 关键设计点
+### Startup Events
 
-- **`RegisterTool(Tool, ToolContribution?)`**——Phi 已有 `ToolContribution`（prompt snippet / guidelines / capabilities），扩展可传 `null`（自动从 `tool.Description` 推断）或完整指定，**复用 system prompt 渲染**。不要让扩展直接拼 system prompt 字符串。
-- **`RegisterCommand` 同步 handler**（跟 tau 一致）——命令处理器跑在 TUI / Avalonia 的 submit 路径上。要异步的扩展就 `Task.Run` 包裹。
-- **`SubmitUserMessage` vs `SubmitCustomMessage`**——后者带 `customType` / `details`，前端按 `RegisterMessageRenderer` 注册的 renderer 渲染。
-- **`IDisposable On(...)` 返回 token**——扩展拿 token 自己 dispose，比让扩展去记"handler 列表"更稳。
-- **所有 action 方法在 generation stale / session unbound 时抛 `ExtensionError`**，**绝不静默吞错**。
+#### project_trust
 
----
+Fired before pi decides whether to trust a project with dynamic configs (`.pi` or `.agents/skills`). It runs during startup and when session replacement (for example `/resume`) enters a cwd whose trust has not been resolved in the current process. Only user/global extensions and CLI `-e` extensions participate; project-local extensions are not loaded until after trust is resolved.
 
-## 5. 事件与钩子系统
-
-照搬 tau 的 4 个分类，每类用 C# 的 `sealed record`。
-
-### 5.1 Agent 事件
-
-| 事件名 | Payload | 来源 |
-|---|---|---|
-| `agent_start` | `AgentStartEvent` | `Session.SubmitPrompt` 起点（`Session.RunAgentCoreAsync` 进入 try 块时） |
-| `agent_end` | `AgentEndEvent { Messages, WillRetry }` | `RunAgentCoreAsync` finally 块 |
-| `agent_settled` | `AgentSettledEvent` | 无 retry / compaction / queued continuation |
-| `turn_start` | `TurnStartEvent { TurnIndex, TimestampMs }` | `AgentLoop.RunAgentAsync` 已发 `TurnStartEvent(Turn)`；Sprint 1+ 加 timestamp / index |
-| `turn_end` | `TurnEndEvent { TurnIndex, Message, ToolResults }` | `AgentLoop` 已发 `TurnEndEvent(FinalMessage)`；扩展 payload 在 `Phi.Agent` 基础上扩 |
-| `message_start` | `MessageStartEvent { Message }` | 已有（合并自 `Phi.Agent.AssistantMessageEvent` 流） |
-| `message_update` | `MessageUpdateEvent { Message, AssistantMessageEvent }` | 已有 |
-| `message_end` | `MessageEndEvent { Message }` | 已有 |
-| `tool_execution_start` | `ToolExecutionStartEvent { ToolCallId, ToolName, Arguments }` | 已有（来自 `HarnessEvent` 流） |
-| `tool_execution_update` | `ToolExecutionUpdateEvent { ... PartialResult }` | 已有（Sprint 1+ 实现） |
-| `tool_execution_end` | `ToolExecutionEndEvent { ... Result, IsError }` | 已有 |
-| `queue_update` | `QueueUpdateEvent { SteeringCount, FollowUpCount }` | `Session.EnqueueSteering` / `EnqueueFollowUp` 调 `UpdateQueueCount` 时 |
-| `compaction_start` | `CompactionStartEvent { Reason }` | 已有 |
-| `compaction_end` | `CompactionEndEvent { Reason, Result, Aborted, WillRetry, ErrorMessage }` | 已有 |
-| `entry_appended` | `EntryAppendedEvent { Entry }` | `Session.AppendMessage` 后 |
-| `session_info_changed` | `SessionInfoChangedEvent { SessionId?, Title, Model, ProviderName }` | `Session.SwitchModel` / `Rename` / `SubmitCustomMessage` 等改动 `State.SessionTitle/Model/ProviderName` 时 |
-| `thinking_level_changed` | `ThinkingLevelChangedEvent { Level }` | Phi 暂无，留位 |
-| `auto_retry_start` / `auto_retry_end` | 暂无，Phi 还没有 retry，留位 | — |
-| `agent_event` | wildcard 透传 | — |
-
-**重要：`ISession` 当前已有的事件总线**（重构后稳定）：
-- `ISession.StateChanged` — 每次 `SessionState` snapshot 变化时触发（包含上面大部分"状态类"事件）。`SessionState` record 已含 `Messages / Model / ProviderName / SessionTitle / IsRunning / Stats / ContextUsedTokens / LastError / SteeringCount / FollowUpCount / SessionId / IsPersisted / AutoCompactThreshold`。
-- `ISession.HarnessEvent` — 每次 harness emit 触发（覆盖 `TurnStart` / `TurnEnd` / `ToolExecution*` / `AssistantTextDelta` / `AssistantThinking*` / `AssistantToolCall` / `HarnessError` / `MessageStart/Update/End` / `CompactionStart/End` 等所有 Phi.Agent 已有的 `HarnessEvent`）。
-
-**扩展层要做的**：在 `ExtensionRuntime` 里订阅这两个 event，把它们转成 `PhiEvent` 子 record（payload 适配），再分发给扩展的 `On(...)` handler。**不要**绕过这两个 event 自己再去监听 `Phi.Agent.Harness` 内部状态——单一源真相是 `ISession`，扩展和 host UI 都从这同一个源拿数据。
-
-### 5.2 Lifecycle 事件
-
-| 事件名 | Payload |
-|---|---|
-| `session_start` | `SessionStartEvent { Reason: SessionLifecycleReason }`（startup / reload / new / resume / quit） |
-| `session_shutdown` | `SessionShutdownEvent { Reason }` |
-| `input` | `InputEvent { Text, Source, StreamingBehavior }`；返回 `InputHookResult { Action, Text, Message }` |
-| `tool_call` | `ToolCallHookEvent { ToolName, Arguments }`；返回 `ToolCallHookResult { Block, Reason, Arguments }` |
-| `tool_result` | `ToolResultHookEvent { ToolName, Arguments, Result }`；返回 `ToolResultHookResult { Content, Details }` |
-| `project_trust` | `ProjectTrustEvent { Cwd, HasUi, Counts }`；返回 `ExtensionTrustResult { Decision, Remember }` |
-
-### 5.3 Hook 链语义（照搬 tau）
-
-- **`input`**：`transform` 链式改写；`handled` 短路（消费掉，不进 agent run）。
-- **`tool_call`**：`block=true` 优先；`arguments` 链式改写；handler 异常视为 block（fail-safe）。
-- **`tool_result`**：链式改写 `content` / `details`。
-
-### 5.4 Hook 挂载位置
-
-| Hook | 挂载位置 |
-|---|---|
-| `input` | `Session.SubmitPrompt` 最前面（before `_runCts` 构造 / `RunAgentCoreAsync`） |
-| `tool_call` / `tool_result` | `Phi` 包在 runtime 阶段包装 `Tool`：`baseTools.Concat(ext.RegisteredTools).Select(WrapTool)`；`AgentLoop.ExecuteToolSafelyAsync` 前后插入 hook |
-| `session_start` / `session_shutdown` | `Session.ApplyRuntime` 末尾 / `Dispose` 里 |
-
-**关键**：hook 是 `Phi` 内部代码的扩展点，不是 `Phi.Agent` 的。`Phi.Agent.Harness` / `Loop` 完全不知道扩展的存在——`Phi.SessionFactory.BuildRuntime` 负责把扩展注册的工具 + 包装后的工具喂给 harness。
-
-```csharp
-// SessionFactory.BuildRuntime
-var baseTools = new BuiltInToolProvider(config.Cwd).GetTools();
-var extTools = _extensionRuntime.RegisteredTools;
-var allTools = baseTools.Concat(extTools).ToList();
-var wrapped = allTools.Select(t => _extensionRuntime.WrapWithHooks(t)).ToArray();
-var harness = new Harness(provider, wrapped, model: model, system: systemPrompt);
-```
-
----
-
-## 6. UI 接入（双端）
-
-最关键的一段：扩展必须用**同一份 UI**，且**不能 import UI framework**（否则 TUI 扩展在 Avalonia 跑不了，反之亦然）。
-
-### 6.1 `IPhiUiBridge` 协议
-
-跟 tau 的 `UiBridge` 严格对应：
-
-```csharp
-public interface IPhiUiBridge
-{
-    bool HasUi { get; }
-
-    // 通知（fire-and-forget）
-    void Notify(string message, NotifyLevel level = NotifyLevel.Info);
-
-    // 对话框（async；UI 不可用时返回 Pi-style no-op default）
-    Task<string?> SelectAsync(string title,
-                              IReadOnlyList<string> options,
-                              TimeSpan? timeout = null);
-    Task<bool> ConfirmAsync(string title,
-                            string message,
-                            TimeSpan? timeout = null);
-    Task<string?> InputAsync(string title,
-                             string placeholder = "",
-                             TimeSpan? timeout = null);
-
-    // Transcript 自定义行
-    void SubmitTranscriptLine(TranscriptLine line);
-
-    // 状态条 / 错误（Phi-specific）
-    void NotifyStatus(string message);
-    void FlashError(string message, bool persistent);
-}
-```
-
-**实现**：
-- `Phi.Tui.TuiPhiUiBridge` → 复用 `ChatTranscript`（已有 SubmitTransient / SubmitPersistent 路径）+ `PhiStatusBar`
-- `Phi.Avalonia.AvaloniaPhiUiBridge` → 复用 `ChatTranscriptProjector` + `DeskLog` + `PhiStatusBar`
-- `NullPhiUiBridge`（在 `Phi.Extensions` 里）→ 无 UI 时所有 dialog 返回 no-op default
-
-### 6.2 Tool Card 双端复用
-
-**这是 Phi 现有架构里最容易扩展的部分**——`ToolDescriptor` 已经是 UI-agnostic 的，`AvaloniaToolCardRegistry` 和 TUI 的 `ToolCardRegistry` 都是按 `name` 分派。
-
-扩展注册：
-
-```csharp
-api.RegisterToolCard(
-    "deploy",
-    new ToolDescriptor(ToolKind.Generic, "deploy", "🚀"),
-    renderer: args => $"deploy to {args["env"]}");
-```
-
-- `ToolDescriptor` 让双端按自己的图标集渲染（TUI emoji / Avalonia MaterialIcon，跟内置工具一致）
-- `renderer` 可选；不注册就用默认 `GenericToolCardView`（Avalonia）/ TUI 默认 card——扩展工具调用行立即有可读输出
-- `tool_execution_start` / `tool_execution_end` 事件把 `ToolCallLine` 完整字段暴露给扩展，扩展可订阅做"deploy 完成后在 transcript 画 ✓"等效果
-
-### 6.3 Transcript 自定义行
-
-扩展想塞一个"进度条"或"折叠的 build log"到 transcript，不走 tool call 路径：
-
-```csharp
-api.RegisterTranscriptLineRenderer("my-ext:progress", (line, expanded) =>
-{
-    var pct = line.Details?.TryGetValue("percent", out var v) == true ? (int)v : 0;
-    return new ProgressLine(line.Id, pct, line.Content);
+```typescript
+pi.on("project_trust", async (event, ctx) => {
+  // event.cwd - current working directory
+  // ctx has a limited trust context: cwd, mode, hasUI, and select/confirm/input/notify UI helpers
+  if (await ctx.ui.confirm("Trust project?", event.cwd)) {
+    return { trusted: "yes", remember: true };
+  }
+  return { trusted: "undecided" };
 });
-api.SubmitTranscriptLine(new TranscriptLine(
-    "my-ext:progress",
-    "Building…",
-    new Dictionary<string, object?> { ["percent"] = 42 }));
 ```
 
-`ChatLine` DU 加一个：
+A `project_trust` handler must return `{ trusted: "yes" | "no" | "undecided" }`. A user/global or CLI extension that returns `"yes"` or `"no"` owns the decision; the first yes/no decision wins and suppresses the built-in trust prompt. Use `remember: true` to persist a yes/no decision; otherwise it applies only to the current process. Return `"undecided"` to let later handlers or the built-in trust flow decide. Check `ctx.hasUI` before prompting. If no handler returns yes/no, normal trust resolution continues: saved `trust.json` decisions apply first, then `defaultProjectTrust` controls whether pi asks, trusts, or declines by default.
 
-```csharp
-public sealed record CustomLine(string Id, string LineType, string Content,
-                                IReadOnlyDictionary<string, object?>? Details)
-    : ChatLine(Id);
+### Resource Events
+
+#### resources_discover
+
+Fired after `session_start` so extensions can contribute additional skill, prompt, and theme paths.
+The startup path uses `reason: "startup"`. Reload uses `reason: "reload"`.
+
+```typescript
+pi.on("resources_discover", async (event, _ctx) => {
+  // event.cwd - current working directory
+  // event.reason - "startup" | "reload"
+  return {
+    skillPaths: ["/path/to/skills"],
+    promptPaths: ["/path/to/prompts"],
+    themePaths: ["/path/to/themes"],
+  };
+});
 ```
 
-`TranscriptView`（Avalonia）/ `ChatTranscript`（TUI）按 `LineType` 调注册的 renderer 渲染。扩展不需要知道宿主是 TUI 还是 Avalonia——它提交一行，host 渲染。
+### Session Events
 
-### 6.4 自定义 Dialog 复用
+See [Session Format](session-format.md) for session storage internals and the SessionManager API.
 
-`api.Context.Ui.SelectAsync(...)` 直接复用 `Phi.Tui.Components.PromptInput.Dialogs.cs` 和 `Phi.Avalonia.Components.ProvidersPage` 里已有的 picker 控件。**不**为扩展写新 dialog——现有 picker 视觉/交互已经够用。
+#### session_start
 
----
+Fired when a session is started, loaded, or reloaded.
 
-## 7. `/reload` 与 Generation Guard
-
-### 7.1 GenerationGuard
-
-照搬 tau 的 `ExtensionGeneration` 思想，但用 C# 更直接：
-
-```csharp
-public sealed class ExtensionGeneration
-{
-    private volatile bool _alive = true;
-    private string? _staleMessage;
-
-    public bool IsAlive => _alive;
-    public void Invalidate(string? reason = null)
-    {
-        _alive = false;
-        _staleMessage ??= reason;  // 第一次赢，跟 tau 对齐
-    }
-    public void AssertAlive()
-    {
-        if (!_alive)
-            throw new ExtensionError(
-                _staleMessage ?? "extension generation stale after /reload");
-    }
-}
-
-internal sealed class PhiApi : IPhiApi
-{
-    private readonly ExtensionGeneration _gen;
-    public PhiApi(ExtensionRuntime runtime, string extName, ExtensionGeneration gen)
-    {
-        _gen = gen;
-        _runtime = runtime;
-        ...
-    }
-    public void RegisterTool(Tool tool)
-    {
-        _gen.AssertAlive();
-        _runtime.RegisterTool(this, tool);
-    }
-    // 每个 public 方法第一行都是 _gen.AssertAlive()
-}
+```typescript
+pi.on("session_start", async (event, ctx) => {
+  // event.reason - "startup" | "reload" | "new" | "resume" | "fork"
+  // event.previousSessionFile - present for "new", "resume", and "fork"
+  ctx.ui.notify(`Session: ${ctx.sessionManager.getSessionFile() ?? "ephemeral"}`, "info");
+});
 ```
 
-捕获旧 `IPhiApi` 的扩展代码在 `/reload` 后调用任何方法都抛 `ExtensionError`，**绝不静默执行**。
+#### session_info_changed
 
-### 7.2 `/reload` 流程
+Fired when the current session display name is set via `/name`, RPC, or `pi.setSessionName()`.
 
-`/reload` 是 session 内的一个 action，**不是**前端的事。前端只需要：
-1. 把 `/reload` 注册到 `SlashCommandCatalog`（**当前状态**：现有 `SlashCommandCatalog.All` 是 `static readonly` list，需要在 Sprint 2 改成可变 registry —— 见 §10 / §11 关于"扩展注册命令"的接口设计）
-2. 注册到 Avalonia 侧栏
-3. 调 `session.ReloadAsync()`，等结果，弹 toast
-
-```csharp
-// Session
-public async Task<ReloadSummary> ReloadAsync()
-{
-    // 1. 等当前 run 结束
-    _runCts?.Cancel();
-    if (_currentRunTask is not null) await _currentRunTask;
-
-    var oldRuntime = _extensionRuntime;
-
-    // 2. 发 session_shutdown(reason="reload")
-    await oldRuntime.EmitSessionShutdownAsync(SessionLifecycleReason.Reload);
-
-    // 3. 让所有 PhiApi 立即失效
-    oldRuntime.InvalidateAllGenerations();
-
-    // 4. 卸载所有 ALC（GC dance）
-    oldRuntime.UnloadAssembliesSafely();
-
-    // 5. 构造新 runtime
-    var newRuntime = new ExtensionRuntime();
-    newRuntime.DiscoverAndLoad(
-        extensionPaths: _extensionPaths,
-        extensionDirs: _extensionDirs,
-        includeUserExtensions: _userExtensionsEnabled,
-        includeProjectExtensions: _projectExtensionsEnabled);
-
-    // 6. 把新 runtime 挂到 session
-    newRuntime.SetUiBridge(_uiBridge);
-    newRuntime.Bind(this);
-    newRuntime.AttachHarnessListener(_harness.Subscribe);
-    _extensionRuntime = newRuntime;
-
-    // 7. 重建 harness（wrapped tools + 新 system prompt）
-    var wrapped = newRuntime.WrapTools(_tools.ToArray());
-    _harness.ReplaceTools(wrapped);
-    RebuildSystemPrompt();
-
-    // 8. 发 session_start(reason="reload")
-    await newRuntime.EmitSessionStartAsync(SessionLifecycleReason.Reload);
-
-    return new ReloadSummary(newRuntime.Diagnostics);
-}
+```typescript
+pi.on("session_info_changed", async (event, ctx) => {
+  // event.name - current normalized name, or undefined if cleared
+  ctx.ui.notify(`Session renamed: ${event.name ?? "(none)"}`, "info");
+});
 ```
 
----
+#### session_before_switch
 
-## 8. 跨平台
+Fired before starting a new session (`/new`) or switching sessions (`/resume`).
 
-### 8.1 托管 DLL 本质跨平台
+```typescript
+pi.on("session_before_switch", async (event, ctx) => {
+  // event.reason - "new" or "resume"
+  // event.targetSessionFile - session we're switching to (only for "resume")
 
-同一份 `extension.dll` 在 Windows / Linux / macOS 加载完全一样，CoreCLR 不在乎后缀名（`.dll` 在 Linux 上对 managed assembly 合法，只是约定俗成用 `.so`）。所以**托管扩展天生跨平台**。
-
-### 8.2 Native deps 是真问题
-
-扩展只要 `PackageReference` 带 native 二进制的包，立刻按 RID 分裂：
-
-| 包 | Windows | Linux | macOS |
-|---|---|---|---|
-| `SkiaSharp` 2.x | `runtimes/win-x64/native/libSkiaSharp.dll` | `runtimes/linux-x64/native/libSkiaSharp.so` | `runtimes/osx-arm64/native/libSkiaSharp.dylib` |
-| `SQLitePCLRaw.bundle_e_sqlite3` | `.dll` | `.so` | `.dylib` |
-| `Magick.NET` | 同上 | 同上 | 同上 |
-
-### 8.3 v1 决策：单 dll + bundle 二者皆可
-
-**形态 1（v1 主推）**：纯托管单 dll
-
-```
-~/.phi/extensions/hello-tool/
-└── HelloTool.dll
-```
-
-扩展作者只引用 `Phi.Extensions`（纯托管），不引任何带 native 的 NuGet 包。一套 dll 通吃三平台。
-
-**形态 2（bundle，Sprint 3+）**：
-
-```
-~/.phi/extensions/chart-tool/
-├── ChartTool.dll
-├── ChartTool.deps.json
-├── runtimes/
-│   ├── win-x64/native/skiasharp.dll
-│   ├── linux-x64/native/libskiasharp.so
-│   └── osx-arm64/native/libskiasharp.dylib
-└── ChartTool.runtimeconfig.json
-```
-
-`ExtensionLoadContext.Load` 拦截 native deps 解析，按 `RuntimeInformation.RuntimeIdentifier` 选对应目录。**一份 bundle 跨三平台零修改**。
-
-文件命名约定：Phi 统一用 `.dll` 后缀（CoreCLR 不在乎，扩展作者不用为不同平台维护多个文件名）。
-
-### 8.4 Native deps 解析
-
-```csharp
-// ExtensionLoadContext.Resolving
-private Assembly? OnResolving(AssemblyLoadContext ctx, AssemblyName name)
-{
-    var rid = RuntimeInformation.RuntimeIdentifier; // win-x64 / linux-x64 / osx-arm64
-    var nativePath = Path.Combine(_extensionDir, "runtimes", rid, "native");
-    if (Directory.Exists(nativePath))
-    {
-        NativeLibrary.SetDllImportResolver(GetAssembly(), (libName, assembly, path) =>
-        {
-            var libPath = Path.Combine(nativePath,
-                OperatingSystem.IsWindows() ? $"{libName}.dll" :
-                OperatingSystem.IsMacOS()     ? $"lib{libName}.dylib" :
-                                               $"lib{libName}.so");
-            return NativeLibrary.Load(libPath);
-        });
-    }
-    return null;  // 冒泡到默认 ALC
-}
-```
-
-### 8.5 v2 才考虑
-
-NuGet feed 分发（`dotnet phi install foo`）、自动更新、签名 + trusted publishers。
-
----
-
-## 9. 安全模型
-
-### 9.1 诚实声明
-
-**C# 没有跟 Python / JavaScript 同等级别的"扩展沙箱"**。Java SecurityManager 但 .NET Core 故意没做，OS 级（App Sandbox / Landlock / Job Object）跨平台又难统一。Phi 的安全模型不可能像 Chrome WebExtensions 那样"扩展触不到文件系统"——更接近 npm 包 + 浏览器扩展的中间地带。
-
-**`README` 第一句写明："Phi extensions 是任意代码，跟 npm / pip packages 一样。请只装你信任作者发布的扩展。"**
-
-### 9.2 威胁模型
-
-| 威胁 | 攻击向量 | 影响 |
-|---|---|---|
-| **T1** 恶意 user-level 扩展 | 用户被骗装了恶意 dll | 任意代码执行，无限制 |
-| **T2** 恶意 project 扩展 | 仓库提交 `.phi/extensions/` 被启用 | 同 T1，攻击面更广 |
-| **T3** 升级劫持 | 扩展 author 账号被盗，新版本投毒 | 同 T1 |
-| **T4** 依赖混淆 | 扩展引用被劫持的 NuGet 包 | 同 T1 |
-| **T5** Side effect 滥用 | 良性扩展不打招呼 `System.IO.File.WriteAllText("~/.bashrc", ...)` | 用户数据被改 |
-| **T6** 偷凭证 | 扩展读 `~/.phi/credentials.json` / env vars / `~/.aws/credentials` | 凭证泄漏 |
-| **T7** 网络外泄 | 扩展把 transcript / 用户文件 POST 到攻击者 | 隐私泄漏 |
-| **T8** UI 替换 | 扩展挂 slot widget 冒充工具 card | 钓鱼 |
-
-### 9.3 v1：透明 + Project Trust + 用户控制
-
-防御 **T1 / T2 / T5 / T7 大部分**。
-
-**a. 文档透明**：扩展 = 任意代码。`README` 写清楚，不假装是沙箱。
-
-**b. Project Trust 流程**（已设计）：
-- 默认 `<cwd>/.phi/extensions/` **不加载**
-- 用户必须显式 `--project-extensions` 或 `/project-extensions on` 才启用
-- 启用前 `project_trust` 事件触发；built-in / user / explicit 扩展可投 `approve` / `decline` / `defer`
-- 第一次启用 status bar 弹一条 persistent 提示"已加载 N 个项目扩展，`/project-extensions off` 关闭"
-
-**c. 扩展白名单 / 黑名单**：
-
-```jsonc
-// ~/.phi/config.json
-{
-  "extensions": {
-    "disabled": ["malicious-ext"],
-    "userExtensionsEnabled": true,
-    "projectExtensionsEnabled": false
+  if (event.reason === "new") {
+    const ok = await ctx.ui.confirm("Clear?", "Delete all messages?");
+    if (!ok) return { cancel: true };
   }
-}
+});
 ```
 
-**d. `/extensions` 命令**：列出已加载扩展 + 来源（user / project / explicit）+ 一键 disable。
+After a successful switch or new-session action, pi emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "new" | "resume"` and `previousSessionFile`.
+Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `session_start`.
 
-**e. 审计日志**：
+#### session_before_fork
 
-```
-~/.phi/logs/extensions-{date}.log
-[2026-08-20 14:32:01] [hello-tool/1.0.0] setup() called
-[2026-08-20 14:32:05] [hello-tool/1.0.0] tool_call: hello({"who":"world"})
-[2026-08-20 14:32:05] [hello-tool/1.0.0] notify("info", "done")
-```
+Fired when forking via `/fork` or cloning via `/clone`.
 
-按扩展名分文件，明文（用户可 grep），事后追责。
-
-**f. Phi 进程权限**：
-- 文档写明"请用普通用户跑，不要 sudo / 管理员"
-- 不主动请求 OS 提权
-- 不主动打开网络端口（vs daemon-style 编辑器）
-
-### 9.4 v1.5：Capability 显式声明
-
-防御 **T5 / T6 / T7**。
-
-```csharp
-[PhiExtension(
-    Name = "chart-tool",
-    Version = "1.2.0",
-    Capabilities = ExtensionCapability.Network | ExtensionCapability.FileSystemRead)]
-public sealed class ChartTool : IPhiExtension { ... }
+```typescript
+pi.on("session_before_fork", async (event, ctx) => {
+  // event.entryId - ID of the selected entry
+  // event.position - "before" for /fork, "at" for /clone
+  return { cancel: true }; // Cancel fork/clone
+  // OR
+  return { skipConversationRestore: true }; // Reserved for future conversation restore control
+});
 ```
 
-```csharp
-[Flags]
-public enum ExtensionCapability
-{
-    None               = 0,
-    Network            = 1 << 0,
-    FileSystemRead     = 1 << 1,
-    FileSystemWrite    = 1 << 2,
-    ProcessSpawn       = 1 << 3,
-    SecretsRead        = 1 << 4,
-    EnvironmentRead    = 1 << 5,
-    ClipboardRead      = 1 << 6,
-    ClipboardWrite     = 1 << 7,
-    UiInteract         = 1 << 8,
-    TranscriptWrite    = 1 << 9,
-}
-```
+After a successful fork or clone, pi emits `session_shutdown` for the old extension instance, reloads and rebinds extensions for the new session, then emits `session_start` with `reason: "fork"` and `previousSessionFile`.
+Do cleanup work in `session_shutdown`, then reestablish any in-memory state in `session_start`.
 
-**落地**：
-1. **API 层**：`IPhiApi` 不暴露任何危险方法。扩展想 `File.ReadAllText`，只能走 `api.ReadFile(path)`；`api.ReadFile` 检查声明 capability，未声明抛 `ExtensionError` + 写审计日志。强制走 host API。
-2. **ALC 黑名单**（防御性深度）：`ExtensionLoadContext.Load` override 拦截危险 assembly，但 BCL 的 `System.IO.File` 在 `System.Runtime` 里拦不住——价值有限，不依赖。
+#### session_before_compact / session_compact / session_compact_failed
 
-**Manifest 签名**（v1.5 后期）：用 `System.Reflection.PortableExecutable.PEBuilder` 验证 Authenticode（Windows）/ codesign（macOS）/ GPG（Linux）。`--require-signed-extensions` 开关，开了之后未签名扩展直接拒。
+Fired on compaction. See [compaction.md](compaction.md) for details.
 
-### 9.5 v2：进程级隔离（真沙箱）
+```typescript
+pi.on("session_before_compact", async (event, ctx) => {
+  const { preparation, branchEntries, customInstructions, reason, willRetry, signal } = event;
 
-只在用户主动启用时生效，默认关闭——因为有性能开销和复杂度：
+  // reason - "manual" (/compact), "threshold", or "overflow"
+  // willRetry - whether the aborted turn is retried after compaction (overflow recovery)
 
-```
-phi.exe (host, 普通用户权限)
-   │
-   │ NamedPipe (Windows) / Unix Socket (Linux/macOS)
-   ▼
-phi-ext-host.exe (扩展进程, OS sandbox)
-   │
-   │ 反序列化 IPhiApi 调用 → 真的执行 → 序列化结果回传
-   ▼ 扩展 dll
-```
+  // Cancel:
+  return { cancel: true };
 
-**OS sandbox**：
-
-| 平台 | 机制 | 默认 deny |
-|---|---|---|
-| macOS | `sandbox-exec` + entitlement profile | 网络出站、文件系统写（cwd 外）、`posix_spawn` |
-| Linux | Landlock (5.13+) + seccomp + user namespaces | 同上 + 限制 syscall |
-| Windows | AppContainer + Job Object + Capability SIDs | 同上 + 限制 Win32 API |
-
-**IPC 成本**：每次 `api.ReadFile` 走 IPC 不能接受。v2 走批量 + async streaming——扩展一次性申请一组权限，host 一次性预加载好，IPC 只用在 tool call / event 边界。
-
-**不做**（明确放弃）：
-- 应用层水印 / DRM：扩展作者能写 `procdump`、读自己进程内存，所有"防泄漏"机制都会被绕过
-- 自动审计扩展代码：静态分析 C# 复杂到 100x 投入产出比。靠生态（评论、举报、签名 publisher）解决
-- 强制 sandbox：v2 是 opt-in，因为强制会让大量合法扩展（要访问 git、调用 gh CLI、读 K8s config）跑不起来
-
-### 9.6 安全路线图
-
-| 阶段 | 安全能力 | 实施成本 |
-|---|---|---|
-| **Sprint 0-2** | 文档透明 + project trust + `/extensions` + 审计日志 + 配置文件 disable | 低，复用现有架构 |
-| **Sprint 3** | Capability 声明 + API 层强制 + `[PhiExtension]` 加 `Capabilities` 参数 + 审计拒绝的越权调用 | 中，走遍所有 API 边界 |
-| **Sprint 4** | Manifest 签名验证（Authenticode / codesign / GPG）+ trusted-publishers.json + `--require-signed-extensions` | 中，签名工具链跨平台 |
-| **v1.5 后期** | ALC 黑名单（防御性深度）+ 扩展自动更新 with signature | 中 |
-| **v2** | 进程级隔离 + OS sandbox + IPC | 高，独立项目（4+ sprint） |
-
-**v1 时刻意保守**：只做"跟 tau 等价"的安全 + 一两个关键增量（审计日志、disable 配置）。v1 不承诺做不到的事。
-
----
-
-## 10. 目录结构
-
-> **本节为本次修订重写**——结构跟原文档有较大差异（见各模块注释）。
-
-```
-Phi.slnx
-├── Phi.Agent/                              # agent core（已存在，Phase 0 完成）
-│   ├── Phi.Agent.csproj                    # netstandard 风格，零 Phi 依赖
-│   ├── AgentLoop.cs                        # was Loop.cs（重命名跟类名一致）
-│   ├── Harness.cs
-│   ├── HarnessEvent.cs
-│   ├── IAgentMessage.cs                    # marker interface
-│   ├── IPhiProvider.cs                     # provider 抽象，host 端实现
-│   ├── Messages.cs                          # UserMessage / AssistantMessage / ToolResultMessage / ContentBlock / Usage
-│   ├── ProviderEvent.cs
-│   ├── PhiAgentJsonContext.cs
-│   ├── SessionEntry.cs
-│   ├── SessionEntryCodec.cs
-│   ├── SessionStorage.cs
-│   ├── Tool.cs                              # abstract
-│   ├── ToolResult.cs
-│   └── TypedTool.cs                         # 强类型 helper
-│
-├── Phi.Agent.Tests/
-│
-├── Phi.Provider/                           # LLM provider 实现（已存在）
-│   ├── Phi.Provider.csproj
-│   ├── Anthropic.cs / AnthropicConfig.cs
-│   ├── Config.cs
-│   ├── NullProvider.cs                     # TUI 启动时无 key 的 fallback
-│   ├── OpenAICompatibleProvider.cs
-│   └── ToolCallBuilder.cs
-│
-├── Phi.Provider.Tests/
-│
-├── Phi.SchemaGen/                          # 已存在：TypedTool<T> 的 source generator
-│
-├── Phi/                                    # runtime（已重命名为 Phi，去掉 Coding 前缀）
-│   ├── Phi.Runtime.csproj                  # net10.0，引用 Phi.Agent / Phi.Provider / Phi.SchemaGen
-│   │                                     # ⚠️ 不引用 ModelContextProtocol —— MCP 是 §16 McpPack 扩展的依赖，不是核心
-│   ├── ISession.cs                          # ★ 重构后加了 NewSessionAsync / ResumeAsync / ListRecent / AvailableProviders / Id
-│   ├── Session.cs                           # ★ 重构后 ISession 是导航 API 的承载者；生命周期 = conversation
-│   ├── SessionEnvironment.cs               # ★ 新增（替换 SessionConfig）：composition root 构造一次，跨 session 共享
-│   ├── SessionRuntime.cs                   # ★ 改为 internal，原来 public record + Config 字段改成 Environment
-│   ├── SessionState.cs                      # immutable snapshot，StateChanged 携带
-│   ├── SessionEntryConverter.cs            # agent message <-> session entry
-│   ├── SessionIndex.cs                      # index.jsonl 的 reader/writer
-│   ├── SessionManager.cs                    # cwd → index 的 facade
-│   ├── SessionRecord.cs                     # 索引 record 类型
-│   ├── SessionStorage.cs                    # JSONL transcript 读写
-│   ├── SessionStats.cs / SessionStatsCalculator.cs
-│   ├── WorkspaceSessionStore.cs             # 跨 cwd 扫描所有 session（用于 Avalonia 侧栏 + ResumeAsync 的 cwd 解析）
-│   ├── BuiltInTools.cs                      # Sprint 2.5 拆到 CodingPack 后会消失
-│   ├── PhiJsonContext.cs                    # AOT 用的 source-gen JSON context
-│   │
-│   ├── Compaction* (root-level files — 不是子目录)
-│   │   ├── CompactionPlanner.cs
-│   │   ├── CompactionPlan.cs
-│   │   ├── CompactionStorage.cs
-│   │   ├── CompactionSummarizer.cs          # Sprint 2.5+ prompt 部分搬到 CodingPack
-│   │   ├── ContextWindow.cs
-│   │   ├── FileOpsExtractor.cs              # coding-specific，Sprint 2.5 移 CodingPack
-│   │   └── OverflowDetector.cs
-│   │
-│   ├── Chat/
-│   │   ├── ChatLine.cs                      # ★ Sprint 4+ 加 CustomLine record（extensions 提交自定义行）
-│   │   └── ChatTranscriptProjector.cs        # TUI / Avalonia 都订阅它的 Changed
-│   │
-│   ├── Prompt/
-│   │   ├── ISuggestionProvider.cs
-│   │   ├── PromptPickers.cs                 # Phi.Avalonia 的 workspace / model picker 复用这里
-│   │   ├── SkillSuggestionProvider.cs
-│   │   ├── SlashCommandProvider.cs          # ★ Sprint 2 改成从 SlashCommandRegistry 读，扩展注册的命令自然出现
-│   │   └── SuggestionItem.cs
-│   │
-│   ├── Prompts/
-│   │   ├── BuiltInToolProvider.cs           # 把 BashTool / ReadTool / WriteTool / EditTool 包成 ToolContribution
-│   │   ├── ISystemPromptBuilder.cs
-│   │   ├── ProjectContextFile.cs
-│   │   ├── ShellKind.cs
-│   │   ├── SkillDescriptor.cs
-│   │   ├── SystemPromptBuildContext.cs
-│   │   ├── SystemPromptBuilder.cs           # Sprint 2.5+ 抽 coding 模板到 CodingPack
-│   │   ├── SystemPromptOptions.cs
-│   │   ├── ToolCapabilities.cs
-│   │   └── ToolContribution.cs              # ★ 已有，扩展注册 tool 时直接复用
-│   │
-│   ├── Providers/
-│   │   ├── ProviderManager.cs               # ★ 重构后：catalog 转发拆走、CreateProvider 改 static、SuppressMessage 删掉
-│   │   ├── ProviderCatalog.cs               # static list，扩展在这里追加要重 build，不走 extension discovery
-│   │   ├── ProviderCatalogEntry.cs / ProviderKind.cs
-│   │   ├── IProviderResolver.cs            # SessionEnvironment.ProviderResolver 走这个
-│   │   ├── ICredentialStore.cs / FileCredentialStore.cs / PhiSettings.cs
-│   │
-│   ├── Resources/
-│   │   ├── SkillLoader.cs / SkillValidator.cs
-│   │   └── ProjectContextLoader.cs          # Sprint 2.5+ 评估移 CodingPack
-│   │
-│   ├── Slash/
-│   │   ├── SlashCommands.cs
-│   │   └── SlashCommandCatalog.cs          # ★ Sprint 2 改成可变 registry（当前 static readonly list，扩展无法注册）
-│   │
-│   ├── Status/
-│   │   ├── ErrorClassifier.cs
-│   │   ├── ISessionStatusSink.cs
-│   │   └── SessionStatusRouter.cs           # 现状 → 扩展的 error 转译入口
-│   │
-│   ├── ToolCards/
-│   │   ├── ToolDescriptor.cs                # ★ 已有：Kind + Title + IconKey，跟 tau 一致
-│   │   └── ToolDescriptors.cs               # 内置工具的 descriptor 表
-│   │
-│   ├── Tools/                              # Sprint 2.5 前暂留，之后搬入 CodingPack
-│   │   ├── BashTool.cs / ReadTool.cs / WriteTool.cs / EditTool.cs
-│   │   ├── ToolComposer.cs
-│   │   ├── IWorkspacePathResolver.cs / WorkspacePathResolver.cs
-│   │   └── Details/                         # typed tool args（ReadDetails / EditDetails 等）
-│   │
-│   └── Extensions/                         # ★ Sprint 0+ 新建（本节剩余部分都未开工）
-│       ├── Phi.Extensions/                  # public package（net10.0）
-│       │   ├── Phi.Extensions.csproj
-│       │   ├── PhiExtensionAttribute.cs
-│       │   ├── IPhiExtension.cs
-│       │   ├── IPhiApi.cs / IPhiContext.cs / IPhiUiBridge.cs
-│       │   ├── NullPhiUiBridge.cs            # headless 模式（CI / 自动化）默认实现
-│       │   ├── ExtensionError.cs
-│       │   ├── NotifyLevel.cs / MessageDelivery.cs
-│       │   ├── ExtensionCapability.cs        # v1.5 启用强制；v1 attribute 留位
-│       │   ├── TranscriptLine.cs             # ★ 新增：扩展提交自定义 transcript 行的载体
-│       │   ├── Events/
-│       │   │   ├── PhiEvent.cs
-│       │   │   ├── AgentEvents.cs            # 5.1 表里的 agent_start / turn_* 等
-│       │   │   ├── MessageEvents.cs / ToolExecutionEvents.cs
-│       │   │   ├── CompactionEvents.cs
-│       │   │   ├── SessionEvents.cs          # session_info_changed 等
-│       │   │   ├── LifecycleEvents.cs        # session_start / session_shutdown / project_trust
-│       │   │   ├── HookEvents.cs             # input hook
-│       │   │   └── ToolHookEvents.cs         # tool_call / tool_result hook
-│       │   └── Rendering/
-│       │       ├── IToolCardRenderer.cs
-│       │       ├── TranscriptLineRenderer.cs
-│       │       └── MessageRenderer.cs
-│       │
-│       └── Phi.Extensions.Host/             # private wiring package（host 自己用，不发给扩展）
-│           ├── Phi.Extensions.Host.csproj
-│           ├── ExtensionRuntime.cs          # session 内部对象，生命周期 = session 生命周期
-│           ├── ExtensionLoader.cs / ExtensionLoadContext.cs
-│           ├── LoadedExtension.cs / DiscoveredExtension.cs
-│           ├── ExtensionDiagnostics.cs / ExtensionPaths.cs
-│           ├── ExtensionGeneration.cs        # GenerationGuard 实现
-│           ├── PhiApi.cs                     # internal sealed：host-side IPhiApi impl（不发给扩展）
-│           ├── PhiContext.cs                 # internal sealed：host-side IPhiContext impl（不发给扩展）
-│           ├── HookDispatch.cs / EventDispatch.cs
-│           ├── ExtensionEntryStore.cs        # AppendEntryAsync 持久化 pipeline
-│           ├── ReloadSummary.cs
-│           └── UI/
-│               ├── TuiPhiUiBridge.cs         # 实现 IPhiUiBridge，包装 PhiStatusBar / ChatTranscript
-│               └── AvaloniaPhiUiBridge.cs    # 实现 IPhiUiBridge，包装 DeskLog / ChatTranscriptProjector / PhiStatusBar / ActiveSession
-│
-├── Phi.Tests/
-│   ├── Helpers/
-│   │   ├── MockSession.cs                   # ISession 的 mock（重构后加了 OnNewSession / OnResume / NewSessionCalls）
-│   │   ├── StubProvider.cs / AllKeysCredentialStore.cs
-│   │   ├── TestSessionFactory.cs            # ★ 重构后新增：测试用 SessionEnvironment + Session.LoadAsync
-│   │   ├── StubPhiExtension.cs              # Sprint 1+ 新增
-│   │   └── StubPhiUiBridge.cs               # Sprint 1+ 新增
-│   ├── SessionSwitchTests.cs                # ★ 重构后新增（合并了原 SessionFactoryTests + SessionNavigatorTests）
-│   └── SessionTests.cs / SessionRuntimeTests.cs / SessionModelSwitchTests.cs
-│       / SessionCompactionTests.cs / ...
-│
-├── Phi.Tui/
-│   ├── PhiTuiApp.cs                         # ★ 重构后只剩 (ISession, ProviderManager) 两个 ctor 参数
-│   ├── Program.cs                           # ★ 重构后构造 SessionEnvironment + Session.LoadAsync
-│   ├── Components/
-│   │   ├── PromptInput.cs                   # ★ 重构后用 SessionReplaced event 通知 shell
-│   │   ├── PromptInput.Dialogs.cs            # /connect / /models / /sessions dialogs（PhiStatusBar 也在这里）
-│   │   ├── ChatTranscript.cs / ChatHeader.cs / PhiStatusBar.cs
-│   │   ├── ToolCards/                       # XenoAtom 实现，含 ToolCardRegistry（static）
-│   │   └── …
-│   ├── SelectionCopyHost.cs / ToastHostSentinel.cs / SystemClipboard.cs
-│   └── TuiPhiUiBridge.cs                    # Sprint 3+ 新增
-│
-├── Phi.Avalonia/                           # ★ 新增：ActiveSession.cs（XenoAtom State<T> 等价物）
-│   ├── ActiveSession.cs                    # ★ 已有：Avalonia 端 session 容器 + Changed 事件
-│   ├── PhiAvaloniaApp.axaml(.cs)           # ★ 重构后 ctor 接 (ActiveSession, ProviderManager)
-│   ├── MainWindow.cs                        # ★ 重构后接 ActiveSession
-│   ├── ShellView.cs                         # ★ 重构后监听 ActiveSession.Changed 而不是 navigator.SessionChanged
-│   ├── ShellLayout.axaml / ChatPageView.cs / ChatPageLayout.axaml
-│   ├── NavModel.cs / AvaloniaTheme.cs / DeskLog.cs
-│   ├── Components/
-│   │   ├── PromptInputView.cs               # ★ 重构后接 ISession + ActiveSession（不再有 ISessionNavigator）
-│   │   ├── TranscriptView.cs / ChatTranscriptProjector.cs
-│   │   ├── ProvidersPage.cs / ProvidersPageLayout.axaml / ProviderRowView.axaml
-│   │   ├── ToolCards/                       # 含 AvaloniaToolCardRegistry（static，目前跟 ToolCardRegistry 一样是 static）
-│   │   └── …
-│   └── AvaloniaPhiUiBridge.cs               # Sprint 3+ 新增
-│
-├── Phi.Avalonia.Desktop/
-│   └── Program.cs                           # ★ 重构后：构造 SessionEnvironment + Session.LoadAsync + new ActiveSession(session)
-│
-└── Phi.Avalonia.Tests/
-    ├── Helpers/
-    │   ├── MockSession.cs / StubProvider.cs / AllKeysCredentialStore.cs
-    │   └── AvaloniaTestHost.cs
-    ├── ShellViewTests.cs                    # ★ 重构后用 ActiveSession 而不是 navigator
-    ├── ChatPageViewTests.cs / PromptInputViewTests.cs / ProvidersPageTests.cs / ...
-    └── ...
-```
-
-extensions/                                # 顶层目录，跟 src/ 平级——不是 examples，是随 Phi 一起编译/分发的扩展
-├── CodingPack/                          # Sprint 2.5+：第一个"真"扩展，Phi.Tui / Phi.Avalonia 编译期默认引用
-├── HelloTool/                           # 附录 A，纯教学 demo（不被默认引用）
-├── PermissionGate/                      # 附录 B，纯教学 demo（不被默认引用）
-└── McpPack/                             # Sprint 5+：官方 MCP 客户端扩展（§16）
-```
-
-### CPM 一行加依赖
-
-```xml
-<!-- Directory.Packages.props 新增 -->
-<PackageVersion Include="Phi.Extensions" Version="0.1.0" />
-```
-
-扩展自己的 csproj：
-
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
-  </ItemGroup>
-</Project>
-```
-
----
-
-## 11. 关键决策
-
-| 决策 | 选择 | 理由 |
-|---|---|---|
-| 扩展物理形态 | 单 dll + bundle 二者皆可（v1 主推单 dll，bundle Sprint 3+） | 单 dll 跨平台零成本，bundle 留口子 |
-| v1 安全深度 | 透明 + project trust + `/extensions` + 审计日志 | 跟 tau 对齐，不画饼 |
-| Native deps 策略 | 每扩展独立 ALC + `runtimes/{rid}/` 优先解析 | 跟主流 .NET 插件系统对齐 |
-| `IPhiApi` 接口 vs sealed class | Interface（内部 sealed `PhiApi` 实现） | 演化友好：v1 后想加方法不影响扩展 |
-| Hook handlers sync / async | 两者都支持（`Func<...>` 和 `Func<..., ValueTask>`） | 跟 tau 的"sync 或 async handler"对齐 |
-| 持久化 entry | `AppendEntryAsync("my-ext:state", data)` → 独立 SessionEntry，namespace 区分 | 不污染现有 transcript / tool result 流 |
-| Project Trust | v1 默认 off；built-in / user / explicit 扩展能投 `approve`；extension 不能给自己投 | 跟 tau 完全对齐 |
-| 一个 dll 多 `[PhiExtension]` | v1 限一个 | 简化 loader；v2 放宽 |
-| **顶层命名空间** | **Phi.***（Phi / Phi.Agent / Phi.Provider / Phi.Extensions） | Phi.Agent 与 Phi 独立项目可单独分发 |
-| **`CodingSession` 命名** | **完全去掉 `Coding` 前缀 → `Session`** | 跟 `ISession` 接口名字对齐 |
-| **TUI/Avalonia 项目拆分** | **保持三个独立 csproj**（Phi / Phi.Tui / Phi.Avalonia） | 最小改动，最大可移植 |
-| **最小核心理念** | **核心 = "能跟 LLM 聊天 + 能写代码"**（Session + Harness + 4 个 builtin tools）。其它一切（MCP、permission gate、domain 集成、自定义 UI 卡片）**都通过扩展启用**，用户不装就不付代价 | 保持 `Phi.Runtime.csproj` 简洁；让"Phi 是什么"对所有用户一致；避免"我装的 Phi 跟你的不一样"这种 CI/可复现性问题 |
-| **MCP 通过官方 McpPack 扩展提供（不进入 Phi 主体代码）** | `extensions/McpPack/` 装上就用；用户配 `~/.phi/mcp-servers.json` 接入任何 MCP server；不想要 MCP 的用户完全不付这个代价。**专用服务扩展（figma / aws / notion / ...）由社区或 Phi 团队后续按需写**，不阻塞扩展平台本身的发布 | 跟 CodingPack / PermissionGate 平级；锁定"MCP 是生态集成能力不是核心能力"——以后有人说"我们 Phi 应该支持 MCP server"时直接指 §16 |
-
----
-
-## 12. 测试策略
-
-### 12.1 复用现有基础设施
-
-- `Helpers/StubProvider.cs` 不变
-- 新增 `Helpers/StubPhiExtension.cs`（实现 `IPhiExtension`、记所有调用）
-- 新增 `Helpers/StubPhiUiBridge.cs`（实现 `IPhiUiBridge`、记所有调用、给对话框预设返回值）
-
-### 12.2 Sprint 0 测试（先测试后实现）
-
-`Phi.Extensions.Tests/`：
-
-```
-ExtensionErrorTests                抛出 / 继承链
-NotifyLevelEnumTests                flags 组合 / ToString
-MessageDeliveryEnumTests            steer / follow_up 命名稳定
-CapabilityFlagTests                 [Flags] 位运算正确，unknown 不报错
-TranscriptLineTests                 record equality + 必需字段
-EventRecordTests                    每个 PhiEvent 子 record 可构造 + 字段名稳定
-ApiShapeTests                       反射检查 IPhiApi 公开方法集 = 固定列表
-ContextShapeTests                   IPhiContext 公开属性集 = 固定列表
-UiBridgeShapeTests                  IPhiUiBridge 公开方法集 = 固定列表
-```
-
-测试一上来就卡死接口形状——之后改 `IPhiApi` 都要先改测试。
-
-### 12.3 Sprint 1+ 测试（host 包）
-
-```
-ExtensionLoaderTests                ALC 加载 + 卸载 + 依赖隔离
-ExtensionRuntimeTests               注册 / 并发 dispatch / 错误隔离
-HookDispatchTests                   tool_call block / 改写 / 链式 / 异常 = block
-ReloadTests                         reload 后旧 PhiApi 抛 ExtensionError，新 PhiApi 可用
-                                    ALC 真正卸载（WeakReference 监控）
-GenerationGuardTests                reload 后旧 api / context.ui / cmd token 调用全部失败
-ToolCardRegistryTests               扩展注册 descriptor 双端可见
-TranscriptLineRendererTests         扩展提交自定义行按 type 路由
-DiagnosticTests                     加载失败 / setup 抛错 / 类型不对 都不崩 host
-AuditLogTests                       每条调用都进日志，含扩展名 + 版本
-```
-
-### 12.4 关键测试模式
-
-**Reload 泄漏测试**（ALC 真正卸载验证）：
-
-```csharp
-[Fact]
-public void Reload_UnloadsOldAlc_TrueWeakReference()
-{
-    var alc = new ExtensionLoadContext(extDir);
-    var asm = alc.LoadFromAssemblyPath(dllPath);
-    var weakAsm = new WeakReference(asm);
-
-    alc.Unload();
-    for (int i = 0; i < 3; i++) { GC.Collect(); GC.WaitForPendingFinalizers(); }
-
-    Assert.False(weakAsm.IsAlive, "old extension assembly must be unloaded");
-}
-```
-
-**GenerationGuard 测试**（reload 后旧 api 立即失效）：
-
-```csharp
-[Fact]
-public async Task Reload_OldPhiApi_ThrowsExtensionError()
-{
-    var oldApi = runtime.GetApiForExtension("hello");
-    var extension = (StubPhiExtension)oldApi;  // 捕获旧 api
-    await session.ReloadAsync();
-    Assert.Throws<ExtensionError>(() => extension.RegisterTool(...));
-}
-```
-
----
-
-## 13. 重命名路线图
-
-**核心原则：先把命名做对，再做架构重构。**
-
-| 阶段 | 范围 | 风险 | 状态 |
-|---|---|---|---|
-| **Phase 0** | `PhiCoding` → `Phi` 全量改名；`CodingSession` → `Session`；`PhiAgent` → `Phi.Agent`；`PhiProvider` → `Phi.Provider`；同步 `AGENTS.md` / `README.md` / `phi.slnx` / props | 极低（纯命名，行为零变化） | **✅ 已完成** |
-| **Phase 0.5** | 架构清理（最近一次大重构）：删除 `SessionNavigator` / `SessionFactory` / `SessionConfig` / `ISessionNavigator`；新增 `ISession.NewSessionAsync` / `ResumeAsync` / `ListRecent` / `AvailableProviders`；新增 `SessionEnvironment` 替代 `SessionConfig`；新增 `Session.LoadAsync(cwd, env, ...)` 替代 `SessionFactory.Create/Resume`；Avalonia 端新增 `ActiveSession` 作为 XenoAtom `State<T>` 等价物 | 中（33+ 文件改动，838 测试全绿） | **✅ 已完成** |
-| **Sprint 0** | 新建 `Phi.Extensions` / `Phi.Extensions.Host`（用新命名空间） | 低 | ⏳ 未开工 |
-| **Sprint 1-2** | loader / hooks / reload，运行时无 naming 影响 | — | ⏳ 未开工 |
-| **Sprint 2.5（关键节点）** | 抽出 `extensions/CodingPack/`：把 `Phi/Tools/*.cs`（BashTool / ReadTool / WriteTool / EditTool）+ coding system prompt 搬入；`Phi.Tui` / `Phi.Avalonia` 默认引用 `CodingPack`。这同时是**扩展系统第一次端到端验证**——最强的"第一个扩展"。**实际偏差**：FileOpsExtractor 留 Phi 主体（它是压缩离线分析，非 hook），详见 §13 checklist 的"实际偏差" | 中（行为不变需要回归测试） | ✅ 已完成 |
-| **Sprint 3-4** | UI bridges、TranscriptLineRenderer、Capability 启用强制 | — | ⏳ 未开工 |
-
-### Phase 0 重命名 checklist（已完成 ✅）
-
-```
-✅ PhiCoding → Phi（namespace、csproj）
-✅ CodingSession → Session（含 ISession 实现者）
-✅ CodingSessionFactory → SessionFactory（已删除）
-✅ PhiAgent → Phi.Agent
-✅ PhiProvider → Phi.Provider
-✅ PhiSchemaGen → Phi.SchemaGen
-✅ PhiCoding.Tui → Phi.Tui
-✅ PhiCoding.Avalonia → Phi.Avalonia
-✅ PhiCoding.Avalonia.Desktop → Phi.Avalonia.Desktop
-✅ PhiCoding.*.Tests → Phi.*.Tests
-✅ phi.slnx：所有 project 路径更新
-✅ Directory.Build.props / Directory.Packages.props：包名、namespace 约束
-✅ AGENTS.md：架构图 + 目录约定 + 所有 PhiCoding 引用
-✅ README.md
-✅ 所有 using PhiCoding.* → using Phi.*
-✅ dotnet build 三平台（Win/Linux/macOS）验证
-✅ dotnet test 全绿（838/838 通过）
-```
-
-### Phase 0.5 checklist（架构清理，已完成 ✅）
-
-```
-✅ 删除 src/Phi/Sessions/ISessionNavigator.cs
-✅ 删除 src/Phi/Sessions/SessionNavigator.cs
-✅ 删除 src/Phi/Sessions/SessionFactory.cs
-✅ 删除 src/Phi/SessionConfig.cs
-✅ 删除 src/Phi/Sessions/SessionRuntime.cs（重建到 Phi/ 根并改为 internal）
-✅ 删除空目录 src/Phi/Sessions/
-✅ 删除 tests/Phi.Tests/Helpers/FakeSessionNavigator.cs
-✅ 删除 tests/Phi.Avalonia.Tests/Helpers/FakeSessionNavigator.cs
-✅ ISession 加成员：Id / NewSessionAsync / ResumeAsync / ListRecent / AvailableProviders
-✅ Session 加 SessionEnvironment? 字段（持久化测试会话为 null，full-composition 会话非 null）
-✅ Session.Create / Session.Resume 增 SessionEnvironment? 可选参数
-✅ 新增 Session.LoadAsync(cwd, env, providerName, model, resumeId?) 作为 composition root 唯一入口
-✅ Session.BuildRuntime 私有 static：从 env + provider 装出 SessionRuntime
-✅ Session.NewSessionAsync / ResumeAsync 走 WaitUntilIdleAsync → LoadAsync → Dispose
-✅ SessionEnvironment 公开 record + Default(providerResolver) 工厂
-✅ 删除 SessionFactory.Create 中冗余的 cancellationToken 参数（dead parameter）
-✅ Phi.Tui：PhiTuiApp ctor 改 (ISession, ProviderManager)；PromptInput 用 SessionReplaced event
-✅ Phi.Tui：Program.cs 构造 SessionEnvironment.Default + Session.LoadAsync
-✅ Phi.Avalonia：新增 ActiveSession（XenoAtom State<T> 等价物）
-✅ Phi.Avalonia：ShellView / ChatPageView / PromptInputView 改吃 ActiveSession
-✅ Phi.Avalonia.Desktop：Program.cs 构造 Session + new ActiveSession(session)
-✅ Phi.Avalonia：PromptInputView.SwitchWorkspace 调 session.NewSessionAsync + active.Replace
-✅ 测试：SessionSwitchTests.cs 合并了 SessionFactoryTests + SessionNavigatorTests 的覆盖
-✅ 测试：TestSessionFactory.cs 提供测试用 SessionEnvironment + LoadAsync
-✅ 测试：MockSession 加 OnNewSession / OnResume / NewSessionCalls
-✅ 测试：PhiTuiAppTests / PromptInputProviderTests / ShellViewTests / ChatPageViewTests / PromptInputViewTests 全部迁完
-✅ AGENTS.md：架构图 + 目录约定更新（移除 Sessions/ 子目录引用）
-✅ dotnet test 838/838 通过
-```
-
-### Sprint 2.5 CodingPack 抽出 checklist（已完成 ✅）
-
-```
-✅ 新建 extensions/CodingPack/ 项目（独立 csproj，引用 Phi.Extensions + Phi.Agent + Phi.SchemaGen analyzer + DiffPlex）
-✅ CodingPack 声明 [PhiExtension("coding-pack")]，设 Capabilities = FileSystemRead | FileSystemWrite | ProcessSpawn
-✅ Setup 里：
-  ✅ RegisterTool(BashTool / ReadTool / WriteTool / EditTool) ← Tool 类型已搬到 CodingPack/Tools/
-  ✅ AddPromptGuideline(coding system prompt) ← CodingPackExt.Setup 注入行为规则
-  ⚠️ tool_call hook 的 FileOpsExtractor 没搬 —— 见下方"实际偏差"
-✅ Phi/Tools/ 下的 BashTool.cs / ReadTool.cs / WriteTool.cs / EditTool.cs / Details/ → 物理移动到 CodingPack/Tools/
-✅ Phi 主体移除 BuiltInTools.cs（不再内置工具列表）
-✅ Phi 主体移除 BuiltInToolProvider.cs
-✅ Phi.Tui / Phi.Avalonia / Phi.Avalonia.Desktop：ProjectReference 增加 CodingPack
-✅ CodingPack 在编译期被引用（不走 file-based discovery，用 ExtensionRuntime.RegisterCompiledExtension）
-✅ 端到端测试：CodingPackIntegrationTests 验证 4 个 tool 进 harness + write/read 可调用
-✅ dotnet test 903/903 通过
-✅ 补充调整：`extensions/` 提到仓库顶层（跟 `src/` 平级，不再挂在 `examples/` 下）——CodingPack 是编译期默认引用的组件，
-  跟 HelloTool/PermissionGate 这类纯教学 demo 性质不同；`examples/` 目录随之删除
-✅ 补充调整：CodingPack 的 `RootNamespace` / `AssemblyName` 统一为 `Phi.Extensions.CodingPack`，
-  跟 HelloTool（`Phi.Extensions.HelloTool`）/ PermissionGate（`Phi.Extensions.PermissionGate`）的命名约定对齐
-✅ 修复：`RegisterCompiledExtension` 最初只在 `Program.cs` 里围绕**启动时的第一个** `Session` 调用一次——
-  `/new` / `/sessions`（`ISession.NewSessionAsync` / `ResumeAsync`）会经 `LoadAsync` 造出全新的 `Session`，
-  但没有任何东西对新 session 重新调用 `RegisterCompiledExtension`，于是切换/恢复会话后 CodingPack 的
-  四个工具全部消失（`CodingPackIntegrationTests` 当时只测了单个 fresh session，没覆盖这条路径，因而放过了这个回归）。
-  修复方案：`SessionEnvironment` 新增 `ExtensionRuntimeFactory`（`Func<Session, IDisposable>?`）——组合根把
-  "造 ExtensionRuntime + RegisterCompiledExtension(CodingPackExt) + Initialize" 包成一个闭包放进 env，
-  `Session.LoadAsync` 在 `ApplyRuntime` 之后自动调用它并把返回的句柄存起来、随 `Session.Dispose()` 一起释放。
-  因为 `NewSessionAsync` / `ResumeAsync` 都是复用同一个 `env` 重新走 `LoadAsync`，CodingPack 从此在
-  每一个会话（不只是第一个）上都会自动注册。见 `CodingPack_Survives_NewSessionAsync` 回归测试。
-  这也是 Sprint 1 里"`Session.LoadAsync` 注入 runtime"设计提前在 Sprint 2.5 落地的部分——之所以没有让
-  `Session`/`Phi` 核心直接引用 `Phi.Extensions.Host.ExtensionRuntime`，是因为 `Phi.Extensions.Host` 反过来
-  引用 `Phi`（核心），直接引用会成环；`Func<Session, IDisposable>` 这层不透明委托刻意避开了这个环。
-```
-
-**实际偏差**：
-
-- **FileOpsExtractor 留在 Phi 主体**（`src/Phi/FileOpsExtractor.cs`，未搬）。它其实不是运行时 tool_call hook —— 是**压缩 pipeline 的离线分析**（读历史 `AssistantMessage.ToolCalls` 提取 read/modified 文件路径，供 compaction 摘要用）。`Session.cs` 在压缩时直接调用它，而 Phi 主体不能反向引用 CodingPack（循环依赖）。文档 checklist 误把它当 hook；实际它是压缩内部实现。它编码的 `read/write/edit` tool 名耦合留待 Sprint 4（扩展 tool 元数据）解耦。
-- **CodingPack 用 `RegisterTool` 注册工具**，但 harness 在 `LoadAsync` 时已构建（无 tool）。工具通过 `Session.RegisterExtensionTool` 在 `ApplyRuntime` 之后加进 harness。system prompt 的 available-tools 段因此为空 —— 但**不影响工具可用性**：provider 通过独立的 `tools` 参数把 tool schema 发给模型（`provider.StreamResponseAsync(model, system, messages, tools, ...)`），模型能看到 schema 并调用。available-tools 段只是描述性文字，缺失不影响功能（这是扩展化的固有结果）。
-- **CodingPack 需要自己的 AOT context**：`ToolDetails`（Details 序列化）从 Phi 的 `PhiJsonContext` 改用 CodingPack 的 `CodingPackJsonContext`；SchemaGen 硬编码的 `Phi.ToolArgsJsonContext` 由 CodingPack 在自己 assembly 里定义同名 internal context（不同 assembly 不冲突）。
-- **`ToolDescriptors` 留在 Phi.Agent**（前端 `ChatTranscriptProjector` 在 Phi 主体调用它渲染 ToolCallLine，Phi 不能引用 CodingPack）。Sprint 4 改成扩展注册。
-
-**为什么 RegisterTool 后 system prompt 的 available-tools 段空了还是能跑**：模型对工具的感知来自两处 —— (1) provider 的 `tools` 参数（工具 schema，必传，模型靠它知道签名），(2) system prompt 的描述段（可选增强）。CodingPack 注册后 harness 的 `_tools` 有 4 个工具，provider 把 schema 发给模型，所以工具可用。AddPromptGuideline 补了行为规则。
-
-### 为什么不把 CodingPack 抽出提前到 Phase 0 或 0.5
-
-技术上可以。但 CodingPack 抽出**需要 extension runtime 已经能跑通**——CodingPack 是第一个真扩展。如果 Sprint 0/1/2 还没把 extension runtime 跑通，强行抽 CodingPack 等于在没地基时盖房。**等 extension runtime 验证了，再抽 CodingPack 是最稳的**——同时验证了"最重要的扩展（默认 coding pack）能跑通"。
-
-### 为什么 Phase 0.5 必须先于 Sprint 0 完成
-
-`Phi.Extensions.Host` 里要写 `ExtensionRuntime.SetHarnessListener(harness.Subscribe)` 之类的桥接代码。如果 `Session` 还是"composition root 构造 SessionFactory → SessionFactory.BuildRuntime → ApplyRuntime"的多步模型，扩展 runtime 接入点会是 4 处。重构后的"composition root 一句话 `Session.LoadAsync(cwd, env, ...)`"**只**需要 1 处注入点（`SessionRuntime.Environment` 已经有 env）。**先把 composition 路径收敛，再写扩展**，代码量少一半、bug surface 少一半。
-
----
-
-## 14. 里程碑
-
-每个 sprint 结束都有可跑 demo + 测试覆盖。
-
-| Sprint | 目标 | 关键交付 | 状态 |
-|---|---|---|---|
-| **Phase 0** | 命名重命名 | 所有 `PhiCoding` / `CodingSession` 等命名清理；AGENTS.md / README.md / phi.slnx / props 同步 | ✅ |
-| **Phase 0.5** | 架构清理（删除 navigator/factory/config，重写 composition 路径） | `ISession` 加导航 API；`SessionEnvironment` + `Session.LoadAsync`；Avalonia `ActiveSession`；33+ 文件改动，838 测试 | ✅ |
-| **0** | 包骨架 + `IPhiApi` 接口定义 | `Phi.Extensions` 公开包；`IPhiExtension` / `IPhiApi` / `IPhiUiBridge` + 所有事件 record；attribute；`ExtensionError`；`ApiShapeTests` 锁死接口 | ✅ |
-| **1** | Loader + 第一个 `HelloTool` 端到端 | `ExtensionLoader` + ALC；`ExtensionRuntime.DiscoverAndLoad`；`Session.LoadAsync` 通过 `SessionEnvironment.ExtensionRuntimeFactory` 注入 runtime（见 Sprint 2.5 checklist 的"修复"条目）；`HelloTool` demo（加载 + 转录可见 + tool call 可用） | ✅ |
-| **2** | Events + Hooks + `/reload` | `HookDispatch`（tool_call / tool_result / input）；所有 agent event 透传；`ExtensionReloader` + ALC GC dance；`PermissionGate` demo；`ReloadTests` 真卸载验证。`/reload` 已注册为 TUI slash 命令（`PromptInput.HandleInput`），调 `ISession.ReloadExtensions()`：内部 `RemoveExtensionTools`（释放 harness 对旧 assembly 的强引用） + dispose 旧 runtime + 重跑 `env.ExtensionRuntimeFactory` 重建 CodingPack 等 compiled extensions。回归测试 `CodingPack_Survives_ReloadExtensions` + `ReloadExtensions_WithoutEnv_Throws_LeavesSessionUsable` 锁死语义。**Avalonia 端 `/reload` 未接线**：`PromptInputView.HandleInput` 当前所有输入都走 `SubmitPrompt`，slash 调度器还是空骨架（`/new`/`/sessions` 等也没接）—— Avalonia 端 slash dispatcher 统一留到 Sprint 3 的 `AvaloniaPhiUiBridge` 一起做 | ✅ |
-| **2.5** | **CodingPack 抽出（架构重构）** | `extensions/CodingPack/` 第一个真扩展；搬出 BashTool/ReadTool/WriteTool/EditTool + coding prompt；端到端回归测试（`CodingPackIntegrationTests`，含 `CodingPack_Survives_NewSessionAsync` + `CodingPack_Survives_ReloadExtensions`）；906/906 测试 | ✅ |
-| **3** | UI Bridge 双端实现 + Capability 落地 | `TuiUiSink` + `AvaloniaUiSink` 实现 `IUiSink`；`PhiUiBridge` 用 lazy `Func<IUiSink>` accessor 转发，session 切换后自动重指新 sink；`select` / `confirm` / `input` 走 `TuiDialogShower` / `AvaloniaUiSink.ShowDialogAsync`；**TuiDialogShower** 通过 `Dispatcher.InvokeAsync` 跨线程 marshal，避免 hook 跨 async 边界调 dialog 时的 `Invalid thread access`；`Notify` / `NotifyStatus` / `FlashError` 双端接线；`HookRegistry.ContextProvider` 让 hook handler 拿到真 context（PermissionGate 接 ConfirmAsync 演示）；`/reload` TUI 是 slash 命令、Avalonia 是 session row 的 EllipsisMenu 项（跟 `Rename` / `Delete` 同位，遵循"Avalonia 不用 slash"约定）；`PermissionGate` demo 升级成「问用户」语义，UI 缺失时 fall back 到自动 block（与 Sprint 2 兼容） | ✅（UI Bridge 完成 + Capability Enforce + Project Trust v1） |
-| **4** | Tool Card + Transcript Line 扩展点 + Bundle 加载 | `RegisterToolCard` / `RegisterToolCardRenderer`；`RegisterTranscriptLineRenderer`；`CustomLine` 加入 `ChatLine` DU；`AvaloniaToolCardRegistry` 和 TUI registry 走 `PhiApi` 而不是静态表；ALC 解析 `runtimes/{rid}/`；`extensions/CustomCardDemo/` 作为最小参考扩展；端到端测试（Host/TUI/Avalonia） | ✅ |
-| **5** | **官方 MCP 客户端扩展 `McpPack`**（§16） | `extensions/McpPack/`；读 `~/.phi/mcp-servers.json`；stdio + HTTP/SSE transport；`tools/list` → `api.RegisterTool`；`On("session_start"/"reload")` 管理 server 生命周期；端到端测试（mock JSON-RPC server）；**证明 MCP 完全不需要进入 Phi 主体代码** | ⏳ |
-
-每个 sprint：
-1. 先写测试，跑通再写实现
-2. `dotnet test` 全绿（含现有所有测试，无回归）
-3. `extensions/` 加一个最小可跑 demo
-4. 跑 `dotnet build` + `dotnet test` 跨 Windows / Linux / macOS 三个平台 CI
-
----
-
-## 15. 收益与风险
-
-### 收益
-
-- **跟 tau 严格对齐**——tau 已经验证过这套架构（`tau-subagents` 是真实的 production extension），用户的概念模型零迁移。
-- **复用现有 UI**——TUI / Avalonia 的所有 chrome（transcript / status bar / prompt / tool cards / slash picker）自动对扩展生效，**不需要给扩展写 UI**。
-- **隔离边界干净**——ALC + `Phi.Extensions` 公开包只暴露协议，扩展不能反向引用 Phi 内部类型。
-- **可卸载**——ALC + generation guard 让 `/reload` 真卸载，不留内存泄漏。
-- **C# 习惯**——`IDisposable On(...)` / `record sealed` / `Task<T?>` / `IReadOnlyList<T>`，比直接翻译 Python 类型更地道。
-- **跨平台零妥协**——纯托管扩展一份 dll 通吃三平台；bundle 按 RID 自动选 native deps。
-- **架构命名干净**——`Phi` 是 agent host，`Phi.Extensions.CodingPack` 是默认扩展，第三方扩展自然处于同一层。命名不再"coding"。
-
-### 风险
-
-- **ALC 卸载的 GC dance 不写好会有内存泄漏**——Sprint 2 必须重点测试（WeakReference 验证）。
-- **`IPhiUiBridge` 加新方法会破坏旧扩展**——v0.x 阶段允许，v1.0 后冻结接口。
-- **`Session` 要转发 14+ 个事件到 runtime**——`HookDispatch` / 转发层是事件循环里最热的路径，要 benchmark。
-- **项目扩展的 trust 模型 v1 用"默认全开 + warning"**——用户安装恶意扩展的风险跟 Python 一样，要文档里写清楚。
-- **扩展依赖第三方 dll 版本冲突**——ALC 的 Resolving 策略要仔细设计，避免扩展 A 用的 Newtonsoft.Json 12 干扰 host 自己的 Newtonsoft.Json 13。
-- **没有真正的应用层沙箱**——v1 必须文档明确"扩展 = 任意代码"，不画饼。
-- **重命名 Sprint 0 + Phase 0 工作量叠加**——先把重命名做掉再开 Sprint 0，否则 Sprint 0 写出来又要批量改 namespace。
-
----
-
-## 附录 A：示例扩展（v1 `HelloTool`）
-
-```csharp
-using Phi.Extensions;
-using Phi.Agent;
-
-[PhiExtension(
-    Name = "hello-tool",
-    Version = "1.0.0",
-    Description = "Greet someone by name.",
-    Capabilities = ExtensionCapability.None)]
-public sealed class HelloTool : IPhiExtension
-{
-    public void Setup(IPhiApi api)
-    {
-        api.RegisterTool(
-            new HelloToolImpl(),
-            new ToolContribution
-            {
-                PromptSnippet = "hello: Greet someone by name.",
-                PromptGuidelines = ["Use hello when asked to greet someone."],
-            });
-
-        api.RegisterCommand("/hello", (args, ctx) =>
-        {
-            api.SubmitUserMessage($"Say hello to {args}");
-            return null;
-        }, description: "Say hello to someone.");
+  // Custom summary:
+  return {
+    compaction: {
+      summary: "...",
+      firstKeptEntryId: preparation.firstKeptEntryId,
+      tokensBefore: preparation.tokensBefore,
+      // usage: summaryResponse.usage, // Optional; included in session totals
     }
-}
+  };
+});
 
-internal sealed class HelloToolImpl : Tool
-{
-    public override string Name => "hello";
-    public override string Description => "Greet someone by name.";
-    public override JsonObject Parameters => new()
-    {
-        ["type"] = "object",
-        ["properties"] = new JsonObject
-        {
-            ["who"] = new JsonObject { ["type"] = "string" }
+pi.on("session_compact", async (event, ctx) => {
+  // event.compactionEntry - the saved compaction
+  // event.fromExtension - whether extension provided it
+  // event.reason - "manual" (/compact), "threshold", or "overflow"
+  // event.willRetry - whether the aborted turn is retried after compaction (overflow recovery)
+});
+
+pi.on("session_compact_failed", async (event, ctx) => {
+  // event.reason - "manual" (/compact), "threshold", or "overflow"
+  // event.errorMessage - present for non-abort failures
+  // event.aborted - true for cancelled/aborted compactions
+  // event.willRetry - whether the aborted turn would have retried after compaction
+  // event.fromExtension - whether extension-provided compaction content was being used
+});
+```
+
+#### session_before_tree / session_tree
+
+Fired on `/tree` navigation. See [Sessions](sessions.md) for tree navigation concepts.
+
+```typescript
+pi.on("session_before_tree", async (event, ctx) => {
+  const { preparation, signal } = event;
+  return { cancel: true };
+  // OR provide custom summary:
+  return {
+    summary: {
+      summary: "...",
+      // usage: summaryResponse.usage, // Optional; included in session totals
+      details: {},
+    },
+  };
+});
+
+pi.on("session_tree", async (event, ctx) => {
+  // event.newLeafId, oldLeafId, summaryEntry, fromExtension
+});
+```
+
+#### session_shutdown
+
+Fired before a started session runtime is torn down. Use this to clean up resources opened from `session_start` or other session-scoped hooks.
+
+```typescript
+pi.on("session_shutdown", async (event, ctx) => {
+  // event.reason - "quit" | "reload" | "new" | "resume" | "fork"
+  // event.targetSessionFile - destination session for session replacement flows
+  // Cleanup, save state, etc.
+});
+```
+
+### Agent Events
+
+#### before_agent_start
+
+Fired after user submits prompt, before agent loop. Can inject a message and/or modify the system prompt.
+
+```typescript
+pi.on("before_agent_start", async (event, ctx) => {
+  // event.prompt - user's prompt text
+  // event.images - attached images (if any)
+  // event.systemPrompt - current chained system prompt for this handler
+  //   (includes changes from earlier before_agent_start handlers)
+  // event.systemPromptOptions - structured options used to build the system prompt
+  //   .customPrompt - any custom system prompt (from --system-prompt, SYSTEM.md, or custom templates)
+  //   .selectedTools - tools currently active in the prompt
+  //   .toolSnippets - one-line descriptions for each tool
+  //   .promptGuidelines - custom guideline bullets
+  //   .appendSystemPrompt - text from --append-system-prompt flags
+  //   .cwd - working directory
+  //   .contextFiles - AGENTS.md files and other loaded context files
+  //   .skills - loaded skills
+
+  return {
+    // Inject a persistent message (stored in session, sent to LLM)
+    message: {
+      customType: "my-extension",
+      content: "Additional context for the LLM",
+      display: true,
+    },
+    // Replace the system prompt for this turn (chained across extensions)
+    systemPrompt: event.systemPrompt + "\n\nExtra instructions for this turn...",
+  };
+});
+```
+
+The `systemPromptOptions` field gives extensions access to the same structured data Pi uses to build the system prompt. This lets you inspect what Pi has loaded — custom prompts, guidelines, tool snippets, context files, skills — without re-discovering resources or re-parsing flags. Use it when your extension needs to make deep, informed changes to the system prompt while respecting user-provided configuration.
+
+Inside `before_agent_start`, `event.systemPrompt` and `ctx.getSystemPrompt()` both reflect the chained system prompt as of the current handler. Later `before_agent_start` handlers can still modify it again.
+
+#### agent_start / agent_end / agent_settled
+
+`agent_start` fires when a low-level agent run begins. `agent_end` fires when that run ends, but Pi may still auto-retry, auto-compact and retry, or continue with queued follow-up messages. Use `agent_settled` for status integrations that need to know Pi will not continue running automatically.
+
+```typescript
+pi.on("agent_start", async (_event, ctx) => {});
+
+pi.on("agent_end", async (event, ctx) => {
+  // event.messages - messages from this low-level run
+});
+
+pi.on("agent_settled", async (_event, ctx) => {
+  // ctx.isIdle() is true here unless another extension started a new run.
+});
+```
+
+#### turn_start / turn_end
+
+Fired for each turn (one LLM response + tool calls).
+
+```typescript
+pi.on("turn_start", async (event, ctx) => {
+  // event.turnIndex, event.timestamp
+});
+
+pi.on("turn_end", async (event, ctx) => {
+  // event.turnIndex, event.message, event.toolResults
+});
+```
+
+#### message_start / message_update / message_end
+
+Fired for message lifecycle updates.
+
+- `message_start` and `message_end` fire for user, assistant, and toolResult messages.
+- `message_update` fires for assistant streaming updates.
+- `message_end` handlers can return `{ message }` to replace the finalized message. The replacement must keep the same `role`.
+
+```typescript
+pi.on("message_start", async (event, ctx) => {
+  // event.message
+});
+
+pi.on("message_update", async (event, ctx) => {
+  // event.message
+  // event.assistantMessageEvent (token-by-token stream event)
+});
+
+pi.on("message_end", async (event, ctx) => {
+  if (event.message.role !== "assistant") return;
+
+  return {
+    message: {
+      ...event.message,
+      usage: {
+        ...event.message.usage,
+        cost: {
+          ...event.message.usage.cost,
+          total: 0.123,
         },
-        ["required"] = new JsonArray { "who" }
-    };
-
-    public override async Task<ToolResult> ExecuteAsync(
-        string toolName, string toolCallId,
-        JsonObject arguments, CancellationToken cancellationToken)
-    {
-        var who = arguments["who"]?.GetValue<string>() ?? "world";
-        return new ToolResult(
-            [new TextBlock($"Hello, {who}!")],
-            IsError: false);
-    }
-}
-```
-
-## 附录 B：示例扩展（v1 `PermissionGate`）
-
-```csharp
-using System.Text.RegularExpressions;
-using Phi.Extensions;
-
-[PhiExtension(
-    Name = "permission-gate",
-    Version = "1.0.0",
-    Description = "Block dangerous bash commands before they run.")]
-public sealed class PermissionGate : IPhiExtension
-{
-    static readonly Regex[] Dangerous =
-    {
-        new(@"\brm\s+-(?=[a-zA-Z]*r)(?=[a-zA-Z]*f)[a-zA-Z]+", RegexOptions.Compiled),
-        new(@"\bgit\s+push\s+--force", RegexOptions.Compiled),
-        new(@"\bgit\s+reset\s+--hard", RegexOptions.Compiled),
-        new(@"\bchmod\s+-R\s+777\b", RegexOptions.Compiled),
-        new(@"\bmkfs\b", RegexOptions.Compiled),
-    };
-
-    public void Setup(IPhiApi api)
-    {
-        api.On("tool_call", (ev, ctx) =>
-        {
-            if (ev is not ToolCallHookEvent tce || tce.ToolName != "bash")
-                return ValueTask.CompletedTask;
-
-            var cmd = tce.Arguments.TryGetValue("command", out var c) ? c?.ToString() : "";
-            foreach (var pattern in Dangerous)
-                if (pattern.IsMatch(cmd ?? ""))
-                    return ValueTask.FromResult<object?>(new ToolCallHookResult(
-                        Block: true,
-                        Reason: $"command matches guarded pattern `{pattern}`; ask the user to run manually"));
-
-            return ValueTask.CompletedTask;
-        });
-    }
-}
-```
-
----
-
-
-
-
-
-
-## §16 官方 MCP 客户端扩展 (`McpPack`)
-
-> **定位**：MCP（Model Context Protocol）通过官方扩展 `McpPack` 提供，**不进入 Phi 主体代码**。
-> 用户不装 McpPack 就完全不付 MCP 相关的任何代价（运行时、内存、API surface、UI）。
->
-> **依赖官方 SDK**：McpPack 用 NuGet `ModelContextProtocol`（微软官方 C# MCP SDK，仓库
-> [modelcontextprotocol/csharp-sdk](https://github.com/modelcontextprotocol/csharp-sdk)），
-> **不自己手写 transport / JSON-RPC 序列化 / 协议握手**。SDK 跟随 spec 自动升级；
-> McpPack 只负责"把 SDK 的 client 接到 Phi 生命周期上 + 把 MCP tool 包成 Phi tool"。
-> 当前 SDK 跟踪到 MCP 协议 spec `2025-06-18`（SDK 2.x 线的稳定分支），McpPack 的 `ModelContextProtocol` 引用跟着升级即可。
->
-> **本次修订**：原 §16 是手写 stdio transport + JSON-RPC 的方案；
-> 改成"用 SDK"后代码量 -25%、跨平台 QA 消失、协议升级 0 工作量。详见 §16.7 / §16.11 / §16.16 / 附录 C。
-
-### 16.1 最小核心理念
-
-```
-Phi 核心（始终装、最小）                Phi 扩展生态（可选装）
-─────────────────────────                ──────────────────────────
-Session / Harness / AgentLoop             CodingPack (bash/read/write/edit)
-ISession 导航 API                         CustomCardDemo (tool card 渲染演示)
-4 个 builtin tools                         McpPack (MCP 客户端)   ← 本节
-tool / hook / event 原语                    PermissionGate (tool_call 拦截)
-tool card / transcript line 渲染           Phi.Figma (figma 集成, 假设)
-TUI / Avalonia 双端 shell                  Phi.Aws (AWS 集成, 假设)
-                                          …… 社区自己写的几百个 dll
-```
-
-**判定标准**：
-
-- **核心**：任何用户在"第一次装 Phi"时就期待能用的能力 —— 跟 LLM 聊天、写代码、读文件
-- **扩展**：特定 workflow / 外部服务 / 领域深度 / UX 定制 —— 需要的人装
-
-`McpPack` 是典型扩展：它让 Phi **能跟 MCP server 生态对话**，但 80% 的"基本使用"（只用 builtin tools）完全不依赖它。
-
-### 16.2 McpPack 做与不做的明确边界
-
-#### 做
-
-- 读 `~/.phi/mcp-servers.json` 拿 server 配置
-- 为每个 server spawn 一个 stdio 子进程（或开 HTTP/SSE 连接，Sprint 5.5+）
-- 跑 JSON-RPC `initialize` + `tools/list`
-- **每个 MCP tool → 一个 `Phi.Tool`**，通过 `api.RegisterTool` 注册
-- 模型调 MCP tool → `Phi.Tool.ExecuteAsync` → JSON-RPC `tools/call` → 结果
-- 子进程 lifecycle：`session_start` 时 connect，`session_shutdown` 时 dispose，`reload` 时 reconnect
-- Tool 名加前缀避免冲突：`mcp__<server-key>__<tool-name>`
-
-#### 不做
-
-- **不做** server picker UI（用 `api.Context.Ui.SelectAsync` 让用户挑 server —— 这部分 v2）
-- **不做** OAuth / token 管理（用户自己填 `env` 字段，sprint 6.5+ 加 host API）
-- **不做** MCP-specific tool cards（用通用 `ToolDescriptor(ToolKind.Generic, ...)`，TUI/Avalonia 自渲染）
-- **不做** MCP resource / prompt 模板支持（v2，先聚焦 tools）
-- **不做** HTTP/SSE transport（Sprint 5 v1 只做 stdio；HTTP/SSE 在 v2 + Cross-platform 一起做）
-- **不做** Phi 主体代码任何改动
-
-### 16.3 配置文件格式
-
-`~/.phi/mcp-servers.json`：
-
-```jsonc
-{
-  "$schema": "https://phi.dev/schemas/mcp-servers-v1.json",
-  "servers": {
-    "figma": {
-      "transport": "stdio",                       // v1 只支持 stdio
-      "command": "npx",
-      "args": ["-y", "@figma/mcp-server"],
-      "env": {
-        "FIGMA_TOKEN": "${env:FIGMA_TOKEN}"        // 引用环境变量
       },
-      "disabled": false                           // false 时 McpPack 不加载（用户手动关）
     },
-    "github": {
-      "transport": "stdio",
-      "command": "mcp-server-github",
-      "args": [],
-      "env": { "GITHUB_TOKEN": "${env:GITHUB_TOKEN}" }
-    },
-    "internal-db": {
-      "transport": "stdio",
-      "command": "/opt/internal/mcp-server",
-      "args": ["--config", "/etc/mcp/db.json"]
-      // 不填 disabled → 默认 false
+  };
+});
+```
+
+#### tool_execution_start / tool_execution_update / tool_execution_end
+
+Fired for tool execution lifecycle updates.
+
+In parallel tool mode:
+- `tool_execution_start` is emitted in assistant source order during the preflight phase
+- `tool_execution_update` events may interleave across tools
+- `tool_execution_end` is emitted in tool completion order after each tool is finalized
+- final `toolResult` message events are still emitted later in assistant source order
+
+```typescript
+pi.on("tool_execution_start", async (event, ctx) => {
+  // event.toolCallId, event.toolName, event.args
+});
+
+pi.on("tool_execution_update", async (event, ctx) => {
+  // event.toolCallId, event.toolName, event.args, event.partialResult
+});
+
+pi.on("tool_execution_end", async (event, ctx) => {
+  // event.toolCallId, event.toolName, event.result, event.isError
+});
+```
+
+#### context
+
+Fired before each LLM call. Modify messages non-destructively. See [Session Format](session-format.md) for message types.
+
+```typescript
+pi.on("context", async (event, ctx) => {
+  // event.messages - deep copy, safe to modify
+  const filtered = event.messages.filter(m => !shouldPrune(m));
+  return { messages: filtered };
+});
+```
+
+#### before_provider_headers
+
+Fired after the outgoing HTTP headers are assembled. Use it to add, override, or remove request headers.
+
+Handlers mutate `event.headers` in place. Set a key to a string to add or override it, or to `null` to delete it.
+
+```typescript
+pi.on("before_provider_headers", (event, ctx) => {
+  // Add or override — e.g. a session id for gateway tracing/attribution
+  event.headers["x-session-id"] = ctx.sessionManager.getSessionId();
+
+  // Drop a tracking header pi adds for this call
+  event.headers["X-OpenRouter-Title"] = null;
+});
+```
+
+Runs once per provider request; retries reuse the same headers rather than re-firing the hook.
+
+#### before_provider_request
+
+Fired after the provider-specific payload is built, right before the request is sent. Handlers run in extension load order. Returning `undefined` keeps the payload unchanged. Returning any other value replaces the payload for later handlers and for the actual request.
+
+This hook can rewrite provider-level system instructions or remove them entirely. Those payload-level changes are not reflected by `ctx.getSystemPrompt()`, which reports Pi's system prompt string rather than the final serialized provider payload.
+
+```typescript
+pi.on("before_provider_request", (event, ctx) => {
+  console.log(JSON.stringify(event.payload, null, 2));
+
+  // Optional: replace payload
+  // return { ...event.payload, temperature: 0 };
+});
+```
+
+This is mainly useful for debugging provider serialization and cache behavior.
+
+#### after_provider_response
+
+Fired after an HTTP response is received and before its stream body is consumed. Handlers run in extension load order.
+
+```typescript
+pi.on("after_provider_response", (event, ctx) => {
+  // event.status - HTTP status code
+  // event.headers - normalized response headers
+  if (event.status === 429) {
+    console.log("rate limited", event.headers["retry-after"]);
+  }
+});
+```
+
+Header availability depends on provider and transport. Providers that abstract HTTP responses may not expose headers.
+
+### Model Events
+
+#### model_select
+
+Fired when the model changes via `/model` command, model cycling (`Ctrl+P`), or session restore.
+
+```typescript
+pi.on("model_select", async (event, ctx) => {
+  // event.model - newly selected model
+  // event.previousModel - previous model (undefined if first selection)
+  // event.source - "set" | "cycle" | "restore"
+
+  const prev = event.previousModel
+    ? `${event.previousModel.provider}/${event.previousModel.id}`
+    : "none";
+  const next = `${event.model.provider}/${event.model.id}`;
+
+  ctx.ui.notify(`Model changed (${event.source}): ${prev} -> ${next}`, "info");
+});
+```
+
+Use this to update UI elements (status bars, footers) or perform model-specific initialization when the active model changes.
+
+#### thinking_level_select
+
+Fired when the thinking level changes. This is notification-only; handler return values are ignored.
+
+```typescript
+pi.on("thinking_level_select", async (event, ctx) => {
+  // event.level - newly selected thinking level
+  // event.previousLevel - previous thinking level
+
+  ctx.ui.setStatus("thinking", `thinking: ${event.level}`);
+});
+```
+
+Use this to update extension UI when `pi.setThinkingLevel()`, model changes, or built-in thinking-level controls change the active thinking level.
+
+### Tool Events
+
+#### tool_call
+
+Fired after `tool_execution_start`, before the tool executes. **Can block.** Use `isToolCallEventType` to narrow and get typed inputs.
+
+Before `tool_call` runs, pi waits for previously emitted Agent events to finish draining through `AgentSession`. This means `ctx.sessionManager` is up to date through the current assistant tool-calling message.
+
+In the default parallel tool execution mode, sibling tool calls from the same assistant message are preflighted sequentially, then executed concurrently. `tool_call` is not guaranteed to see sibling tool results from that same assistant message in `ctx.sessionManager`.
+
+`event.input` is mutable. Mutate it in place to patch tool arguments before execution.
+
+Behavior guarantees:
+- Mutations to `event.input` affect the actual tool execution
+- Later `tool_call` handlers see mutations made by earlier handlers
+- No re-validation is performed after your mutation
+- Return values from `tool_call` control blocking via `{ block: true, reason?: string, terminate?: boolean }`
+- `terminate` only applies to a blocked call; the agent stops early only when every finalized result in the batch is terminating
+
+```typescript
+import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
+
+pi.on("tool_call", async (event, ctx) => {
+  // event.toolName - "bash", "read", "write", "edit", etc.
+  // event.toolCallId
+  // event.input - tool parameters (mutable)
+
+  // Built-in tools: no type params needed
+  if (isToolCallEventType("bash", event)) {
+    // event.input is { command: string; timeout?: number }
+    event.input.command = `source ~/.profile\n${event.input.command}`;
+
+    if (event.input.command.includes("rm -rf")) {
+      return { block: true, reason: "Dangerous command", terminate: true };
     }
+  }
+
+  if (isToolCallEventType("read", event)) {
+    // event.input is { path: string; offset?: number; limit?: number }
+    console.log(`Reading: ${event.input.path}`);
+  }
+});
+```
+
+#### Typing custom tool input
+
+Custom tools should export their input type:
+
+```typescript
+// my-extension.ts
+export type MyToolInput = Static<typeof myToolSchema>;
+```
+
+Use `isToolCallEventType` with explicit type parameters:
+
+```typescript
+import { isToolCallEventType } from "@earendil-works/pi-coding-agent";
+import type { MyToolInput } from "my-extension";
+
+pi.on("tool_call", (event) => {
+  if (isToolCallEventType<"my_tool", MyToolInput>("my_tool", event)) {
+    event.input.action;  // typed
+  }
+});
+```
+
+#### tool_result
+
+Fired after tool execution finishes and before `tool_execution_end` plus the final tool result message events are emitted. **Can modify result.**
+
+In parallel tool mode, `tool_result` and `tool_execution_end` may interleave in tool completion order, while final `toolResult` message events are still emitted later in assistant source order.
+
+`tool_result` handlers chain like middleware:
+- Handlers run in extension load order
+- Each handler sees the latest result after previous handler changes
+- Handlers can return partial patches (`content`, `details`, `isError`, or `usage`); omitted fields keep their current values
+
+Use `ctx.signal` for nested async work inside the handler. This lets Esc cancel model calls, `fetch()`, and other abort-aware operations started by the extension.
+
+```typescript
+import { isBashToolResult } from "@earendil-works/pi-coding-agent";
+
+pi.on("tool_result", async (event, ctx) => {
+  // event.toolName, event.toolCallId, event.input
+  // event.content, event.details, event.isError, event.usage
+
+  if (isBashToolResult(event)) {
+    // event.details is typed as BashToolDetails
+  }
+
+  const response = await fetch("https://example.com/summarize", {
+    method: "POST",
+    body: JSON.stringify({ content: event.content }),
+    signal: ctx.signal,
+  });
+
+  // Modify result:
+  return { content: [...], details: {...}, isError: false, usage: nestedModelUsage };
+});
+```
+
+### User Bash Events
+
+#### user_bash
+
+Fired when user executes `!` or `!!` commands. **Can intercept.**
+
+```typescript
+import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
+
+pi.on("user_bash", (event, ctx) => {
+  // event.command - the bash command
+  // event.excludeFromContext - true if !! prefix
+  // event.cwd - working directory
+
+  // Option 1: Provide custom operations (e.g., SSH)
+  return { operations: remoteBashOps };
+
+  // Option 2: Wrap pi's built-in local bash backend
+  const local = createLocalBashOperations();
+  return {
+    operations: {
+      exec(command, cwd, options) {
+        return local.exec(`source ~/.profile\n${command}`, cwd, options);
+      }
+    }
+  };
+
+  // Option 3: Full replacement - return result directly
+  return { result: { output: "...", exitCode: 0, cancelled: false, truncated: false } };
+});
+```
+
+### Input Events
+
+#### input
+
+Fired when user input is received, after extension commands are checked but before skill and template expansion. The event sees the raw input text, so `/skill:foo` and `/template` are not yet expanded.
+
+**Processing order:**
+1. Extension commands (`/cmd`) checked first - if found, handler runs and input event is skipped
+2. `input` event fires - can intercept, transform, or handle
+3. If not handled: skill commands (`/skill:name`) expanded to skill content
+4. If not handled: prompt templates (`/template`) expanded to template content
+5. Agent processing begins (`before_agent_start`, etc.)
+
+```typescript
+pi.on("input", async (event, ctx) => {
+  // event.text - raw input (before skill/template expansion)
+  // event.images - attached images, if any
+  // event.source - "interactive" (typed), "rpc" (API), or "extension" (via sendUserMessage)
+  // event.streamingBehavior - "steer" | "followUp" | undefined
+  //   undefined when idle, "steer" for mid-stream interrupts,
+  //   "followUp" for messages queued until the agent finishes
+
+  // Transform: rewrite input before expansion
+  if (event.text.startsWith("?quick "))
+    return { action: "transform", text: `Respond briefly: ${event.text.slice(7)}` };
+
+  // Handle: respond without LLM (extension shows its own feedback)
+  if (event.text === "ping") {
+    ctx.ui.notify("pong", "info");
+    return { action: "handled" };
+  }
+
+  // Route by source: skip processing for extension-injected messages
+  if (event.source === "extension") return { action: "continue" };
+
+  // Intercept skill commands before expansion
+  if (event.text.startsWith("/skill:")) {
+    // Could transform, block, or let pass through
+  }
+
+  return { action: "continue" };  // Default: pass through to expansion
+});
+```
+
+**Results:**
+- `continue` - pass through unchanged (default if handler returns nothing)
+- `transform` - modify text/images, then continue to expansion
+- `handled` - skip agent entirely (first handler to return this wins)
+
+Transforms chain across handlers. See [input-transform.ts](../examples/extensions/input-transform.ts) and [input-transform-streaming.ts](../examples/extensions/input-transform-streaming.ts) for `streamingBehavior`-aware routing.
+
+## ExtensionContext
+
+All handlers receive `ctx: ExtensionContext`.
+
+### ctx.ui
+
+UI methods for user interaction. See [Custom UI](#custom-ui) for full details.
+
+### ctx.mode
+
+Current run mode: `"tui"`, `"rpc"`, `"json"`, or `"print"`. Use `ctx.mode === "tui"` to guard terminal-only features such as `custom()`, component factories, terminal input, and direct TUI rendering.
+
+### ctx.hasUI
+
+`true` in TUI and RPC modes. `false` in print mode (`-p`) and JSON mode. Use this to guard dialog methods (`select`, `confirm`, `input`, `editor`) and fire-and-forget methods (`notify`, `setStatus`, `setWidget`, `setTitle`, `setEditorText`) that work in both TUI and RPC modes. In RPC mode, some TUI-specific methods are no-ops or return defaults (see [rpc.md](rpc.md#extension-ui-protocol)).
+
+### ctx.cwd
+
+Current working directory.
+
+Use `CONFIG_DIR_NAME` instead of hardcoding `.pi` when constructing project-local config paths. Rebranded distributions can use a different config directory name.
+
+```typescript
+import { CONFIG_DIR_NAME, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { join } from "node:path";
+
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", (_event, ctx) => {
+    const projectConfigPath = join(ctx.cwd, CONFIG_DIR_NAME, "my-extension.json");
+    // ...
+  });
+}
+```
+
+### ctx.isProjectTrusted()
+
+Returns whether project-local trust is active for the current session context. This includes temporary trust decisions and CLI trust overrides, not just saved decisions in the global trust store.
+
+Use this before reading project-local extension configuration that should only be honored for trusted projects.
+
+### ctx.sessionManager
+
+Read-only access to session state. See [Session Format](session-format.md) for the full SessionManager API and entry types.
+
+For `tool_call`, this state is synchronized through the current assistant message before handlers run. In parallel tool execution mode it is still not guaranteed to include sibling tool results from the same assistant message.
+
+```typescript
+ctx.sessionManager.getEntries()             // All entries
+ctx.sessionManager.getBranch()              // Current branch
+ctx.sessionManager.buildContextEntries()    // Active branch entries with compaction applied
+ctx.sessionManager.getLeafId()              // Current leaf entry ID
+```
+
+### ctx.modelRegistry / ctx.model / ctx.thinkingLevel / ctx.scopedModels
+
+Access to models, providers, and resolved authentication. `ctx.modelRegistry.getProvider(id)` returns the effective pi-ai provider, while `getProviderAuth(id)` resolves its current API key, headers, base URL, and provider-scoped environment without requiring a loaded model. `ctx.model` is the active model, and `ctx.thinkingLevel` is its current effective thinking level.
+
+`ctx.scopedModels` is the read-only list of models scoped to the current session — the same set the `/scoped-models` command shows. It is resolved at session start from the `--models` CLI flag and the `enabledModels` setting (matched against the available catalogue with minimatch on `provider/modelId` or a bare `modelId`). It is empty when no scoping is configured, meaning every available model is usable. Each entry is `{ model, thinkingLevel? }`, where `thinkingLevel` is set only when a pattern pinned it (e.g. `anthropic/*:high`). Use it to populate a model picker that mirrors the built-in one instead of enumerating the whole catalogue via `ctx.modelRegistry.getAvailable()`.
+
+### ctx.signal
+
+The current agent abort signal, or `undefined` when no agent turn is active.
+
+Use this for abort-aware nested work started by extension handlers, for example:
+- `fetch(..., { signal: ctx.signal })`
+- model calls that accept `signal`
+- file or process helpers that accept `AbortSignal`
+
+`ctx.signal` is typically defined during active turn events such as `tool_call`, `tool_result`, `message_update`, and `turn_end`.
+It is usually `undefined` in idle or non-turn contexts such as session events, extension commands, and shortcuts fired while pi is idle.
+
+```typescript
+pi.on("tool_result", async (event, ctx) => {
+  const response = await fetch("https://example.com/api", {
+    method: "POST",
+    body: JSON.stringify(event),
+    signal: ctx.signal,
+  });
+
+  const data = await response.json();
+  return { details: data };
+});
+```
+
+### ctx.isIdle() / ctx.abort() / ctx.hasPendingMessages()
+
+Control flow helpers. `ctx.isIdle()` is false while Pi is processing an agent run, automatic retry, auto-compaction retry, or queued continuation.
+
+### ctx.shutdown()
+
+Request a graceful shutdown of pi.
+
+- **Interactive mode:** Deferred until the agent becomes idle (after processing all queued steering and follow-up messages).
+- **RPC mode:** Deferred until the next idle state (after completing the current command response, when waiting for the next command).
+- **Print mode:** No-op. The process exits automatically when all prompts are processed.
+
+Emits `session_shutdown` event to all extensions before exiting. Available in all contexts (event handlers, tools, commands, shortcuts).
+
+```typescript
+pi.on("tool_call", (event, ctx) => {
+  if (isFatal(event.input)) {
+    ctx.shutdown();
+  }
+});
+```
+
+### ctx.getContextUsage()
+
+Returns current context usage for the active model. Uses last assistant usage when available, then estimates tokens for trailing messages.
+
+```typescript
+const usage = ctx.getContextUsage();
+if (usage && usage.tokens > 100_000) {
+  // ...
+}
+```
+
+### ctx.compact()
+
+Trigger compaction without awaiting completion. Use `onComplete` and `onError` for follow-up actions.
+
+```typescript
+ctx.compact({
+  customInstructions: "Focus on recent changes",
+  onComplete: (result) => {
+    ctx.ui.notify("Compaction completed", "info");
+  },
+  onError: (error) => {
+    ctx.ui.notify(`Compaction failed: ${error.message}`, "error");
+  },
+});
+```
+
+### ctx.getSystemPrompt()
+
+Returns Pi's current system prompt string.
+
+- During `before_agent_start`, this reflects chained system-prompt changes made so far for the current turn.
+- It does not include later `context` message mutations.
+- It does not include `before_provider_request` payload rewrites.
+- If later-loaded extensions run after yours, they can still change what is ultimately sent.
+
+```typescript
+pi.on("before_agent_start", (event, ctx) => {
+  const prompt = ctx.getSystemPrompt();
+  console.log(`System prompt length: ${prompt.length}`);
+});
+```
+
+## ExtensionCommandContext
+
+Command handlers receive `ExtensionCommandContext`, which extends `ExtensionContext` with session control methods. These are only available in commands because they can deadlock if called from event handlers.
+
+### ctx.getSystemPromptOptions()
+
+Returns the base inputs Pi currently uses to build the system prompt.
+
+```typescript
+const options = ctx.getSystemPromptOptions();
+const contextPaths = options.contextFiles?.map((file) => file.path) ?? [];
+```
+
+This has the same shape and mutability as `before_agent_start` `event.systemPromptOptions`: custom prompt, active tools, tool snippets, prompt guidelines, appended system prompt text, cwd, loaded context files, and loaded skills. It may include full context file contents, so treat it as sensitive extension-local data and avoid exposing it through command lists, logs, or autocomplete metadata.
+
+This reports the current base prompt inputs. It does not include per-turn `before_agent_start` chained system-prompt changes, later `context` event message mutations, or `before_provider_request` payload rewrites.
+
+### ctx.waitForIdle()
+
+Wait for the agent to fully settle, including automatic retries, auto-compaction retries, and queued continuations:
+
+```typescript
+pi.registerCommand("my-cmd", {
+  handler: async (args, ctx) => {
+    await ctx.waitForIdle();
+    // Agent is now idle, safe to modify session
+  },
+});
+```
+
+### ctx.newSession(options?)
+
+Create a new session:
+
+```typescript
+const parentSession = ctx.sessionManager.getSessionFile();
+const kickoff = "Continue in the replacement session";
+
+const result = await ctx.newSession({
+  parentSession,
+  setup: async (sm) => {
+    sm.appendMessage({
+      role: "user",
+      content: [{ type: "text", text: "Context from previous session..." }],
+      timestamp: Date.now(),
+    });
+  },
+  withSession: async (ctx) => {
+    // Use only the replacement-session ctx here.
+    await ctx.sendUserMessage(kickoff);
+  },
+});
+
+if (result.cancelled) {
+  // An extension cancelled the new session
+}
+```
+
+Options:
+- `parentSession`: parent session file to record in the new session header
+- `setup`: mutate the new session's `SessionManager` before `withSession` runs
+- `withSession`: run post-switch work against a fresh replacement-session context. Do not use captured old `pi` / command `ctx`; see [Session replacement lifecycle and footguns](#session-replacement-lifecycle-and-footguns).
+
+### ctx.fork(entryId, options?)
+
+Fork from a specific entry, creating a new session file:
+
+```typescript
+const result = await ctx.fork("entry-id-123", {
+  withSession: async (ctx) => {
+    // Use only the replacement-session ctx here.
+    ctx.ui.notify("Now in the forked session", "info");
+  },
+});
+if (result.cancelled) {
+  // An extension cancelled the fork
+}
+
+const cloneResult = await ctx.fork("entry-id-456", { position: "at" });
+if (cloneResult.cancelled) {
+  // An extension cancelled the clone
+}
+```
+
+Options:
+- `position`: `"before"` (default) forks before the selected user message, restoring that prompt into the editor
+- `position`: `"at"` duplicates the active path through the selected entry without restoring editor text
+- `withSession`: run post-switch work against a fresh replacement-session context. Do not use captured old `pi` / command `ctx`; see [Session replacement lifecycle and footguns](#session-replacement-lifecycle-and-footguns).
+
+### ctx.navigateTree(targetId, options?)
+
+Navigate to a different point in the session tree:
+
+```typescript
+const result = await ctx.navigateTree("entry-id-456", {
+  summarize: true,
+  customInstructions: "Focus on error handling changes",
+  replaceInstructions: false, // true = replace default prompt entirely
+  label: "review-checkpoint",
+});
+```
+
+Options:
+- `summarize`: Whether to generate a summary of the abandoned branch
+- `customInstructions`: Custom instructions for the summarizer
+- `replaceInstructions`: If true, `customInstructions` replaces the default prompt instead of being appended
+- `label`: Label to attach to the branch summary entry (or target entry if not summarizing)
+
+### ctx.switchSession(sessionPath, options?)
+
+Switch to a different session file:
+
+```typescript
+const result = await ctx.switchSession("/path/to/session.jsonl", {
+  withSession: async (ctx) => {
+    await ctx.sendUserMessage("Resume work in the replacement session");
+  },
+});
+if (result.cancelled) {
+  // An extension cancelled the switch via session_before_switch
+}
+```
+
+Options:
+- `withSession`: run post-switch work against a fresh replacement-session context. Do not use captured old `pi` / command `ctx`; see [Session replacement lifecycle and footguns](#session-replacement-lifecycle-and-footguns).
+
+To discover available sessions, use the static `SessionManager.list()` or `SessionManager.listAll()` methods:
+
+```typescript
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+
+pi.registerCommand("switch", {
+  description: "Switch to another session",
+  handler: async (args, ctx) => {
+    const sessions = await SessionManager.list(ctx.cwd);
+    if (sessions.length === 0) return;
+    const choice = await ctx.ui.select(
+      "Pick session:",
+      sessions.map(s => s.file),
+    );
+    if (choice) {
+      await ctx.switchSession(choice, {
+        withSession: async (ctx) => {
+          ctx.ui.notify("Switched session", "info");
+        },
+      });
+    }
+  },
+});
+```
+
+### Session replacement lifecycle and footguns
+
+`withSession` receives a fresh `ReplacedSessionContext`, which extends `ExtensionCommandContext` with async `sendMessage()` and `sendUserMessage()` helpers bound to the replacement session.
+
+Lifecycle and footguns:
+- `withSession` runs only after the old session has emitted `session_shutdown`, the old runtime has been torn down, the replacement session has been rebound, and the new extension instance has already received `session_start`.
+- The callback still executes in the original closure, not inside the new extension instance. That means your old extension instance may already have run its shutdown cleanup before `withSession` starts.
+- Captured old `pi` / old command `ctx` session-bound objects are stale after replacement and will throw if used. Use only the `ctx` passed to `withSession` for session-bound work.
+- Previously extracted raw objects are still your responsibility. For example, if you capture `const sm = ctx.sessionManager` before replacement, `sm` is still the old `SessionManager` object. Do not reuse it after replacement.
+- Code in `withSession` should assume any state invalidated by your `session_shutdown` handler is already gone. Only capture plain data that survives shutdown cleanly, such as strings, ids, and serialized config.
+
+Safe pattern:
+
+```typescript
+pi.registerCommand("handoff", {
+  handler: async (_args, ctx) => {
+    const kickoff = "Continue from the replacement session";
+    await ctx.newSession({
+      withSession: async (ctx) => {
+        await ctx.sendUserMessage(kickoff);
+      },
+    });
+  },
+});
+```
+
+Unsafe pattern:
+
+```typescript
+pi.registerCommand("handoff", {
+  handler: async (_args, ctx) => {
+    const oldSessionManager = ctx.sessionManager;
+    await ctx.newSession({
+      withSession: async (_ctx) => {
+        // stale old objects: do not do this
+        oldSessionManager.getSessionFile();
+        pi.sendUserMessage("wrong");
+      },
+    });
+  },
+});
+```
+
+### ctx.reload()
+
+Run the same reload flow as `/reload`.
+
+```typescript
+pi.registerCommand("reload-runtime", {
+  description: "Reload extensions, skills, prompts, themes, and context files",
+  handler: async (_args, ctx) => {
+    await ctx.reload();
+    return;
+  },
+});
+```
+
+Important behavior:
+- `await ctx.reload()` emits `session_shutdown` for the current extension runtime
+- It then reloads resources and emits `session_start` with `reason: "reload"` and `resources_discover` with reason `"reload"`
+- The currently running command handler still continues in the old call frame
+- Code after `await ctx.reload()` still runs from the pre-reload version
+- Code after `await ctx.reload()` must not assume old in-memory extension state is still valid
+- After the handler returns, future commands/events/tool calls use the new extension version
+
+For predictable behavior, treat reload as terminal for that handler (`await ctx.reload(); return;`).
+
+Tools run with `ExtensionContext`, so they cannot call `ctx.reload()` directly. Use a command as the reload entrypoint, then expose a tool that queues that command as a follow-up user message.
+
+Example tool the LLM can call to trigger reload:
+
+```typescript
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+
+export default function (pi: ExtensionAPI) {
+  pi.registerCommand("reload-runtime", {
+    description: "Reload extensions, skills, prompts, themes, and context files",
+    handler: async (_args, ctx) => {
+      await ctx.reload();
+      return;
+    },
+  });
+
+  pi.registerTool({
+    name: "reload_runtime",
+    label: "Reload Runtime",
+    description: "Reload extensions, skills, prompts, themes, and context files",
+    parameters: Type.Object({}),
+    async execute() {
+      pi.sendUserMessage("/reload-runtime", { deliverAs: "followUp" });
+      return {
+        content: [{ type: "text", text: "Queued /reload-runtime as a follow-up command." }],
+      };
+    },
+  });
+}
+```
+
+## ExtensionAPI Methods
+
+### pi.on(event, handler)
+
+Subscribe to events. See [Events](#events) for event types and return values.
+
+### pi.registerTool(definition)
+
+Register a custom tool callable by the LLM. See [Custom Tools](#custom-tools) for full details.
+
+`pi.registerTool()` works both during extension load and after startup. You can call it inside `session_start`, command handlers, or other event handlers. New tools are refreshed immediately in the same session, so they appear in `pi.getAllTools()` and are callable by the LLM without `/reload`.
+
+Use `pi.setActiveTools()` to enable or disable tools (including dynamically added tools) at runtime.
+
+Use `promptSnippet` to opt a custom tool into a one-line entry in `Available tools`, and `promptGuidelines` to append tool-specific bullets to the default `Guidelines` section when the tool is active.
+
+**Important:** `promptGuidelines` bullets are appended flat to the `Guidelines` section with no tool name prefix. Each guideline must name the tool it refers to — avoid "Use this tool when..." because the LLM cannot tell which tool "this" means. Write "Use my_tool when..." instead.
+
+See [dynamic-tools.ts](../examples/extensions/dynamic-tools.ts) for a full example.
+
+```typescript
+import { Type } from "typebox";
+import { StringEnum } from "@earendil-works/pi-ai";
+
+pi.registerTool({
+  name: "my_tool",
+  label: "My Tool",
+  description: "What this tool does",
+  promptSnippet: "Summarize or transform text according to action",
+  promptGuidelines: ["Use my_tool when the user asks to summarize previously generated text."],
+  parameters: Type.Object({
+    action: StringEnum(["list", "add"] as const),
+    text: Type.Optional(Type.String()),
+  }),
+  prepareArguments(args) {
+    // Optional compatibility shim. Runs before schema validation.
+    // Return the current schema shape, for example to fold legacy fields
+    // into the modern parameter object.
+    return args;
+  },
+
+  async execute(toolCallId, params, signal, onUpdate, ctx) {
+    // Stream progress
+    onUpdate?.({ content: [{ type: "text", text: "Working..." }] });
+
+    return {
+      content: [{ type: "text", text: "Done" }],
+      details: { result: "..." },
+    };
+  },
+
+  // Optional: Custom rendering
+  renderCall(args, theme, context) { ... },
+  renderResult(result, options, theme, context) { ... },
+});
+```
+
+### pi.sendMessage(message, options?)
+
+Inject a custom message into the session. Custom messages participate in LLM context. For durable TUI-only content that should not be sent to the LLM, use [`pi.appendEntry()`](#piappendentrycustomtype-data) with [`pi.registerEntryRenderer()`](#piregisterentryrenderercustomtype-renderer).
+
+```typescript
+pi.sendMessage({
+  customType: "my-extension",
+  content: "Message text",
+  display: true,
+  details: { ... },
+}, {
+  triggerTurn: true,
+  deliverAs: "steer",
+});
+```
+
+**Options:**
+- `deliverAs` - Delivery mode:
+  - `"steer"` (default) - Queues the message while streaming. Delivered after the current assistant turn finishes executing its tool calls, before the next LLM call.
+  - `"followUp"` - Waits for agent to finish. Delivered only when agent has no more tool calls.
+  - `"nextTurn"` - Queued for next user prompt. Does not interrupt or trigger anything.
+- `triggerTurn: true` - If agent is idle, trigger an LLM response immediately. Only applies to `"steer"` and `"followUp"` modes (ignored for `"nextTurn"`).
+
+### pi.sendUserMessage(content, options?)
+
+Send a user message to the agent. Unlike `sendMessage()` which sends custom messages, this sends an actual user message that appears as if typed by the user. Always triggers a turn.
+
+```typescript
+// Simple text message
+pi.sendUserMessage("What is 2+2?");
+
+// With content array (text + images)
+pi.sendUserMessage([
+  { type: "text", text: "Describe this image:" },
+  { type: "image", source: { type: "base64", mediaType: "image/png", data: "..." } },
+]);
+
+// During streaming - must specify delivery mode
+pi.sendUserMessage("Focus on error handling", { deliverAs: "steer" });
+pi.sendUserMessage("And then summarize", { deliverAs: "followUp" });
+
+// Opt in to extension command dispatch and skill/prompt template expansion
+pi.sendUserMessage("/review src/index.ts", { expandPromptTemplates: true });
+```
+
+**Options:**
+- `deliverAs` - Required when agent is streaming:
+  - `"steer"` - Queues the message for delivery after the current assistant turn finishes executing its tool calls
+  - `"followUp"` - Waits for agent to finish all tools
+- `expandPromptTemplates` - Dispatch extension commands and expand skill commands and prompt templates. Defaults to `false`.
+
+When not streaming, the message is sent immediately and triggers a new turn. When streaming without `deliverAs`, throws an error.
+
+See [send-user-message.ts](../examples/extensions/send-user-message.ts) for a complete example.
+
+### pi.appendEntry(customType, data?)
+
+Persist extension data. Custom entries do NOT participate in LLM context. In interactive mode, they can also render inside the chat transcript when paired with `pi.registerEntryRenderer()`.
+
+```typescript
+pi.appendEntry("my-state", { count: 42 });
+pi.appendEntry("status-card", { title: "Indexed files", count: 17 });
+
+// Restore on reload
+pi.on("session_start", async (_event, ctx) => {
+  for (const entry of ctx.sessionManager.getEntries()) {
+    if (entry.type === "custom" && entry.customType === "my-state") {
+      // Reconstruct from entry.data
+    }
+  }
+});
+```
+
+### pi.setSessionName(name)
+
+Set the session display name (shown in session selector instead of first message).
+
+```typescript
+pi.setSessionName("Refactor auth module");
+```
+
+### pi.getSessionName()
+
+Get the current session name, if set.
+
+```typescript
+const name = pi.getSessionName();
+if (name) {
+  console.log(`Session: ${name}`);
+}
+```
+
+### pi.setLabel(entryId, label)
+
+Set or clear a label on an entry. Labels are user-defined markers for bookmarking and navigation (shown in `/tree` selector).
+
+```typescript
+// Set a label
+pi.setLabel(entryId, "checkpoint-before-refactor");
+
+// Clear a label
+pi.setLabel(entryId, undefined);
+
+// Read labels via sessionManager
+const label = ctx.sessionManager.getLabel(entryId);
+```
+
+Labels persist in the session and survive restarts. Use them to mark important points (turns, checkpoints) in the conversation tree.
+
+### pi.registerCommand(name, options)
+
+Register a command.
+
+If multiple extensions register the same command name, pi keeps them all and assigns numeric invocation suffixes in load order, for example `/review:1` and `/review:2`.
+
+```typescript
+pi.registerCommand("stats", {
+  description: "Show session statistics",
+  handler: async (args, ctx) => {
+    const count = ctx.sessionManager.getEntries().length;
+    ctx.ui.notify(`${count} entries`, "info");
+  }
+});
+```
+
+Optional: add argument auto-completion for `/command ...`:
+
+```typescript
+import type { AutocompleteItem } from "@earendil-works/pi-tui";
+
+pi.registerCommand("deploy", {
+  description: "Deploy to an environment",
+  getArgumentCompletions: (prefix: string): AutocompleteItem[] | null => {
+    const envs = ["dev", "staging", "prod"];
+    const items = envs.map((e) => ({ value: e, label: e }));
+    const filtered = items.filter((i) => i.value.startsWith(prefix));
+    return filtered.length > 0 ? filtered : null;
+  },
+  handler: async (args, ctx) => {
+    ctx.ui.notify(`Deploying: ${args}`, "info");
+  },
+});
+```
+
+### pi.getCommands()
+
+Get the slash commands available for invocation via `prompt` in the current session. Includes extension commands, prompt templates, and skill commands.
+The list matches the RPC `get_commands` ordering: extensions first, then templates, then skills.
+
+```typescript
+const commands = pi.getCommands();
+const bySource = commands.filter((command) => command.source === "extension");
+const userScoped = commands.filter((command) => command.sourceInfo.scope === "user");
+```
+
+Each entry has this shape:
+
+```typescript
+{
+  name: string; // Invokable command name without the leading slash. May be suffixed like "review:1"
+  description?: string;
+  source: "extension" | "prompt" | "skill";
+  sourceInfo: {
+    path: string;
+    source: string;
+    scope: "user" | "project" | "temporary";
+    origin: "package" | "top-level";
+    baseDir?: string;
+  };
+}
+```
+
+Use `sourceInfo` as the canonical provenance field. Do not infer ownership from command names or from ad hoc path parsing.
+
+Built-in interactive commands (like `/model` and `/settings`) are not included here. They are handled only in interactive
+mode and would not execute if sent via `prompt`.
+
+### pi.registerMessageRenderer(customType, renderer)
+
+Register a custom TUI renderer for custom messages with your `customType`. Custom messages are created with `pi.sendMessage()` and participate in LLM context. See [Custom UI](#custom-ui).
+
+### pi.registerMarkdownTransformer(transformer)
+
+Register a transformer for the Markdown in normal user text, assistant text, and thinking blocks. Transformers run in extension load order, and each transformer receives the Markdown returned by the previous transformer. After the chain finishes, Pi renders the transformed content with its built-in renderer.
+
+The transformer receives the Markdown string and a context with:
+
+- `messageType` — `"user"`, `"assistant"`, or `"assistant-thinking"`
+- `isStreaming` — `true` for partial assistant updates; `false` for user, finalized assistant, and restored messages
+- `availableWidth` — exact terminal columns available for the transformed Markdown content
+
+Return the transformed Markdown:
+
+```typescript
+pi.registerMarkdownTransformer((markdown, { messageType, isStreaming }) => {
+  if (isStreaming || messageType === "assistant-thinking") return markdown;
+  return markdown.replaceAll("-->", "→");
+});
+```
+
+If a transformer throws, Pi keeps the Markdown produced so far and continues with the next transformer. The hook is display-only: the original message remains unchanged in the session and model context. It runs for new user messages, assistant streaming updates, restored session messages, and terminal width changes, so transformers should remain synchronous and inexpensive.
+
+### pi.registerEntryRenderer(customType, renderer)
+
+Register a custom TUI renderer for custom entries with your `customType`. Custom entries are created with `pi.appendEntry()` and do not participate in LLM context.
+
+```typescript
+import { Box, Text } from "@earendil-works/pi-tui";
+
+pi.registerEntryRenderer("status-card", (entry, { expanded }, theme) => {
+  const data = entry.data as { title: string; count: number };
+  const box = new Box(1, 1, (text) => theme.bg("customMessageBg", text));
+  box.addChild(new Text(`${theme.bold(data.title)}: ${data.count}`));
+  if (expanded) {
+    box.addChild(new Text(theme.fg("dim", JSON.stringify(data, null, 2))));
+  }
+  return box;
+});
+
+pi.appendEntry("status-card", { title: "Indexed files", count: 17 });
+```
+
+### pi.registerShortcut(shortcut, options)
+
+Register a keyboard shortcut. See [keybindings.md](keybindings.md) for the shortcut format and built-in keybindings.
+
+```typescript
+pi.registerShortcut("ctrl+shift+p", {
+  description: "Toggle plan mode",
+  handler: async (ctx) => {
+    ctx.ui.notify("Toggled!");
+  },
+});
+```
+
+### pi.registerFlag(name, options)
+
+Register a CLI flag.
+
+```typescript
+pi.registerFlag("plan", {
+  description: "Start in plan mode",
+  type: "boolean",
+  default: false,
+});
+
+// Check value
+if (pi.getFlag("plan")) {
+  // Plan mode enabled
+}
+```
+
+### pi.exec(command, args, options?)
+
+Execute a shell command.
+
+```typescript
+const result = await pi.exec("git", ["status"], { signal, timeout: 5000 });
+// result.stdout, result.stderr, result.code, result.killed
+```
+
+### pi.getActiveTools() / pi.getAllTools() / pi.setActiveTools(names)
+
+Manage active tools. This works for both built-in tools and dynamically registered tools. `pi.getActiveTools()` returns the active tool names as `string[]`; `pi.getAllTools()` returns metadata for all configured tools.
+
+```typescript
+const active = pi.getActiveTools(); // ["read", "bash", ...]
+const all = pi.getAllTools();
+// all = [{
+//   name: "read",
+//   description: "Read file contents...",
+//   parameters: ...,
+//   promptGuidelines: ["Use read to examine files instead of cat or sed."],
+//   sourceInfo: { path: "<builtin:read>", source: "builtin", scope: "temporary", origin: "top-level" }
+// }, ...]
+const builtinTools = all.filter((t) => t.sourceInfo.source === "builtin");
+const extensionTools = all.filter((t) => t.sourceInfo.source !== "builtin" && t.sourceInfo.source !== "sdk");
+pi.setActiveTools([...new Set([...active, "my_custom_tool"])]); // Keep current tools and enable my_custom_tool
+pi.setActiveTools(["read", "bash"]); // Switch to read-only
+```
+
+`pi.getAllTools()` returns `name`, `description`, `parameters`, `promptGuidelines`, and `sourceInfo`.
+
+Typical `sourceInfo.source` values:
+- `builtin` for built-in tools
+- `sdk` for tools passed via `createAgentSession({ customTools })`
+- extension source metadata for tools registered by extensions
+
+### pi.setModel(model)
+
+Set the current model. Returns `false` if no API key is available for the model. See [models.md](models.md) for configuring custom models.
+
+```typescript
+const model = ctx.modelRegistry.find("anthropic", "claude-sonnet-4-5");
+if (model) {
+  const success = await pi.setModel(model);
+  if (!success) {
+    ctx.ui.notify("No API key for this model", "error");
   }
 }
 ```
 
-| 字段 | 必需 | 说明 |
-|---|---|---|
-| `transport` | ✅ | `stdio` 是 v1 唯一选项；`http`/`sse` 是 v2 |
-| `command` | ✅ (stdio) | 可执行文件 |
-| `args` | ❌ | 启动参数 |
-| `env` | ❌ | 环境变量；`${env:NAME}` 引用 host 环境 |
-| `disabled` | ❌ | `true` 时 McpPack 跳过；其它字段照填 |
-| `cwd` | ❌ | 工作目录；v2 |
-| `timeout` | ❌ | 启动超时（秒）；v2 |
+### pi.getThinkingLevel() / pi.setThinkingLevel(level)
 
-**加密**：`env` 里如果放 token 会明文写盘。v1.5+ 借鉴 `PhiSettings` 的做法（操作系统 keyring 优先，文件 fallback 配权限位 0600）。
+Get or set the thinking level. Level is clamped to model capabilities (non-reasoning models always use "off"). Changes emit `thinking_level_select`.
 
-### 16.4 Tool 命名与冲突解决
-
-MCP tool 名是 `server` 维度的（每个 server 可能都有 `get_file`）。直接用会冲突。McpPack 强制前缀：
-
-```
-MCP server 内部 tool:   get_file
-Phi 注册名:             mcp__figma__get_file
-                       ^^^^^^^  ^^^^^^^^
-                       server   tool
-                       key      name
+```typescript
+const current = pi.getThinkingLevel();  // "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max"
+pi.setThinkingLevel("high");
 ```
 
-实现：
+### pi.events
 
-```csharp
-string PhiToolName(string serverKey, string mcpToolName) =>
-    $"mcp__{serverKey}__{mcpToolName}".Replace('-', '_');
+Shared event bus for communication between extensions:
+
+```typescript
+pi.events.on("my:event", (data) => { ... });
+pi.events.emit("my:event", { ... });
 ```
 
-下划线分隔，跟现有 Phi 工具名（`read` / `write` / `bash` / `edit`）兼容。模型在 tool 选择时看到 `mcp__figma__get_file` 自带 server 来源信息。
+### pi.registerProvider(name, config)
 
-### 16.5 项目结构
+Register or override a model provider dynamically. Useful for proxies, custom endpoints, or team-wide model configurations.
 
-```
-extensions/McpPack/
-├── McpPack.csproj                # + PackageReference ModelContextProtocol
-├── McpPack.cs                     # IPhiExtension 入口（注册 lifecycle hooks）
-├── Configuration/
-│   ├── McpServersConfig.cs        # record + System.Text.Json source-gen
-│   └── McpServersLoader.cs        # 读 ~/.phi/mcp-servers.json + 解析 ${env:...}
-├── McpTransportFactory.cs         # SDK transport 跟我们 config 的桥（stdio 转换）
-├── McpToolAdapter.cs              # MCP tool → Phi.Tool（包一层 + 调 IMcpClient）
-├── McpErrorMapper.cs              # SDK 的 CallToolResult → ToolResult
-├── ProtocolVersionTracker.cs     # 记录每次 connect 协商到的版本 + capabilities（audit）
-├── McpPack.Tests/
-│   ├── McpToolAdapterTests.cs     # 验 tool 名映射 / 参数透传 / 结果解析（用 mock IMcpClient）
-│   ├── McpPackTests.cs             # 验 lifecycle + config 解析
-│   └── VersionTrackingTests.cs    # 验 SDK 版本协商事件正确写入 audit log
-└── Fixtures/
-    └── EchoMcpServer/             # 测试用最小 stdio MCP server（fixture，可选）
-        └── Program.cs
-```
+Calls made during the extension factory function are queued and applied once the runner initialises. Calls made after that — for example from a command handler following a user setup flow — take effect immediately without requiring a `/reload`.
 
-`McpPack.csproj` 关键引用：
+Dynamic providers can implement `refreshModels`. Pi calls it during model refresh, publishes the returned list synchronously through the provider, and passes the canonical credential/stored-catalog/network/signal context. The extension decides whether to persist catalog metadata through generation-checked `context.publish({ persist: entry })`; live servers such as llama.cpp can return models without persisting them.
 
-```xml
-<ItemGroup>
-  <PackageReference Include="ModelContextProtocol" Version="2.2.0" />
-  <!-- 当前 SDK 跟踪到协议 spec 2025-06-18；McpPack 不写死版本号，靠 SDK 自动跟 spec -->
-</ItemGroup>
-<ItemGroup>
-  <ProjectReference Include="..\..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
-  <!-- Sprint 0 后 Phi.Extensions 拆出；这里只引用 Phi.Extensions，不引 Phi 主体 -->
-</ItemGroup>
-```
+`context.signal` is always a concrete signal and provider callbacks must pass it to blocking I/O. Public `ModelRuntime.refresh()` and `ModelRegistry.refresh()` calls accept an optional signal and are unbounded when it is omitted; extensions and applications choose their own deadlines. Cancellation stops the caller waiting even if a provider ignores the signal, but cooperation is still required to stop the underlying work.
 
-**总规模估算**：~280 行（含 fixture），比手写 transport 路径（~410 行）**少 ~30%** —— SDK 把 transport / JSON-RPC / 握手 / 错误码处理 / 进程管理全包了。
+Extensions that need native provider auth, filtering, refresh, or stream behavior can register a complete `Provider` from `@earendil-works/pi-ai`. The provider becomes the composition base and `models.json` overrides still apply above it.
 
-### 16.6 入口：`McpPack.cs`
+```typescript
+import { createProvider, openAICompletionsApi } from "@earendil-works/pi-ai";
 
-```csharp
-using ModelContextProtocol.Client;
-using Phi.Extensions;
-
-namespace McpPack;
-
-[PhiExtension(
-    Name = "mcp-pack",
-    Version = "1.0.0",
-    Description = "Generic MCP client: connect to MCP servers via stdio, expose their tools as Phi tools. " +
-                  "Backed by the official ModelContextProtocol SDK.",
-    Capabilities = ExtensionCapability.Network | ExtensionCapability.ProcessSpawn)]
-public sealed class McpPack : IPhiExtension
-{
-    private readonly List<IMcpClient> _clients = new();
-    private readonly List<McpToolAdapter> _registeredTools = new();
-    private readonly ProtocolVersionTracker _versionTracker = new();
-
-    public void Setup(IPhiApi api)
-    {
-        api.AddPromptGuideline("""
-            MCP tools (prefix `mcp__<server>__<tool>`) are provided by McpPack.
-            Use them when the user asks for capabilities that require external services
-            (figma files, github issues, database queries, etc.) that aren't covered by
-            the built-in tools.
-            """);
-
-        // Lifecycle: connect at session_start
-        api.On("session_start", async (ev, ctx) =>
-        {
-            var configPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".phi", "mcp-servers.json");
-
-            if (!File.Exists(configPath)) return ValueTask.CompletedTask;
-
-            var servers = McpServersLoader.Load(configPath);
-            foreach (var (key, serverConfig) in servers)
-            {
-                if (serverConfig.Disabled) continue;
-
-                // SDK factory: 协议握手 + capability 协商 + lifecycle 全部交给 SDK
-                var transport = McpTransportFactory.Build(key, serverConfig);
-                var client = await McpClientFactory.CreateAsync(transport);
-                _clients.Add(client);
-
-                // 记录协商到的协议版本（audit / 调试用）
-                _versionTracker.RecordConnect(api, key, client);
-
-                // 每个 MCP tool → 一个 Phi.Tool
-                foreach (var mcpTool in await client.ListToolsAsync())
-                {
-                    var adapter = new McpToolAdapter(client, key, mcpTool);
-                    _registeredTools.Add(adapter);
-                    api.RegisterTool(adapter, new ToolContribution
-                    {
-                        PromptSnippet = mcpTool.Description,
-                        Capabilities = ToolCapabilities.Network,
-                    });
-                }
-            }
-            return ValueTask.CompletedTask;
-        });
-
-        // Lifecycle: dispose at session_shutdown
-        api.On("session_shutdown", async (ev, ctx) =>
-        {
-            foreach (var c in _clients) await c.DisposeAsync();
-            _clients.Clear();
-            _registeredTools.Clear();
-            return ValueTask.CompletedTask;
-        });
-    }
-}
-```
-
-> **关键**：`McpClientFactory.CreateAsync(transport)` 这一行替换了原来的"自己写 transport + 自己写
-> JSON-RPC client + 自己写 handshake"——SDK 包了所有。McpPack **只**关心两件事：
-> （1）从 config 文件构造 SDK 接受的 transport；
-> （2）把 SDK 暴露的 tools 列表翻译成 Phi tools。
-
-### 16.7 Transport：用官方 SDK，不自己写
-
-**v1 不实现 transport**。`ModelContextProtocol` NuGet（微软官方，跟 MCP spec 同步升级，
-版本 2.2.0 对应当前协议规范 `2025-06-18`）已经提供了：
-
-- `StdioClientTransport`：stdio 模式（spawn 子进程 + 读写 stdin/stdout，跨 Win/Linux/macOS 处理 named pipe vs pipe）
-- `HttpClientTransport`：HTTP/SSE 模式（Streamable HTTP，server-sent events 跟 progress notification 自动处理）
-- `McpClientFactory.CreateAsync`：协议握手（initialize / initialized notification）+ capability 协商 + 子进程 lifecycle 管理
-
-我们只做"把 SDK 的 transport 跟 config 文件接起来"的薄薄一层：
-
-```csharp
-// McpTransportFactory.cs
-using ModelContextProtocol.Client;
-
-namespace McpPack;
-
-internal static class McpTransportFactory
-{
-    public static IClientTransport Build(string serverKey, McpServerConfig config)
-    {
-        return config.Transport?.ToLowerInvariant() switch
-        {
-            "stdio" => new StdioClientTransport(new StdioClientTransportOptions
-            {
-                Name = serverKey,
-                Command = config.Command
-                    ?? throw new InvalidOperationException(
-                        $"McpPack: server '{serverKey}' has no 'command'"),
-                Arguments = (IList<string>)(config.Args ?? new List<string>()),
-                EnvironmentVariables = config.Env
-                    ?? new Dictionary<string, string?>(),
-            }),
-            // v2:
-            // "http" => new HttpClientTransport(new HttpClientTransportOptions
-            // {
-            //     Name = serverKey,
-            //     Endpoint = new Uri(config.Url!),
-            //     TransportMode = HttpTransportMode.StreamableHttp,
-            // }),
-            _ => throw new NotSupportedException(
-                $"McpPack v1 only supports 'stdio' transport, got '{config.Transport}' " +
-                $"for server '{serverKey}'. Use 'stdio' or wait for v2 (HTTP/SSE)."),
+const provider = createProvider({
+  id: "local-server",
+  name: "Local Server",
+  baseUrl: "http://localhost:8080/v1",
+  auth: {
+    apiKey: {
+      name: "Local server setup",
+      async login(interaction) {
+        return {
+          type: "api_key",
+          key: await interaction.prompt({ type: "secret", message: "API key" }),
         };
+      },
+      async resolve({ credential }) {
+        return credential?.key
+          ? { auth: { apiKey: credential.key }, source: "stored API key" }
+          : undefined;
+      },
+    },
+  },
+  models: [],
+  api: openAICompletionsApi(),
+});
+
+pi.registerProvider(provider);
+
+// Register a new provider with custom models
+pi.registerProvider("my-proxy", {
+  name: "My Proxy",
+  baseUrl: "https://proxy.example.com",
+  apiKey: "$PROXY_API_KEY",  // env var reference
+  api: "anthropic-messages",
+  models: [
+    {
+      id: "claude-sonnet-4-20250514",
+      name: "Claude 4 Sonnet (proxy)",
+      reasoning: false,
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: 16384
     }
-}
+  ]
+});
+
+// Register a live llama.cpp catalog without persisting discovered models
+pi.registerProvider("llama.cpp", {
+  baseUrl: "http://localhost:8080/v1",
+  apiKey: "local",
+  api: "openai-completions",
+  async refreshModels({ signal }) {
+    const response = await fetch("http://localhost:8080/v1/models", { signal });
+    const { data } = await response.json();
+    return data.map(({ id }) => ({
+      id,
+      name: id,
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 128000,
+      maxTokens: 16384
+    }));
+  }
+});
+
+// Override baseUrl for an existing provider (keeps all models)
+pi.registerProvider("anthropic", {
+  baseUrl: "https://proxy.example.com"
+});
+
+// Register provider with OAuth support for /login
+pi.registerProvider("corporate-ai", {
+  baseUrl: "https://ai.corp.com",
+  api: "openai-responses",
+  models: [...],
+  oauth: {
+    name: "Corporate AI (SSO)",
+    async login(callbacks) {
+      // Custom OAuth flow
+      callbacks.onAuth({ url: "https://sso.corp.com/..." });
+      const code = await callbacks.onPrompt({ message: "Enter code:" });
+      return { refresh: code, access: code, expires: Date.now() + 3600000 };
+    },
+    async refreshToken(credentials, signal) {
+      signal.throwIfAborted();
+      // Refresh logic
+      return credentials;
+    },
+    getApiKey(credentials) {
+      return credentials.access;
+    }
+  }
+});
 ```
 
-**为什么不用自己的 transport**：
+The object form accepts a complete pi-ai `Provider`, including native `auth`, `getModels`, `refreshModels`, `filterModels`, `stream`, and `streamSimple` behavior.
 
-- **MCP 协议细节很微妙**——JSON-RPC over stdio、notification 过滤、id 匹配、错误码分类、`ContentBlock` 类型多态，
-  每一个都是踩坑点
-  （原版 §16.7 自己写的 `Read until we get a response with matching id` 就是最常见的错误源——遗漏 notification 会让协议死锁）
-- **SDK 跟踪 spec 自动升级**——我们写代码时是 spec v1，今天 spec `2025-06-18`，SDK 已经跟上了；
-  spec 再升级，**我们什么都不用改**，升 NuGet 包版本即可
-- **跨平台细节 SDK 都处理了**：Windows 上 stdin/stdout 是 named pipe，Unix 上是 fd；process group cleanup；
-  Ctrl-C 信号传递；环境变量编码。**自己写至少 200 行 + 3 个平台的 QA**
-- **错误处理 SDK 也包了**：transport 中断、JSON 解析失败、协议版本不匹配——SDK 都抛成 typed exception，
-  我们 catch 后转成 `ToolResult.IsError`
+**Legacy config options:**
+- `name` - Display name for the provider in UI such as `/login`.
+- `baseUrl` - API endpoint URL. Required when defining models.
+- `apiKey` - API key literal, environment interpolation (`$ENV_VAR` or `${ENV_VAR}`), or leading `!command`. Required when defining models (unless `oauth` provided). `$$` escapes `$`, and `$!` escapes a literal `!` without triggering command execution.
+- `api` - API type: `"anthropic-messages"`, `"openai-completions"`, `"openai-responses"`, etc.
+- `headers` - Custom headers to include in requests.
+- `authHeader` - If true, adds `Authorization: Bearer` header automatically.
+- `models` - Array of model definitions. If provided, replaces all existing models for this provider. Model definitions can set `baseUrl` to override the provider endpoint for that model.
+- `refreshModels` - Async dynamic discovery callback. Its returned models replace extension-provided models. `context.stored` contains the persisted provider snapshot; use generation-checked `context.publish({ persist: entry })` only when updated catalog data should persist. Use `persist: null` to delete that snapshot.
+- `oauth` - OAuth provider config for `/login` support. When provided, the provider appears in the login menu.
+- `streamSimple` - Custom streaming implementation for non-standard APIs.
 
-**v1 净省 ~150 行 transport 代码 + 跨平台 QA 时间**，把精力放在 Phi 集成（lifecycle / error mapping / tool wrapping）上。
+See [custom-provider.md](custom-provider.md) for advanced topics: custom streaming APIs, OAuth details, model definition reference.
 
-#### MCP 协议版本协商（v2 spec 关键变化）
+### pi.unregisterProvider(name)
 
-SDK 在 `IMcpClient.NegotiatedProtocolVersion` 暴露 connect 时**协商到的协议版本**。
-新版 spec（2025-06-18+）引入**结构化 content**（typed `StructuredContent`），跟 v1（2024-11-05）的
-"内容只是 `TextContent` + `ImageContent` 字符串"不同。McpPack 通过 SDK 自动跟 spec 兼容，
-不需要 McpPack 自己做版本分支判断。
+Remove a previously registered provider and its models. Built-in models that were overridden by the provider are restored. Has no effect if the provider was not registered.
 
-**记录协商到的版本**（写到 audit + 暴露给 `/extensions` 命令）：
+Like `registerProvider`, this takes effect immediately when called after the initial load phase, so a `/reload` is not required.
 
-```csharp
-// ProtocolVersionTracker.cs
-internal sealed class ProtocolVersionTracker
-{
-    public void RecordConnect(IPhiApi api, string serverKey, IMcpClient client)
-    {
-        var version = client.NegotiatedProtocolVersion?.ToString() ?? "unknown";
-
-        // 写到 extension 自己的 audit 段（per-extension，跨 session 累积）
-        api.AppendEntryAsync("mcp:connect", new Dictionary<string, object?>
-        {
-            ["server"] = serverKey,
-            ["protocol_version"] = version,
-            ["capabilities"] = client.ServerCapabilities?.ToString() ?? "none",
-        });
-    }
-}
+```typescript
+pi.registerCommand("my-setup-teardown", {
+  description: "Remove the custom proxy provider",
+  handler: async (_args, _ctx) => {
+    pi.unregisterProvider("my-proxy");
+  },
+});
 ```
 
-用户运行 `/extensions` 能看到每个 MCP server 协商到的版本；不匹配的版本（比如 McpPack 期望 v2 但 server 只支持 v1）会被 SDK 协商降级并记录在 audit log。
+## State Management
 
-### 16.8 Tool 适配器
+Extensions with state should store it in tool result `details` for proper branching support:
 
-```csharp
-// McpToolAdapter.cs
-using ModelContextProtocol.Client;
-using Phi.Agent;
+```typescript
+export default function (pi: ExtensionAPI) {
+  let items: string[] = [];
 
-namespace McpPack;
-
-/// <summary>
-/// Wraps one MCP tool (from an <see cref="IMcpClient"/>) as a Phi <see cref="Tool"/>.
-/// SDK owns the JSON-RPC / transport; we own naming + result mapping.
-/// </summary>
-public sealed class McpToolAdapter : Tool
-{
-    private readonly IMcpClient _client;
-    private readonly string _serverKey;
-    private readonly McpClientTool _mcpTool;
-
-    public McpToolAdapter(IMcpClient client, string serverKey, McpClientTool mcpTool)
-    {
-        _client = client;
-        _serverKey = serverKey;
-        _mcpTool = mcpTool;
-    }
-
-    public override string Name => $"mcp__{_serverKey}__{_mcpTool.Name}".Replace('-', '_');
-    public override string Description => _mcpTool.Description ?? "";
-    public override JsonObject Parameters => _mcpTool.JsonSchema;   // SDK 直接给 JsonObject
-
-    public override async Task<ToolResult> ExecuteAsync(
-        string toolName, string toolCallId,
-        JsonObject arguments, CancellationToken cancellationToken)
-    {
-        try
-        {
-            // SDK 把所有 MCP / transport / protocol 错误抛成 typed exception，
-            // McpErrorMapper 处理 happy path；except 分支处理 transport 中断 / server crash。
-            var result = await _client.CallToolAsync(
-                _mcpTool.Name,
-                arguments,
-                cancellationToken: cancellationToken);
-
-            return McpErrorMapper.ToToolResult(result);
+  // Reconstruct state from session
+  pi.on("session_start", async (_event, ctx) => {
+    items = [];
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type === "message" && entry.message.role === "toolResult") {
+        if (entry.message.toolName === "my_tool") {
+          items = entry.message.details?.items ?? [];
         }
-        catch (Exception ex)
-        {
-            return new ToolResult(
-                [new TextBlock($"MCP {_serverKey}: {ex.Message}")],
-                IsError: true);
-        }
+      }
     }
+  });
+
+  pi.registerTool({
+    name: "my_tool",
+    // ...
+    async execute(toolCallId, params, signal, onUpdate, ctx) {
+      items.push("new item");
+      return {
+        content: [{ type: "text", text: "Added" }],
+        details: { items: [...items] },  // Store for reconstruction
+      };
+    },
+  });
 }
 ```
 
-> **关于 `JsonSchema`**：SDK 的 `McpClientTool.JsonSchema` 已经是 `JsonNode`/`JsonObject` 形式，
-> 直接给 Phi.Tool 用，不需要额外序列化。v2 spec 的 `StructuredContent` 走 `result.StructuredContent`
-> 字段（typed C# object），McpPack v1 只读 `result.Content`（content blocks），够用。
+## Custom Tools
 
-### 16.9 错误映射
+Register tools the LLM can call via `pi.registerTool()`. Tools appear in the system prompt and can have custom rendering.
 
-```csharp
-// McpErrorMapper.cs
-using ModelContextProtocol.Protocol;
-using Phi.Agent;
+Use `promptSnippet` for a short one-line entry in the `Available tools` section in the default system prompt. If omitted, custom tools are left out of that section.
 
-namespace McpPack;
+Use `promptGuidelines` to add tool-specific bullets to the default system prompt `Guidelines` section. These bullets are included only while the tool is active (for example, after `pi.setActiveTools([...])`).
 
-/// <summary>
-/// Maps SDK's <see cref="CallToolResult"/> (MCP protocol spec types) to Phi's
-/// <see cref="ToolResult"/>. SDK 已把 JSON-RPC / transport / protocol errors
-/// 抛成 typed exception（见 §16.8 的 catch 分支），这里只处理 happy path 的
-/// content blocks 翻译。
-/// </summary>
-internal static class McpErrorMapper
-{
-    public static ToolResult ToToolResult(CallToolResult result)
-    {
-        var blocks = new List<ContentBlock>();
-        foreach (var content in result.Content)
-        {
-            switch (content)
-            {
-                case TextContentBlock t:
-                    blocks.Add(new TextBlock(t.Text));
-                    break;
-                case ImageContentBlock i:
-                    blocks.Add(new ImageBlock(i.Data, i.MimeType ?? "image/png"));
-                    break;
-                case AudioContentBlock a:
-                    blocks.Add(new AudioBlock(a.Data, a.MimeType ?? "audio/mpeg"));
-                    break;
-                case ResourceLinkBlock r:
-                    blocks.Add(new ResourceLinkBlock(r.Uri));
-                    break;
-                case EmbeddedResourceBlock er:
-                    blocks.Add(new EmbeddedResourceBlock(er.Resource));
-                    break;
-                // 未知 content type → 文本化降级（保留原始 JSON 供调试）
-                default:
-                    blocks.Add(new TextBlock(content.ToString() ?? "(unknown MCP content)"));
-                    break;
-            }
-        }
-        return new ToolResult(blocks, IsError: result.IsError ?? false);
-    }
+**Important:** `promptGuidelines` bullets are appended flat to the `Guidelines` section with no tool name prefix or grouping. Each guideline must name the tool it refers to — avoid "Use this tool when..." because the LLM cannot tell which tool "this" means. Write "Use my_tool when..." instead.
+
+Note: Some models are idiots and include the @ prefix in tool path arguments. Built-in tools strip a leading @ before resolving paths. If your custom tool accepts a path, normalize a leading @ as well.
+
+If your custom tool mutates files, use `withFileMutationQueue()` so it participates in the same per-file queue as built-in `edit` and `write`. This matters because tool calls run in parallel by default. Without the queue, two tools can read the same old file contents, compute different updates, and then whichever write lands last overwrites the other.
+
+Example failure case: your custom tool edits `foo.ts` while built-in `edit` also changes `foo.ts` in the same assistant turn. If your tool does not participate in the queue, both can read the original `foo.ts`, apply separate changes, and one of those changes is lost.
+
+Pass the real target file path to `withFileMutationQueue()`, not the raw user argument. Resolve it to an absolute path first, relative to `ctx.cwd` or your tool's working directory. For existing files, the helper canonicalizes through `realpath()`, so symlink aliases for the same file share one queue. For new files, it falls back to the resolved absolute path because there is nothing to `realpath()` yet.
+
+Queue the entire mutation window on that target path. That includes read-modify-write logic, not just the final write.
+
+```typescript
+import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+
+async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+  const absolutePath = resolve(ctx.cwd, params.path);
+
+  return withFileMutationQueue(absolutePath, async () => {
+    await mkdir(dirname(absolutePath), { recursive: true });
+    const current = await readFile(absolutePath, "utf8");
+    const next = current.replace(params.oldText, params.newText);
+    await writeFile(absolutePath, next, "utf8");
+
+    return {
+      content: [{ type: "text", text: `Updated ${params.path}` }],
+      details: {},
+    };
+  });
 }
 ```
 
-> **v2 spec 新增**：`StructuredContent` 字段携带 typed C# object（强 schema）。
-> McpPack v1 **不**读这个字段（用 reflection deserialize 风险大，等 Phi 域消息有
-> `StructuredContent` 支持再加）。如果 server 返回 structured content + text content，
-> McpPack 只读 text —— 这种 server 应该升级 McpPack 到 v2 + Phi 域加 `StructuredMessage`。
+### Tool Definition
 
-### 16.10 Lifecycle 与 reload
+```typescript
+import { Type } from "typebox";
+import { StringEnum } from "@earendil-works/pi-ai";
+import { Text } from "@earendil-works/pi-tui";
 
-```
-T0  ── phi.exe 启动
-        │
-        ▼ McpPack loaded (Sprint 0+)
-T1  ── session_start 事件
-        │   ├─ 读 ~/.phi/mcp-servers.json
-        │   ├─ 对每个 enabled server: spawn stdio + initialize + tools/list
-        │   └─ 每个 MCP tool → api.RegisterTool(...)
-        │
-        ▼ 用户对话 (MCP tools 已可用)
-T2  ── model fire tool_call mcp__figma__get_file(...)
-        │   └─ McpToolAdapter → JSON-RPC tools/call → TextBlock result
-        │
-        ▼ 用户按 /reload
-T3  ── Phi: old McpPack disposed (generation guard 失效)
-        │      所有 old McpClient dispose (stdio 子进程 terminate)
-        │
-        ▼ new McpPack loaded
-T4  ── session_start(reason="reload")
-        │   └─ 重新 spawn 子进程 + 重新 register tools
-        │
-        ▼ 用户对话继续
-T5  ── session_shutdown (TUI exit / /exit / navigation to new session)
-        │   └─ 所有 McpClient dispose (stdio terminate)
-```
+pi.registerTool({
+  name: "my_tool",
+  label: "My Tool",
+  description: "What this tool does (shown to LLM)",
+  promptSnippet: "List or add items in the project todo list",
+  promptGuidelines: [
+    "Use my_tool for todo planning instead of direct file edits when the user asks for a task list."
+  ],
+  parameters: Type.Object({
+    action: StringEnum(["list", "add"] as const),  // Use StringEnum for Google compatibility
+    text: Type.Optional(Type.String()),
+  }),
+  prepareArguments(args) {
+    if (!args || typeof args !== "object") return args;
+    const input = args as { action?: string; oldAction?: string };
+    if (typeof input.oldAction === "string" && input.action === undefined) {
+      return { ...input, action: input.oldAction };
+    }
+    return args;
+  },
 
-**关键不变量**：
-- 子进程**强绑定到 session**：session 结束 → 子进程终止。**绝不泄漏** zombie。
-- **不强绑定到进程**：reload 时旧 client 全部 dispose，新 client 全部 spawn。
-- `GenerationGuard` 保证 reload 期间 in-flight 的 `McpClient.CallToolAsync` 不会写到已 dispose 的 `_stdin`。
-
-### 16.11 测试策略
-
-#### 单元测试（mock `IMcpClient`）
-
-**不需要**自己造 JSON-RPC mock —— SDK 的 `IMcpClient` 是接口，直接 fake：
-
-```csharp
-// McpToolAdapterTests.cs
-using ModelContextProtocol.Client;
-using Phi.Tests.Helpers;  // StubProvider / in-memory IPhiApi
-
-[NotInParallel("mcp")]
-public class McpToolAdapterTests
-{
-    [Fact]
-    public async Task Name_Follows_ServerKey_Underscore_ToolName_Pattern()
-    {
-        var client = new FakeMcpClient(tools: new[]
-        {
-            new McpClientTool { Name = "get_file", Description = "Get a file", JsonSchema = /* ... */ },
-        });
-        var adapter = new McpToolAdapter(client, "figma", client.Tools[0]);
-        Assert.Equal("mcp__figma__get_file", adapter.Name);
+  async execute(toolCallId, params, signal, onUpdate, ctx) {
+    // Check for cancellation
+    if (signal?.aborted) {
+      return { content: [{ type: "text", text: "Cancelled" }] };
     }
 
-    [Fact]
-    public async Task ExecuteAsync_CallsTool_AndMapsResult()
-    {
-        var client = new FakeMcpClient(tools: new[]
-        {
-            new McpClientTool { Name = "echo", Description = "echo", JsonSchema = /* ... */ },
-        }) { CallToolFn = (name, args) => new CallToolResult {
-            Content = new[] { new TextContentBlock { Text = "hello" } },
-            IsError = false,
-        }};
-        var adapter = new McpToolAdapter(client, "test", client.Tools[0]);
-        var result = await adapter.ExecuteAsync("mcp__test__echo", "call-1",
-            JsonNode.Parse("""{"text":"hello"}""").AsObject(), default);
-
-        Assert.False(result.IsError);
-        Assert.Equal("hello", result.Content[0].As<TextBlock>().Text);
-    }
-
-    [Fact]
-    public async Task ExecuteAsync_OnTransportError_ReturnsErrorResult()
-    {
-        var client = new FakeMcpClient(tools: new[] { /* ... */ }) {
-            CallToolFn = (name, args) => throw new InvalidOperationException("transport died"),
-        };
-        var adapter = new McpToolAdapter(client, "test", client.Tools[0]);
-        var result = await adapter.ExecuteAsync(/* ... */, default);
-        Assert.True(result.IsError);
-        Assert.Contains("transport died", result.Content[0].As<TextBlock>().Text);
-    }
-}
-```
-
-`FakeMcpClient` 是测试辅助类（~30 行），实现 `IMcpClient` 把工具列表 + `CallToolFn` 委托
-注入。**这是 SDK 测试惯用法**——`ModelContextProtocol.Client.IMcpClient` 本身是
-public interface，专为 mock 设计。
-
-#### 集成测试（真 stdio via SDK）
-
-```csharp
-[Fact]
-public async Task StdioServer_ListTools_RealSubprocess()
-{
-    var transport = new StdioClientTransport(new StdioClientTransportOptions
-    {
-        Name = "echo",
-        Command = "dotnet",
-        Arguments = ["run", "--project", "Fixtures/EchoMcpServer", "--no-build"],
+    // Stream progress updates
+    onUpdate?.({
+      content: [{ type: "text", text: "Working..." }],
+      details: { progress: 50 },
     });
 
-    await using var client = await McpClientFactory.CreateAsync(transport);
-    var tools = await client.ListToolsAsync();
+    // Run commands via pi.exec (captured from extension closure)
+    const result = await pi.exec("some-command", [], { signal });
 
-    Assert.NotEmpty(tools);
-    Assert.Equal("echo", tools[0].Name);   // 来自 Fixtures/EchoMcpServer
+    // Return result
+    return {
+      content: [{ type: "text", text: "Done" }],  // Sent to LLM
+      details: { data: result },                   // For rendering & state
+      // usage: nestedModelResponse.usage,          // Optional nested LLM usage
+      // Optional: stop after this tool batch when every finalized tool result
+      // in the batch also returns terminate: true.
+      terminate: true,
+    };
+  },
+
+  // Optional: Custom rendering
+  renderCall(args, theme, context) { ... },
+  renderResult(result, options, theme, context) { ... },
+});
+```
+
+**Usage accounting:** If a tool makes nested LLM calls, return their combined `Usage` as `usage`. Pi persists it on the tool result and includes it in footer, `/session`, and RPC session totals. `tool_result` handlers can inspect or replace this value.
+
+**Signaling errors:** To mark a tool execution as failed (sets `isError: true` on the result and reports it to the LLM), throw an error from `execute`. Returning a value never sets the error flag regardless of what properties you include in the return object.
+
+**Early termination:** Return `terminate: true` from `execute()` to hint that the automatic follow-up LLM call should be skipped after the current tool batch. This only takes effect when every finalized tool result in that batch is terminating. See [examples/extensions/structured-output.ts](../examples/extensions/structured-output.ts) for a minimal example where the agent ends on a final structured-output tool call.
+
+```typescript
+// Correct: throw to signal an error
+async execute(toolCallId, params) {
+  if (!isValid(params.input)) {
+    throw new Error(`Invalid input: ${params.input}`);
+  }
+  return { content: [{ type: "text", text: "OK" }], details: {} };
 }
 ```
 
-> **重要**：`await using` 保证 transport dispose 时 SDK 自动 terminate 子进程。
-> 不需要 `Process.Kill` 兜底——SDK 走 `StdioClientTransport.DisposeAsync` 路径，
-> 内部 `try { Close(); } catch {}` + `process.WaitForExit(2s)` + `Dispose()`。
-> 我们 **不**自己管 process lifecycle。
+**Important:** Use `StringEnum` from `@earendil-works/pi-ai` for string enums. `Type.Union`/`Type.Literal` doesn't work with Google's API.
 
-### 16.12 McpPack 跟其它官方扩展的关系
+**Argument preparation:** `prepareArguments(args)` is optional. If defined, it runs before schema validation and before `execute()`. Use it to mimic an older accepted input shape when pi resumes an older session whose stored tool call arguments no longer match the current schema. Return the object you want validated against `parameters`. Keep the public schema strict. Do not add deprecated compatibility fields to `parameters` just to keep old resumed sessions working.
 
-| 能力 | 由谁提供 | 备注 |
-|---|---|---|
-| `mcp__figma__get_file` 这种工具 | **McpPack**（薄包装） | 任何有 MCP server 的服务都自动有 |
-| figma 特定的 tool card（带缩略图） | **(假设的) Phi.Figma 扩展** | McpPack 只做通用 card |
-| `/figma export` slash 命令 | **(假设的) Phi.Figma** | McpPack 不注册 slash |
-| figma MCP 连接的 lifecycle | **McpPack** | `On("session_start")` 自动接，`On("session_shutdown")` 自动断 |
-| 阻拦"在 production 调 figma delete" | **PermissionGate** | 跟 MCP 无关，所有 tool 都拦 |
+Example: an older session may contain an `edit` tool call with top-level `oldText` and `newText`, while the current schema only accepts `edits: [{ oldText, newText }]`.
 
-**McpPack 是基础设施层**，PermissionGate / CodingPack 是横切关注点，专用服务扩展是 UX 层。**三层不重叠**。
+```typescript
+pi.registerTool({
+  name: "edit",
+  label: "Edit",
+  description: "Edit a single file using exact text replacement",
+  parameters: Type.Object({
+    path: Type.String(),
+    edits: Type.Array(
+      Type.Object({
+        oldText: Type.String(),
+        newText: Type.String(),
+      }),
+    ),
+  }),
+  prepareArguments(args) {
+    if (!args || typeof args !== "object") return args;
 
-### 16.13 哪些场景 McpPack 够用，哪些需要专用扩展
+    const input = args as {
+      path?: string;
+      edits?: Array<{ oldText: string; newText: string }>;
+      oldText?: unknown;
+      newText?: unknown;
+    };
 
-| 场景 | McpPack | 专用扩展？ |
-|---|---|---|
-| "把这个 GitHub issue 转成 PR description"（通用 tool 调用） | ✅ 够用 | ❌ 不需要 |
-| "figma 这张图存到我的设计规范库"（需要 figma 缩略图 UI） | ❌ tool card 是通用文本 | ✅ 写 `Phi.Figma` |
-| "查询 prod DB 然后写 incident report"（通用 tool 调用 + report 模板） | ✅ 够用 | ❌ |
-| "auto-deploy to staging"（多步 + 审批） | ✅ 够用 | ❌（或写 deploy orchestrator 通用扩展） |
-| "在这个 AWS 账户创建 EKS cluster"（需要 AWS-特定错误处理） | ⚠️ 可以跑，但错误信息不友好 | ✅ 写 `Phi.Aws` |
-| "实时跟踪 design token 变更"（需要 stream MCP resource 变化） | ❌ v1 不支持 resource | ✅ 写专用扩展 |
+    if (typeof input.oldText !== "string" || typeof input.newText !== "string") {
+      return args;
+    }
 
-**判定原则**：如果"拿到 tool 结果就能直接用模型解释"，McpPack 够；如果"需要专门的渲染 / 专门的 workflow / 专门的错误处理"，写专用扩展。
-
-### 16.14 安全考量
-
-`~/.phi/mcp-servers.json` 里的 `command` / `args` 是**任意可执行**。这跟 Phi.Extensions 的整体安全模型一致：
-
-- **凭据来源信任**：用户自己编辑的 config 视为可信。**不**解析来自不可信来源（web / fetch）的 mcpServers 配置。
-- **`${env:NAME}` 引用 host 环境**：如果 host 环境被注入，token 泄漏到 MCP server。McpPack **不**做变量展开的注入防御 —— host 环境是 trusted computing base 的一部分。
-- **`ProcessSpawn` capability 必填**：`[PhiExtension(..., Capabilities = Network | ProcessSpawn)]` —— McpPack 显式声明。Sprint 3 的 capability 强制启用后，用户在 status bar 能看到 "McpPack: Network + ProcessSpawn"。
-- **MCP server 本身的代码 = 任意可执行**（同 §9 风险 T1）—— 跟 `dotnet add package` 装个会 `rm -rf` 的 postinstall 是一类风险。`README` 写明"只配你信任的 MCP server"。
-
-### 16.15 跟 §9 安全模型的关系
-
-MCP 走 `ProcessSpawn` capability（第 9 节 v1.5 启用）。McpPack 显式声明它是 **唯一一个需要 ProcessSpawn 的官方扩展**。Sprint 3 上线后：
-
-```
-~/.phi/extensions/
-├── McpPack.dll            Capabilities = Network | ProcessSpawn ✓
-├── CodingPack.dll         Capabilities = FileSystem* ✓
-├── CustomCardDemo.dll     Capabilities = TranscriptWrite ✓
-└── PermissionGate.dll     Capabilities = None ✓
+    return {
+      ...input,
+      edits: [...(input.edits ?? []), { oldText: input.oldText, newText: input.newText }],
+    };
+  },
+  async execute(toolCallId, params, signal, onUpdate, ctx) {
+    // params now matches the current schema
+    return {
+      content: [{ type: "text", text: `Applying ${params.edits.length} edit block(s)` }],
+      details: {},
+    };
+  },
+});
 ```
 
-用户在 status bar / `/extensions` 命令里能看到每个扩展的 capability 声明。McpPack 是唯一有 `ProcessSpawn` 的，**用户想禁用 MCP 直接 disable McpPack 即可**，不影响其它扩展。
+### Overriding Built-in Tools
 
-### 16.16 为什么这一节放在最后 + 跟 SDK 对齐
+Extensions can override built-in tools (`read`, `bash`, `powershell`, `edit`, `write`, `grep`, `find`, `ls`) by registering a tool with the same name. Interactive mode displays a warning when this happens.
 
-- **依赖 Sprint 1-4 的所有 API**：`RegisterTool` + `On(event)` + `AddPromptGuideline` + `Capability` + `RegisterToolCard`
-- **跟官方 SDK 对齐**：McpPack 走 NuGet `ModelContextProtocol`，跟着 spec 自动升级（spec `2025-06-18`
-  → SDK 2.2.0 → McpPack 自动获取 typed `StructuredContent`、Resource / Prompt 模板等 v2 新能力），
-  **不需要**每次 spec 更新重写 McpPack
-- **Sprint 5 之前**就能给已经有 MCP server 的用户写一份 README "如何用 McpPack" —— 即使代码在 Sprint 5 才合入，文档先稳定
-
-**为什么不自己写 transport**（重申 §16.7 的核心论点）：
-
-| 自己写 | 用 `ModelContextProtocol` SDK |
-|---|---|
-| ~150 行 JSON-RPC + stdio + 协议握手 | 0 行（SDK 包了） |
-| 每次 spec 升级重写（v1 → v2.2.0） | 升 NuGet 版本即可 |
-| 跨平台 QA：Win named pipe / Unix pipe / macOS 异常路径 | SDK 测过的 |
-| notification 跟 response 串流时按 id 过滤（容易写错） | SDK 内部处理 |
-| `Process.Kill(entireProcessTree: true)` 兜底 | SDK 自动清理 |
-| Tool discovery schema 解析自己写 | SDK 直接给 `McpClientTool.JsonSchema` |
-
-**结论**：McpPack v1 的代码量比"自己写"路径**少 ~30%**，且**没有协议维护负担**。这就是
-"用 SDK 不自己造"在工程上的具体收益。
-
----
-
-## 附录 C：MCP 客户端扩展的最小骨架（v1 stdio + SDK）
-
-把上面 §16.5 + §16.6 + §16.7 + §16.8 + §16.9 拼起来，**v1 的最小可用 McpPack 是 ~280 行**（不含测试）：
-
-| 文件 | 行数估算 | 备注 |
-|---|---|---|
-| `McpPack.csproj` | n/a | + `PackageReference ModelContextProtocol` |
-| `McpPack.cs`（入口 + lifecycle） | 80 | lifecycle hooks + client 列表 + 注册 loop |
-| `Configuration/McpServersConfig.cs`（record + JSON 绑定） | 60 | `System.Text.Json` source-gen |
-| `Configuration/McpServersLoader.cs`（读文件 + `${env:}` 展开） | 50 | |
-| `McpTransportFactory.cs`（config → SDK transport） | 30 | v1 只支持 stdio；v2 加 http/sse |
-| `McpToolAdapter.cs`（tool name 映射 + 参数透传） | 40 | |
-| `McpErrorMapper.cs`（SDK result → Phi ToolResult） | 30 | content blocks 类型 switch |
-| `ProtocolVersionTracker.cs`（audit + 协商记录） | 20 | |
-| **总计** | **~310 行**（不含测试） | 比"自己写"路径（~410 行）**少 ~25%** |
-
-测试 ~250 行（fake `IMcpClient` + echo MCP server + 端到端）。**不用**自己 mock JSON-RPC —— SDK 的 `IMcpClient` interface 专为此设计。
-
-**整个 Sprint 5 是一个 sprint**。如果只想 ship stdio transport + 最简 error handling，**~2 周 1 人**。
+```bash
+# Extension's read tool replaces built-in read
+pi -e ./tool-override.ts
 ```
+
+Alternatively, use `--no-builtin-tools` to start without any built-in tools while keeping extension tools enabled:
+```bash
+# No built-in tools, only extension tools
+pi --no-builtin-tools -e ./my-extension.ts
+```
+
+See [examples/extensions/tool-override.ts](../examples/extensions/tool-override.ts) for a complete example that overrides `read` with logging and access control.
+
+**Rendering:** Built-in renderer inheritance is resolved per slot. Execution override and rendering override are independent. If your override omits `renderCall`, the built-in `renderCall` is used. If your override omits `renderResult`, the built-in `renderResult` is used. If your override omits both, the built-in renderer is used automatically (syntax highlighting, diffs, etc.). This lets you wrap built-in tools for logging or access control without reimplementing the UI.
+
+**Prompt metadata:** `promptSnippet` and `promptGuidelines` are not inherited from the built-in tool. If your override should keep those prompt instructions, define them on the override explicitly.
+
+**Your implementation must match the exact result shape**, including the `details` type. The UI and session logic depend on these shapes for rendering and state tracking.
+
+Built-in tool implementations:
+- [read.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/read.ts) - `ReadToolDetails`
+- [bash.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/bash.ts) - `BashToolDetails`
+- [powershell.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/powershell.ts) - `PowerShellToolDetails`
+- [edit.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/edit.ts)
+- [write.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/write.ts)
+- [grep.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/grep.ts) - `GrepToolDetails`
+- [find.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/find.ts) - `FindToolDetails`
+- [ls.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/core/tools/ls.ts) - `LsToolDetails`
+
+### Remote Execution
+
+Built-in tools support pluggable operations for delegating to remote systems (SSH, containers, etc.):
+
+```typescript
+import { createReadTool, createBashTool, type ReadOperations } from "@earendil-works/pi-coding-agent";
+
+// Create tool with custom operations
+const remoteRead = createReadTool(cwd, {
+  operations: {
+    readFile: (path) => sshExec(remote, `cat ${path}`),
+    access: (path) => sshExec(remote, `test -r ${path}`).then(() => {}),
+  }
+});
+
+// Register, checking flag at execution time
+pi.registerTool({
+  ...remoteRead,
+  async execute(id, params, signal, onUpdate, _ctx) {
+    const ssh = getSshConfig();
+    if (ssh) {
+      const tool = createReadTool(cwd, { operations: createRemoteOps(ssh) });
+      return tool.execute(id, params, signal, onUpdate);
+    }
+    return localRead.execute(id, params, signal, onUpdate);
+  },
+});
+```
+
+**Operations interfaces:** `ReadOperations`, `WriteOperations`, `EditOperations`, `BashOperations`, `PowerShellOperations`, `LsOperations`, `GrepOperations`, `FindOperations`
+
+For `user_bash`, extensions can reuse pi's local shell backend via `createLocalBashOperations()` instead of reimplementing local process spawning, shell resolution, and process-tree termination.
+
+The `bash` and `powershell` tools also support a spawn hook to adjust the command, cwd, or env before execution:
+
+```typescript
+import { createBashTool } from "@earendil-works/pi-coding-agent";
+
+const bashTool = createBashTool(cwd, {
+  spawnHook: ({ command, cwd, env }) => ({
+    command: `source ~/.profile\n${command}`,
+    cwd: `/mnt/sandbox${cwd}`,
+    env: { ...env, CI: "1" },
+  }),
+});
+```
+
+`createBashTool()` and `createPowerShellTool()` expose the current session to commands through `PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER`, `PI_MODEL`, and `PI_REASONING_LEVEL`. Injection happens before `spawnHook`, so hooks receive these values in `env` and preserve them when they spread the existing environment as above. Set `exposeSessionEnvironment: false` to disable them:
+
+```typescript
+const bashTool = createBashTool(cwd, {
+  exposeSessionEnvironment: false,
+});
+```
+
+See [Shell tool session environment](environment-variables.md#shell-tool-session-environment) for variable semantics. See [examples/extensions/ssh.ts](../examples/extensions/ssh.ts) for a complete SSH example with `--ssh` flag.
+
+### Output Truncation
+
+**Tools MUST truncate their output** to avoid overwhelming the LLM context. Large outputs can cause:
+- Context overflow errors (prompt too long)
+- Compaction failures
+- Degraded model performance
+
+The built-in limit is **50KB** (~10k tokens) and **2000 lines**, whichever is hit first. Use the exported truncation utilities:
+
+```typescript
+import {
+  truncateHead,      // Keep first N lines/bytes (good for file reads, search results)
+  truncateTail,      // Keep last N lines/bytes (good for logs, command output)
+  truncateLine,      // Truncate a single line to maxBytes with ellipsis
+  formatSize,        // Human-readable size (e.g., "50KB", "1.5MB")
+  DEFAULT_MAX_BYTES, // 50KB
+  DEFAULT_MAX_LINES, // 2000
+} from "@earendil-works/pi-coding-agent";
+
+async execute(toolCallId, params, signal, onUpdate, ctx) {
+  const output = await runCommand();
+
+  // Apply truncation
+  const truncation = truncateHead(output, {
+    maxLines: DEFAULT_MAX_LINES,
+    maxBytes: DEFAULT_MAX_BYTES,
+  });
+
+  let result = truncation.content;
+
+  if (truncation.truncated) {
+    // Write full output to temp file
+    const tempFile = writeTempFile(output);
+
+    // Inform the LLM where to find complete output
+    result += `\n\n[Output truncated: ${truncation.outputLines} of ${truncation.totalLines} lines`;
+    result += ` (${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}).`;
+    result += ` Full output saved to: ${tempFile}]`;
+  }
+
+  return { content: [{ type: "text", text: result }] };
+}
+```
+
+**Key points:**
+- Use `truncateHead` for content where the beginning matters (search results, file reads)
+- Use `truncateTail` for content where the end matters (logs, command output)
+- Always inform the LLM when output is truncated and where to find the full version
+- Document the truncation limits in your tool's description
+
+See [examples/extensions/truncated-tool.ts](../examples/extensions/truncated-tool.ts) for a complete example wrapping `rg` (ripgrep) with proper truncation.
+
+### Multiple Tools
+
+One extension can register multiple tools with shared state:
+
+```typescript
+export default function (pi: ExtensionAPI) {
+  let connection = null;
+
+  pi.registerTool({ name: "db_connect", ... });
+  pi.registerTool({ name: "db_query", ... });
+  pi.registerTool({ name: "db_close", ... });
+
+  pi.on("session_shutdown", async () => {
+    connection?.close();
+  });
+}
+```
+
+### Custom Rendering
+
+Tools can provide `renderCall` and `renderResult` for custom TUI display. See [tui.md](tui.md) for the full component API and [tool-execution.ts](https://github.com/earendil-works/pi-mono/blob/main/packages/coding-agent/src/modes/interactive/components/tool-execution.ts) for how tool rows are composed.
+
+By default, tool output is wrapped in a `Box` that handles padding and background. A defined `renderCall` or `renderResult` must return a `Component`. If a slot renderer is not defined, `tool-execution.ts` uses fallback rendering for that slot.
+
+Set `renderShell: "self"` when the tool should render its own shell instead of using the default `Box`. This is useful for tools that need complete control over framing or background behavior, for example large previews that must stay visually stable after the tool settles.
+
+```typescript
+pi.registerTool({
+  name: "my_tool",
+  label: "My Tool",
+  description: "Custom shell example",
+  parameters: Type.Object({}),
+  renderShell: "self",
+  async execute() {
+    return { content: [{ type: "text", text: "ok" }], details: undefined };
+  },
+  renderCall(args, theme, context) {
+    return new Text(theme.fg("accent", "my custom shell"), 0, 0);
+  },
+});
+```
+
+`renderCall` and `renderResult` each receive a `context` object with:
+- `args` - the current tool call arguments
+- `state` - shared row-local state across `renderCall` and `renderResult`
+- `lastComponent` - the previously returned component for that slot, if any
+- `invalidate()` - request a rerender of this tool row
+- `toolCallId`, `cwd`, `executionStarted`, `argsComplete`, `isPartial`, `expanded`, `showImages`, `isError`
+
+Use `context.state` for cross-slot shared state. Keep slot-local caches on the returned component instance when you want to reuse and mutate the same component across renders.
+
+#### renderCall
+
+Renders the tool call or header:
+
+```typescript
+import { Text } from "@earendil-works/pi-tui";
+
+renderCall(args, theme, context) {
+  const text = (context.lastComponent as Text | undefined) ?? new Text("", 0, 0);
+  let content = theme.fg("toolTitle", theme.bold("my_tool "));
+  content += theme.fg("muted", args.action);
+  if (args.text) {
+    content += " " + theme.fg("dim", `"${args.text}"`);
+  }
+  text.setText(content);
+  return text;
+}
+```
+
+#### renderResult
+
+Renders the tool result or output:
+
+```typescript
+renderResult(result, { expanded, isPartial }, theme, context) {
+  if (isPartial) {
+    return new Text(theme.fg("warning", "Processing..."), 0, 0);
+  }
+
+  if (result.details?.error) {
+    return new Text(theme.fg("error", `Error: ${result.details.error}`), 0, 0);
+  }
+
+  let text = theme.fg("success", "✓ Done");
+  if (expanded && result.details?.items) {
+    for (const item of result.details.items) {
+      text += "\n  " + theme.fg("dim", item);
+    }
+  }
+  return new Text(text, 0, 0);
+}
+```
+
+If a slot intentionally has no visible content, return an empty `Component` such as an empty `Container`.
+
+#### Keybinding Hints
+
+Use `keyHint()` to display keybinding hints that respect the active keybinding configuration:
+
+```typescript
+import { keyHint } from "@earendil-works/pi-coding-agent";
+
+renderResult(result, { expanded }, theme, context) {
+  let text = theme.fg("success", "✓ Done");
+  if (!expanded) {
+    text += ` (${keyHint("app.tools.expand", "to expand")})`;
+  }
+  return new Text(text, 0, 0);
+}
+```
+
+Available functions:
+- `keyHint(keybinding, description)` - Formats a configured keybinding id such as `"app.tools.expand"` or `"tui.select.confirm"`
+- `keyText(keybinding)` - Returns the raw configured key text for a keybinding id
+- `rawKeyHint(key, description)` - Format a raw key string
+
+Use namespaced keybinding ids:
+- Coding-agent ids use the `app.*` namespace, for example `app.tools.expand`, `app.editor.external`, `app.session.rename`
+- Shared TUI ids use the `tui.*` namespace, for example `tui.select.confirm`, `tui.select.cancel`, `tui.input.tab`
+
+For the exhaustive list of keybinding ids and defaults, see [keybindings.md](keybindings.md). `keybindings.json` uses those same namespaced ids.
+
+Custom editors and `ctx.ui.custom()` components receive `keybindings: KeybindingsManager` as an injected argument. They should use that injected manager directly instead of calling `getKeybindings()` or `setKeybindings()`.
+
+#### Best Practices
+
+- Use `Text` with padding `(0, 0)`. The default Box handles padding.
+- Use `\n` for multi-line content.
+- Handle `isPartial` for streaming progress.
+- Support `expanded` for detail on demand.
+- Keep default view compact.
+- Read `context.args` in `renderResult` instead of copying args into `context.state`.
+- Use `context.state` only for data that must be shared across call and result slots.
+- Reuse `context.lastComponent` when the same component instance can be updated in place.
+- Use `renderShell: "self"` only when the default boxed shell gets in the way. In self-shell mode the tool is responsible for its own framing, padding, and background.
+
+#### Fallback
+
+If a slot renderer is not defined or throws:
+- `renderCall`: Shows the tool name
+- `renderResult`: Shows raw text from `content`
+
+### Dynamic Tool Loading
+
+Extensions can register many tools while keeping only a small initial set active. A tool can then add more tools with `pi.setActiveTools()` during execution. Pi detects purely additive changes, records the newly available tool names on that tool result, and applies the updated active set before the next model request.
+
+This works with every model. Models with native deferred-loading support preserve the stable prompt prefix and load the new definitions at the tool-result position. Other models use the fallback described below.
+
+The lifecycle is:
+
+1. Register every tool with `pi.registerTool()` so it appears in `pi.getAllTools()`.
+2. Keep loader tools, such as `search_tools`, active and leave searchable tools inactive.
+3. During loader execution, call `pi.setActiveTools([...currentTools, ...matchingTools])`. The change must be additive: do not remove currently active tools in the same call.
+4. Pi records which tools were added on the loader's tool result.
+5. Before the next model response, Pi exposes the added definitions using native deferred loading when supported, or the normal active tool list otherwise.
+
+You do not need to return provider-specific tool references or mark the loader as a special search tool. The active-tool change is the signal. Names passed to `pi.setActiveTools()` must already be registered; unknown names are ignored.
+
+#### Models with native deferred loading
+
+- **Anthropic**
+  - **Models:** Sonnet, Opus, Fable version 4.5 or newer (without Haiku)
+  - **Native representation:** Deferred definitions use `defer_loading`; the load point uses `tool_reference` content.
+- **OpenAI**
+  - **Models:** `gpt-5.4` and newer family
+  - **Native representation:** Pi adds completed client `tool_search_call` and `tool_search_output` items at the load point.
+
+For a verified custom model or proxy, native handling can be enabled with `compat.supportsToolReferences: true` for `anthropic-messages`, or `compat.supportsToolSearch: true` for `openai-responses` and `openai-codex-responses`. Leave these disabled unless the endpoint and model accept the corresponding native protocol.
+
+#### Fallback behavior
+
+For all other models and providers, dynamic activation still works: Pi sends the complete current active tool list normally on the next request. The model can call the newly activated tools, but adding their definitions may invalidate the provider's cached prompt prefix.
+
+Pi also uses this safe fallback when the active set is not purely additive, such as replacing one group of tools with another. Tool removals therefore work, but they do not use deferred loading.
+
+For the best cache behavior, keep the loader tool active for the whole session and add tools instead of replacing the active set. Also note that activating a tool with `promptSnippet` or `promptGuidelines` rebuilds the system prompt; that system-prompt change can invalidate the prefix even when the provider supports deferred schemas. Lazily loaded tools should usually rely on their tool `description` and omit active-only prompt metadata.
+
+#### Search tool example
+
+The following extension registers two searchable tools, removes them from the initial active set, and keeps only `search_tools` as their loader. The example uses simple keyword matching, but the search implementation could use BM25, embeddings, a remote catalog, or project-specific routing.
+
+```typescript
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
+
+const SEARCHABLE_TOOL_NAMES = new Set(["lookup_weather", "search_issues"]);
+
+export default function (pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "lookup_weather",
+    label: "Lookup Weather",
+    description: "Look up the current weather for a city",
+    parameters: Type.Object({ city: Type.String() }),
+    async execute(_toolCallId, params) {
+      return {
+        content: [{ type: "text", text: `Weather for ${params.city}: sunny` }],
+        details: {},
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "search_issues",
+    label: "Search Issues",
+    description: "Search project issues by keyword",
+    parameters: Type.Object({ query: Type.String() }),
+    async execute(_toolCallId, params) {
+      return {
+        content: [{ type: "text", text: `No open issues matching ${params.query}` }],
+        details: {},
+      };
+    },
+  });
+
+  pi.registerTool({
+    name: "search_tools",
+    label: "Search Tools",
+    description: "Search for and enable tools relevant to a task",
+    promptSnippet: "Search for additional tools when the active tools cannot perform the task",
+    promptGuidelines: [
+      "Use search_tools when a task requires a capability that is not currently available.",
+    ],
+    parameters: Type.Object({
+      query: Type.String({ description: "Capability or task to search for" }),
+      limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
+    }),
+    async execute(_toolCallId, params) {
+      const terms = params.query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      const matches = pi.getAllTools()
+        .filter((tool) => SEARCHABLE_TOOL_NAMES.has(tool.name))
+        .map((tool) => ({
+          tool,
+          score: terms.reduce(
+            (score, term) =>
+              score + (`${tool.name} ${tool.description}`.toLowerCase().includes(term) ? 1 : 0),
+            0,
+          ),
+        }))
+        .filter((match) => match.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, params.limit ?? 3)
+        .map((match) => match.tool.name);
+
+      if (matches.length === 0) {
+        return {
+          content: [{ type: "text", text: `No tools found for: ${params.query}` }],
+          details: { matches: [] },
+        };
+      }
+
+      const active = pi.getActiveTools();
+      const added = matches.filter((name) => !active.includes(name));
+      pi.setActiveTools([...new Set([...active, ...added])]);
+
+      return {
+        content: [{
+          type: "text",
+          text: added.length > 0
+            ? `Loaded tools: ${added.join(", ")}`
+            : `Matching tools already active: ${matches.join(", ")}`,
+        }],
+        details: { matches, added },
+      };
+    },
+  });
+
+  pi.on("session_start", () => {
+    // Keep searchable tools registered but initially inactive. Preserve built-ins
+    // and tools owned by other extensions, and keep the loader itself active.
+    const initialTools = pi.getActiveTools().filter(
+      (name) => !SEARCHABLE_TOOL_NAMES.has(name),
+    );
+    pi.setActiveTools([...new Set([...initialTools, "search_tools"])]);
+  });
+}
+```
+
+When `search_tools` adds a match, the model receives that definition on the immediately following request. On a native-capable model the definition is anchored after the search result without changing the initial tool-schema prefix. On other models it appears in the normal tool list on that same following request.
+
+## Custom UI
+
+Extensions can interact with users via `ctx.ui` methods and customize how messages/tools render.
+
+**For custom components, see [tui.md](tui.md)** which has copy-paste patterns for:
+- Selection dialogs (SelectList)
+- Async operations with cancel (BorderedLoader)
+- Settings toggles (SettingsList)
+- Status indicators (setStatus)
+- Working message, visibility, and indicator during streaming (`setWorkingMessage`, `setWorkingVisible`, `setWorkingIndicator`)
+- Widgets above/below editor (setWidget)
+- Autocomplete providers layered on top of built-in slash/path completion (addAutocompleteProvider)
+- Custom footers (setFooter)
+
+### Dialogs
+
+```typescript
+// Select from options
+const choice = await ctx.ui.select("Pick one:", ["A", "B", "C"]);
+
+// Confirm dialog
+const ok = await ctx.ui.confirm("Delete?", "This cannot be undone");
+
+// Text input
+const name = await ctx.ui.input("Name:", "placeholder");
+
+// Multi-line editor
+const text = await ctx.ui.editor("Edit:", "prefilled text");
+
+// Notification (non-blocking)
+ctx.ui.notify("Done!", "info");  // "info" | "warning" | "error"
+```
+
+#### Timed Dialogs with Countdown
+
+Dialogs support a `timeout` option that auto-dismisses with a live countdown display:
+
+```typescript
+// Dialog shows "Title (5s)" → "Title (4s)" → ... → auto-dismisses at 0
+const confirmed = await ctx.ui.confirm(
+  "Timed Confirmation",
+  "This dialog will auto-cancel in 5 seconds. Confirm?",
+  { timeout: 5000 }
+);
+
+if (confirmed) {
+  // User confirmed
+} else {
+  // User cancelled or timed out
+}
+```
+
+**Return values on timeout:**
+- `select()` returns `undefined`
+- `confirm()` returns `false`
+- `input()` returns `undefined`
+
+#### Manual Dismissal with AbortSignal
+
+For more control (e.g., to distinguish timeout from user cancel), use `AbortSignal`:
+
+```typescript
+const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+const confirmed = await ctx.ui.confirm(
+  "Timed Confirmation",
+  "This dialog will auto-cancel in 5 seconds. Confirm?",
+  { signal: controller.signal }
+);
+
+clearTimeout(timeoutId);
+
+if (confirmed) {
+  // User confirmed
+} else if (controller.signal.aborted) {
+  // Dialog timed out
+} else {
+  // User cancelled (pressed Escape or selected "No")
+}
+```
+
+See [examples/extensions/timed-confirm.ts](../examples/extensions/timed-confirm.ts) for complete examples.
+
+### Widgets, Status, and Footer
+
+```typescript
+// Status in footer (persistent until cleared)
+ctx.ui.setStatus("my-ext", "Processing...");
+ctx.ui.setStatus("my-ext", undefined);  // Clear
+
+// Working loader (shown during streaming)
+ctx.ui.setWorkingMessage("Thinking deeply...");
+ctx.ui.setWorkingMessage();  // Restore default
+ctx.ui.setWorkingVisible(false);  // Hide the built-in working loader row entirely
+ctx.ui.setWorkingVisible(true);   // Show the built-in working loader row
+
+// Working indicator (shown during streaming)
+ctx.ui.setWorkingIndicator({ frames: [ctx.ui.theme.fg("accent", "●")] });  // Static dot
+ctx.ui.setWorkingIndicator({
+  frames: [
+    ctx.ui.theme.fg("dim", "·"),
+    ctx.ui.theme.fg("muted", "•"),
+    ctx.ui.theme.fg("accent", "●"),
+    ctx.ui.theme.fg("muted", "•"),
+  ],
+  intervalMs: 120,
+});
+ctx.ui.setWorkingIndicator({ frames: [] });  // Hide indicator
+ctx.ui.setWorkingIndicator();  // Restore default spinner
+
+// Widget above editor (default)
+ctx.ui.setWidget("my-widget", ["Line 1", "Line 2"]);
+// Widget below editor
+ctx.ui.setWidget("my-widget", ["Line 1", "Line 2"], { placement: "belowEditor" });
+ctx.ui.setWidget("my-widget", (tui, theme) => new Text(theme.fg("accent", "Custom"), 0, 0));
+ctx.ui.setWidget("my-widget", undefined);  // Clear
+
+// Custom footer (replaces built-in footer entirely)
+ctx.ui.setFooter((tui, theme) => ({
+  render(width) { return [theme.fg("dim", "Custom footer")]; },
+  invalidate() {},
+}));
+ctx.ui.setFooter(undefined);  // Restore built-in footer
+
+// Terminal title
+ctx.ui.setTitle("pi - my-project");
+
+// Editor text
+ctx.ui.setEditorText("Prefill text");
+const current = ctx.ui.getEditorText();
+
+// Paste into editor (triggers paste handling, including collapse for large content)
+ctx.ui.pasteToEditor("pasted content");
+
+// Stack custom autocomplete behavior on top of the built-in provider
+ctx.ui.addAutocompleteProvider((current) => ({
+  triggerCharacters: ["#"],
+  async getSuggestions(lines, line, col, options) {
+    const beforeCursor = (lines[line] ?? "").slice(0, col);
+    const match = beforeCursor.match(/(?:^|[ \t])#([^\s#]*)$/);
+    if (!match) {
+      return current.getSuggestions(lines, line, col, options);
+    }
+
+    return {
+      prefix: `#${match[1] ?? ""}`,
+      items: [{ value: "#2983", label: "#2983", description: "Extension API for autocomplete" }],
+    };
+  },
+  applyCompletion(lines, line, col, item, prefix) {
+    return current.applyCompletion(lines, line, col, item, prefix);
+  },
+  shouldTriggerFileCompletion(lines, line, col) {
+    return current.shouldTriggerFileCompletion?.(lines, line, col) ?? true;
+  },
+}));
+
+// Tool output expansion
+const wasExpanded = ctx.ui.getToolsExpanded();
+ctx.ui.setToolsExpanded(true);
+ctx.ui.setToolsExpanded(wasExpanded);
+
+// Custom editor (vim mode, emacs mode, etc.)
+ctx.ui.setEditorComponent((tui, theme, keybindings) => new VimEditor(tui, theme, keybindings));
+const currentEditor = ctx.ui.getEditorComponent();
+ctx.ui.setEditorComponent((tui, theme, keybindings) =>
+  new WrappedEditor(tui, theme, keybindings, currentEditor?.(tui, theme, keybindings))
+);
+ctx.ui.setEditorComponent(undefined);  // Restore default editor
+
+// Theme management (see themes.md for creating themes)
+const themes = ctx.ui.getAllThemes();  // [{ name: "dark", path: "/..." | undefined }, ...]
+const lightTheme = ctx.ui.getTheme("light");  // Load without switching
+const result = ctx.ui.setTheme("light");  // Switch by name
+if (!result.success) {
+  ctx.ui.notify(`Failed: ${result.error}`, "error");
+}
+ctx.ui.setTheme(lightTheme!);  // Or switch by Theme object
+ctx.ui.theme.fg("accent", "styled text");  // Access current theme
+```
+
+Custom working-indicator frames are rendered verbatim. If you want colors, add them to the frame strings yourself, for example with `ctx.ui.theme.fg(...)`.
+
+### Autocomplete Providers
+
+Use `ctx.ui.addAutocompleteProvider()` to stack custom autocomplete logic on top of the built-in slash-command and path provider. Set `triggerCharacters` for custom natural triggers such as `$`.
+
+Typical pattern:
+
+- inspect the text before the cursor
+- return your own suggestions when your extension-specific syntax matches
+- otherwise delegate to `current.getSuggestions(...)`
+- delegate `applyCompletion(...)` unless you need custom insertion behavior
+
+```typescript
+pi.on("session_start", (_event, ctx) => {
+  ctx.ui.addAutocompleteProvider((current) => ({
+    triggerCharacters: ["#"],
+    async getSuggestions(lines, cursorLine, cursorCol, options) {
+      const line = lines[cursorLine] ?? "";
+      const beforeCursor = line.slice(0, cursorCol);
+      const match = beforeCursor.match(/(?:^|[ \t])#([^\s#]*)$/);
+      if (!match) {
+        return current.getSuggestions(lines, cursorLine, cursorCol, options);
+      }
+
+      return {
+        prefix: `#${match[1] ?? ""}`,
+        items: [
+          { value: "#2983", label: "#2983", description: "Extension API for registering custom @ autocomplete providers" },
+          { value: "#2753", label: "#2753", description: "Reload stale resource settings" },
+        ],
+      };
+    },
+
+    applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+      return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+    },
+
+    shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+      return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
+    },
+  }));
+});
+```
+
+See [github-issue-autocomplete.ts](../examples/extensions/github-issue-autocomplete.ts) for a complete example that preloads the latest open GitHub issues with `gh issue list` and filters them locally for fast `#...` completion. It requires GitHub CLI (`gh`) and a GitHub repository checkout.
+
+### Custom Components
+
+For complex UI, use `ctx.ui.custom()`. This temporarily replaces the editor with your component until `done()` is called:
+
+```typescript
+import { Text, Component } from "@earendil-works/pi-tui";
+
+const result = await ctx.ui.custom<boolean>((tui, theme, keybindings, done) => {
+  const text = new Text("Press Enter to confirm, Escape to cancel", 1, 1);
+
+  text.onKey = (key) => {
+    if (key === "return") done(true);
+    if (key === "escape") done(false);
+    return true;
+  };
+
+  return text;
+});
+
+if (result) {
+  // User pressed Enter
+}
+```
+
+The callback receives:
+- `tui` - TUI instance (for screen dimensions, focus management)
+- `theme` - Current theme for styling
+- `keybindings` - App keybinding manager (for checking shortcuts)
+- `done(value)` - Call to close component and return value
+
+See [tui.md](tui.md) for the full component API.
+
+#### Overlay Mode (Experimental)
+
+Pass `{ overlay: true }` to render the component as a floating modal on top of existing content, without clearing the screen:
+
+```typescript
+const result = await ctx.ui.custom<string | null>(
+  (tui, theme, keybindings, done) => new MyOverlayComponent({ onClose: done }),
+  { overlay: true }
+);
+```
+
+For advanced positioning (anchors, margins, percentages, responsive visibility), pass `overlayOptions`. Use `onHandle` to control focus or visibility programmatically:
+
+```typescript
+const result = await ctx.ui.custom<string | null>(
+  (tui, theme, keybindings, done) => new MyOverlayComponent({ onClose: done }),
+  {
+    overlay: true,
+    overlayOptions: { anchor: "top-right", width: "50%", margin: 2 },
+    onHandle: (handle) => {
+      handle.focus(); // focus this overlay and bring it to the visual front
+      // handle.unfocus({ target: editorComponent }); // release input to a specific component
+      // handle.setHidden(true/false); // toggle visibility
+      // handle.hide(); // permanently remove
+    }
+  }
+);
+```
+
+A focused visible overlay can reclaim input after temporary non-overlay custom UI closes. If you intentionally want another component to keep input while the overlay stays visible, call `handle.unfocus({ target })`. Passing `{ target: null }` releases the overlay without focusing another component.
+
+See [tui.md](tui.md) for the full `OverlayOptions` and `OverlayHandle` API and [overlay-qa-tests.ts](../examples/extensions/overlay-qa-tests.ts) for examples.
+
+### Custom Editor
+
+Replace the main input editor with a custom implementation (vim mode, emacs mode, etc.):
+
+```typescript
+import { CustomEditor, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { matchesKey } from "@earendil-works/pi-tui";
+
+class VimEditor extends CustomEditor {
+  private mode: "normal" | "insert" = "insert";
+
+  handleInput(data: string): void {
+    if (matchesKey(data, "escape") && this.mode === "insert") {
+      this.mode = "normal";
+      return;
+    }
+    if (this.mode === "normal" && data === "i") {
+      this.mode = "insert";
+      return;
+    }
+    super.handleInput(data);  // App keybindings + text editing
+  }
+}
+
+export default function (pi: ExtensionAPI) {
+  pi.on("session_start", (_event, ctx) => {
+    ctx.ui.setEditorComponent((tui, theme, keybindings) =>
+      new VimEditor(tui, theme, keybindings)
+    );
+  });
+}
+```
+
+**Key points:**
+- Extend `CustomEditor` (not base `Editor`) to get app keybindings (escape to abort, ctrl+d, model switching)
+- Call `super.handleInput(data)` for keys you don't handle
+- Factory receives `tui`, `theme`, and `keybindings` from the app
+- Use `ctx.ui.getEditorComponent()` before `setEditorComponent()` to wrap the previously configured custom editor
+- Pass `undefined` to restore default: `ctx.ui.setEditorComponent(undefined)`
+
+To compose with another extension that already replaced the editor, capture the previous factory before setting yours:
+
+```typescript
+const previous = ctx.ui.getEditorComponent();
+ctx.ui.setEditorComponent((tui, theme, keybindings) =>
+  new MyEditor(tui, theme, keybindings, { base: previous?.(tui, theme, keybindings) })
+);
+```
+
+See [tui.md](tui.md) Pattern 7 for a complete example with mode indicator.
+
+### Message and Entry Rendering
+
+Register a custom renderer for messages with your `customType`. Use message renderers for content that should participate in LLM context:
+
+```typescript
+import { Text } from "@earendil-works/pi-tui";
+
+pi.registerMessageRenderer("my-extension", (message, options, theme) => {
+  const { expanded, outputPad } = options;
+  let text = theme.fg("accent", `[${message.customType}] `);
+  text += message.content;
+
+  if (expanded && message.details) {
+    text += "\n" + theme.fg("dim", JSON.stringify(message.details, null, 2));
+  }
+
+  return new Text(text, outputPad, 0);
+});
+```
+
+Messages are sent via `pi.sendMessage()`:
+
+```typescript
+pi.sendMessage({
+  customType: "my-extension",  // Matches registerMessageRenderer
+  content: "Status update",
+  display: true,               // Show in TUI
+  details: { ... },            // Available in renderer
+});
+```
+
+For TUI-only content that should not be sent to the LLM, render custom entries instead:
+
+```typescript
+pi.registerEntryRenderer("my-card", (entry, options, theme) => {
+  return new Text(theme.fg("accent", JSON.stringify(entry.data)));
+});
+
+pi.appendEntry("my-card", { status: "done" });
+```
+
+### Theme Colors
+
+All render functions receive a `theme` object. See [themes.md](themes.md) for creating custom themes and the full color palette.
+
+```typescript
+// Foreground colors
+theme.fg("toolTitle", text)   // Tool names
+theme.fg("accent", text)      // Highlights
+theme.fg("success", text)     // Success (green)
+theme.fg("error", text)       // Errors (red)
+theme.fg("warning", text)     // Warnings (yellow)
+theme.fg("muted", text)       // Secondary text
+theme.fg("dim", text)         // Tertiary text
+
+// Text styles
+theme.bold(text)
+theme.italic(text)
+theme.strikethrough(text)
+```
+
+For syntax highlighting in custom tool renderers:
+
+```typescript
+import { highlightCode, getLanguageFromPath } from "@earendil-works/pi-coding-agent";
+
+// Highlight code with explicit language
+const highlighted = highlightCode("const x = 1;", "typescript", theme);
+
+// Auto-detect language from file path
+const lang = getLanguageFromPath("/path/to/file.rs");  // "rust"
+const highlighted = highlightCode(code, lang, theme);
+```
+
+## Error Handling
+
+- Extension errors are logged, agent continues
+- `tool_call` errors block the tool (fail-safe)
+- Tool `execute` errors must be signaled by throwing; the thrown error is caught, reported to the LLM with `isError: true`, and execution continues
+
+## Mode Behavior
+
+| Mode | `ctx.mode` | `ctx.hasUI` | Notes |
+|------|------------|-------------|-------|
+| Interactive | `"tui"` | `true` | Full TUI with terminal rendering |
+| RPC (`--mode rpc`) | `"rpc"` | `true` | Dialogs and notifications via JSON protocol; `custom()` returns `undefined`. See [rpc.md](rpc.md) |
+| JSON (`--mode json`) | `"json"` | `false` | Event stream to stdout; UI methods are no-ops |
+| Print (`-p`) | `"print"` | `false` | Extensions run but can't prompt |
+
+Use `ctx.mode === "tui"` before TUI-specific features (`custom()`, component factories, terminal input). Use `ctx.hasUI` before dialog and notification methods that work in both TUI and RPC modes.
+
+## Examples Reference
+
+All examples in [examples/extensions/](../examples/extensions/).
+
+| Example | Description | Key APIs |
+|---------|-------------|----------|
+| **Tools** |||
+| `hello.ts` | Minimal tool registration | `registerTool` |
+| `question.ts` | Tool with user interaction | `registerTool`, `ui.select` |
+| `questionnaire.ts` | Multi-step wizard tool | `registerTool`, `ui.custom` |
+| `todo.ts` | Stateful tool with persistence | `registerTool`, `appendEntry`, `renderResult`, session events |
+| `dynamic-tools.ts` | Register tools after startup and during commands | `registerTool`, `session_start`, `registerCommand` |
+| `structured-output.ts` | Final structured-output tool with `terminate: true` | `registerTool`, terminating tool results |
+| `truncated-tool.ts` | Output truncation example | `registerTool`, `truncateHead` |
+| `tool-override.ts` | Override built-in read tool | `registerTool` (same name as built-in) |
+| **Commands** |||
+| `pirate.ts` | Modify system prompt per-turn | `registerCommand`, `before_agent_start` |
+| `summarize.ts` | Conversation summary command | `registerCommand`, `ui.custom` |
+| `handoff.ts` | Cross-provider model handoff | `registerCommand`, `ui.editor`, `ui.custom` |
+| `qna.ts` | Q&A with custom UI | `registerCommand`, `ui.custom`, `setEditorText` |
+| `send-user-message.ts` | Inject user messages | `registerCommand`, `sendUserMessage` |
+| `reload-runtime.ts` | Reload command and LLM tool handoff | `registerCommand`, `ctx.reload()`, `sendUserMessage` |
+| `shutdown-command.ts` | Graceful shutdown command | `registerCommand`, `shutdown()` |
+| **Events & Gates** |||
+| `permission-gate.ts` | Block dangerous commands | `on("tool_call")`, `ui.confirm` |
+| `project-trust.ts` | Decide or defer project trust from a user/global or CLI extension | `on("project_trust")`, trust UI, required trust result |
+| `protected-paths.ts` | Block writes to specific paths | `on("tool_call")` |
+| `confirm-destructive.ts` | Confirm session changes | `on("session_before_switch")`, `on("session_before_fork")` |
+| `dirty-repo-guard.ts` | Warn on dirty git repo | `on("session_before_*")`, `exec` |
+| `input-transform.ts` | Transform user input | `on("input")` |
+| `input-transform-streaming.ts` | Streaming-aware input transform | `on("input")`, `streamingBehavior` |
+| `model-status.ts` | React to model changes | `on("model_select")`, `setStatus` |
+| `provider-payload.ts` | Inspect payloads and provider response headers | `on("before_provider_request")`, `on("after_provider_response")` |
+| `system-prompt-header.ts` | Display system prompt info | `on("agent_start")`, `getSystemPrompt` |
+| `claude-rules.ts` | Load rules from files | `on("session_start")`, `on("before_agent_start")` |
+| `prompt-customizer.ts` | Add context-aware tool guidance using `systemPromptOptions` | `on("before_agent_start")`, `BuildSystemPromptOptions` |
+| `file-trigger.ts` | File watcher triggers messages | `sendMessage` |
+| **Compaction & Sessions** |||
+| `custom-compaction.ts` | Custom compaction summary | `on("session_before_compact")` |
+| `trigger-compact.ts` | Trigger compaction manually | `compact()` |
+| `git-checkpoint.ts` | Git stash on turns | `on("turn_start")`, `on("session_before_fork")`, `exec` |
+| `git-merge-and-resolve.ts` | Fetch, merge, and resolve conflicts | `on("agent_end")`, `exec`, `sendUserMessage` |
+| `auto-commit-on-exit.ts` | Commit on shutdown | `on("session_shutdown")`, `exec` |
+| **UI Components** |||
+| `status-line.ts` | Footer status indicator | `setStatus`, session events |
+| `working-indicator.ts` | Customize the streaming working indicator | `setWorkingIndicator`, `registerCommand` |
+| `github-issue-autocomplete.ts` | Add `#1234` issue completions on top of built-in autocomplete by preloading recent open issues from `gh issue list` | `addAutocompleteProvider`, `on("session_start")`, `exec` |
+| `custom-footer.ts` | Replace footer entirely | `registerCommand`, `setFooter` |
+| `custom-header.ts` | Replace startup header | `on("session_start")`, `setHeader` |
+| `modal-editor.ts` | Vim-style modal editor | `setEditorComponent`, `CustomEditor` |
+| `rainbow-editor.ts` | Custom editor styling | `setEditorComponent` |
+| `widget-placement.ts` | Widget above/below editor | `setWidget` |
+| `overlay-test.ts` | Overlay components | `ui.custom` with overlay options |
+| `overlay-qa-tests.ts` | Comprehensive overlay tests | `ui.custom`, all overlay options |
+| `notify.ts` | Simple notifications | `ui.notify` |
+| `timed-confirm.ts` | Dialogs with timeout | `ui.confirm` with timeout/signal |
+| `mac-system-theme.ts` | Auto-switch theme | `setTheme`, `exec` |
+| **Complex Extensions** |||
+| `plan-mode/` | Full plan mode implementation | All event types, `registerCommand`, `registerShortcut`, `registerFlag`, `setStatus`, `setWidget`, `sendMessage`, `setActiveTools` |
+| `preset.ts` | Saveable presets (model, tools, thinking) | `registerCommand`, `registerShortcut`, `registerFlag`, `setModel`, `setActiveTools`, `setThinkingLevel`, `appendEntry` |
+| `tools.ts` | Toggle tools on/off UI | `registerCommand`, `setActiveTools`, `SettingsList`, session events |
+| **Remote & Sandbox** |||
+| `ssh.ts` | SSH remote execution | `registerFlag`, `on("user_bash")`, `on("before_agent_start")`, tool operations |
+| `interactive-shell.ts` | Persistent shell session | `on("user_bash")` |
+| `sandbox/` | Sandboxed tool execution | Tool operations |
+| `gondolin/` | Route built-in tools and `!` commands into a Gondolin micro-VM | Tool operations, built-in tool overrides, `on("user_bash")` |
+| `subagent/` | Spawn sub-agents | `registerTool`, `exec` |
+| **Games** |||
+| `snake.ts` | Snake game | `registerCommand`, `ui.custom`, keyboard handling |
+| `space-invaders.ts` | Space Invaders game | `registerCommand`, `ui.custom` |
+| `doom-overlay/` | Doom in overlay | `ui.custom` with overlay |
+| **Providers** |||
+| `custom-provider-anthropic/` | Custom Anthropic proxy | `registerProvider` |
+| `custom-provider-gitlab-duo/` | GitLab Duo integration | `registerProvider` with OAuth |
+| **Messages & Communication** |||
+| `message-renderer.ts` | Custom message rendering | `registerMessageRenderer`, `sendMessage` |
+| `entry-renderer.ts` | TUI-only custom entry rendering | `registerEntryRenderer`, `appendEntry` |
+| `event-bus.ts` | Inter-extension events | `pi.events` |
+| **Session Metadata** |||
+| `session-name.ts` | Name sessions for selector | `setSessionName`, `getSessionName` |
+| `bookmark.ts` | Bookmark entries for /tree | `setLabel` |
+| **Misc** |||
+| `inline-bash.ts` | Inline bash in tool calls | `on("tool_call")` |
+| `bash-spawn-hook.ts` | Adjust bash command, cwd, and env before execution | `createBashTool`, `spawnHook` |
+| `with-deps/` | Extension with npm dependencies | Package structure with `package.json` |
