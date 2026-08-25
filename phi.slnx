@@ -3,7 +3,7 @@
     <Project Path="src/Phi.Agent/Phi.Agent.csproj" />
     <Project Path="src/Phi.Extensions/Phi.Extensions.csproj" />
     <Project Path="src/Phi.Extensions.Host/Phi.Extensions.Host.csproj" />
-    <Project Path="src/Phi/Phi.Runtime.csproj" />
+    <Project Path="src/Phi/Phi.csproj" />
     <Project Path="src/Phi.Provider/Phi.Provider.csproj" />
     <Project Path="src/Phi.SchemaGen/Phi.SchemaGen.csproj" />
     <Project Path="src/Phi.Tui/Phi.Tui.csproj" />

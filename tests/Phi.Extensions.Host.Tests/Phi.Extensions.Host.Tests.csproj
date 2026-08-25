@@ -16,9 +16,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Phi\Phi.csproj" />
     <ProjectReference Include="..\..\src\Phi.Extensions\Phi.Extensions.csproj" />
     <ProjectReference Include="..\..\src\Phi.Extensions.Host\Phi.Extensions.Host.csproj" />
-    <ProjectReference Include="..\..\src\Phi\Phi.Runtime.csproj" />
     <ProjectReference Include="..\..\extensions\CustomCardDemo\CustomCardDemo.csproj" />
     <ProjectReference Include="..\..\extensions\HelloTool\HelloTool.csproj" />
     <ProjectReference Include="..\..\extensions\PermissionGate\PermissionGate.csproj" />

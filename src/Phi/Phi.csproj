@@ -5,11 +5,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PublishAot>true</PublishAot>
-    <!-- IDE0130 derives the expected namespace from the csproj filename.
-         Phi/Phi.Runtime.csproj would suggest Phi.Runtime.*; the runtime's
-         public namespace stays at Phi.* so the directory-vs-csproj mismatch
-         is intentional. Suppress the warning project-wide. -->
-    <NoWarn>$(NoWarn);IDE0130</NoWarn>
+    <!-- Explicit assembly name so the produced dll (phi-runtime) doesn't
+         collide with Phi.Tui's AssemblyName="phi". The csproj filename is
+         Phi.csproj to match the public Phi.* namespace (IDE0130 happy); the
+         assembly name is hyphenated to match Phi.Avalonia.Desktop's
+         "phi-avalonia" pattern. -->
+    <AssemblyName>phi-runtime</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>

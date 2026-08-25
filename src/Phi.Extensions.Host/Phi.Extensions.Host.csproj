@@ -16,7 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Phi.Extensions\Phi.Extensions.csproj" />
-    <ProjectReference Include="..\Phi\Phi.Runtime.csproj" />
+    <ProjectReference Include="..\Phi\Phi.csproj" />
   </ItemGroup>
 
   <!-- The host package exposes implementation types that aren't part of

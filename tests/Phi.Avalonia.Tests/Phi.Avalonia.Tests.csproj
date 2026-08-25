@@ -19,7 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\extensions\CustomCardDemo\CustomCardDemo.csproj" />
-    <ProjectReference Include="..\..\src\Phi\Phi.Runtime.csproj" />
+    <ProjectReference Include="..\..\src\Phi\Phi.csproj" />
     <ProjectReference Include="..\..\src\Phi.Avalonia\Phi.Avalonia.csproj" />
     <ProjectReference Include="..\..\extensions\CodingPack\CodingPack.csproj" />
   </ItemGroup>
