@@ -21,6 +21,8 @@ namespace Phi.Agent;
 [JsonDerivedType(typeof(AssistantSessionEntry), "assistant")]
 [JsonDerivedType(typeof(ToolResultSessionEntry), "toolResult")]
 [JsonDerivedType(typeof(CompactionSessionEntry), "compaction")]
+[JsonDerivedType(typeof(CustomSessionEntry), "custom")]
+[JsonDerivedType(typeof(ExtensionSessionEntry), "extension")]
 public abstract record SessionEntry(long Timestamp);
 
 public sealed record UserSessionEntry(long Timestamp, string Content)
@@ -111,4 +113,32 @@ public sealed record CompactionSessionEntry(
     int TokensBefore,
     CompactionDetails? Details = null,
     Usage? Usage = null)
+    : SessionEntry(Timestamp);
+
+/// <summary>
+/// A custom-typed message injected by an extension via
+/// <c>IPhiApi.SubmitCustomMessage</c>. <see cref="CustomType"/> is the
+/// discriminator the host's message renderer (<c>RegisterMessageRenderer</c>)
+/// uses to render it; <see cref="Details"/> is opaque structured data for
+/// that renderer. Restored to a <see cref="CustomMessage"/> on resume so the
+/// transcript replays it (and the provider can map it to an assistant turn).
+/// </summary>
+public sealed record CustomSessionEntry(
+    long Timestamp,
+    string CustomType,
+    string Content,
+    JsonNode? Details = null)
+    : SessionEntry(Timestamp);
+
+/// <summary>
+/// A namespaced extension entry appended via
+/// <c>IPhiApi.AppendEntryAsync</c>. Lives in its own namespace (e.g.
+/// <c>"multi-agent:log"</c>) so it doesn't pollute the conversation history;
+/// it is persisted for the extension's own bookkeeping and replayed on
+/// resume but never becomes an <see cref="IAgentMessage"/>.
+/// </summary>
+public sealed record ExtensionSessionEntry(
+    long Timestamp,
+    string Namespace,
+    JsonNode? Data = null)
     : SessionEntry(Timestamp);

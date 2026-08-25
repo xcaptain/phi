@@ -266,5 +266,11 @@ public class ChatTranscriptTests
             renderer = null!;
             return false;
         }
+
+        public bool TryGetMessageRenderer(string customType, out object renderer)
+        {
+            renderer = null!;
+            return false;
+        }
     }
 }

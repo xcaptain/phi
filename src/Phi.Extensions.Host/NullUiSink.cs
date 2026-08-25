@@ -20,6 +20,7 @@ public sealed class NullUiSink : IUiSink
     public void NotifyStatus(string message) { }
     public void FlashError(string message, bool persistent) { }
     public void SubmitTranscriptLine(TranscriptLine line) { }
+    public void SubmitCustomMessageLine(string customType, string content, IReadOnlyDictionary<string, object?>? details) { }
 
     public Task<string?> ShowSelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout)
         => Task.FromResult<string?>(null);

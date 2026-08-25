@@ -227,6 +227,13 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
             ["name"] = t.ToolName,
             ["content"] = t.Text,
         },
+        // Extension-injected custom message: surface as assistant text so the
+        // model sees it in context (CustomType / Details are render-only).
+        CustomMessage c => new JsonObject
+        {
+            ["role"] = "assistant",
+            ["content"] = c.Text,
+        },
         _ => throw new NotSupportedException(
             $"Message type {message.GetType().Name} not supported by the basic OpenAI compatible provider yet"),
     };

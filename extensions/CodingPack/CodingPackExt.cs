@@ -44,6 +44,17 @@ public sealed class CodingPackExt : IPhiExtension
             "You are an expert coding assistant. Inspect the workspace with read before " +
             "modifying; use bash for shell inspection and running commands; use edit for " +
             "surgical changes and write for new files or full rewrites.");
+
+        // /tools is a live demonstration of the extension slash-command
+        // dispatcher: typing /tools in the TUI runs this handler directly
+        // (no LLM round-trip) and shows the result as a transient line.
+        api.RegisterCommand(
+            "/tools",
+            (args, _) => args.Length == 0
+                ? "coding-pack tools: bash, read, write, edit"
+                : $"coding-pack tools ({args}): bash, read, write, edit",
+            description: "List the coding-pack tools.",
+            usage: "/tools [filter]");
     }
 
     private static ToolContribution BashContribution(string cwd) => new()

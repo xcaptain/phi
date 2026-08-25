@@ -48,4 +48,15 @@ public interface IExtensionRenderers
     /// rendering of the line's <c>Content</c>.
     /// </summary>
     bool TryGetTranscriptLineRenderer(string lineType, out object renderer);
+
+    /// <summary>
+    /// Looks up a message renderer for <paramref name="customType"/>.
+    /// Extensions register renderers per <c>CustomMessage.CustomType</c>
+    /// via <c>IPhiApi.RegisterMessageRenderer</c>; the host invokes the
+    /// renderer with the custom message and uses the returned
+    /// host-specific fragment as the visual body. Returns <c>false</c>
+    /// when no extension registered; the host falls back to plain-text
+    /// rendering of the message.
+    /// </summary>
+    bool TryGetMessageRenderer(string customType, out object renderer);
 }

@@ -20,15 +20,16 @@ namespace Phi.Extensions.Host;
 internal sealed class EventDispatch : IDisposable
 {
     private readonly Dictionary<string, List<RegisteredHandler>> _handlers = [];
-    private readonly Phi.Session _session;
+    private readonly Phi.ISession _session;
     private readonly IPhiUiBridge _uiBridge;
     private bool _disposed;
 
     /// <summary>A handler with its owning extension (for staleness + audit).</summary>
     private sealed record RegisteredHandler(LoadedExtension Extension, Func<PhiEvent, IPhiContext, ValueTask> Handler);
 
-    public EventDispatch(Phi.Session session, IPhiUiBridge uiBridge)
+    public EventDispatch(Phi.ISession session, IPhiUiBridge uiBridge)
     {
+        ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(uiBridge);
         _session = session;
         _uiBridge = uiBridge;
@@ -65,7 +66,8 @@ internal sealed class EventDispatch : IDisposable
             catch (Exception ex)
             {
                 // A handler throwing must not break the session loop.
-                _session.AddExtensionPromptGuideline($"hook {eventName} failed: {ex.Message}");
+                if (_session is Phi.Session concrete)
+                    concrete.AddExtensionPromptGuideline($"hook {eventName} failed: {ex.Message}");
             }
         }
     }
@@ -136,7 +138,7 @@ internal sealed class EventDispatch : IDisposable
     }
 
     /// <summary>Read-only context passed to handlers — shares the session state.</summary>
-    private sealed class PhiContextForEvent(Phi.Session session, IPhiUiBridge uiBridge) : IPhiContext
+    private sealed class PhiContextForEvent(Phi.ISession session, IPhiUiBridge uiBridge) : IPhiContext
     {
         public string Cwd => session.Cwd;
         public string Model => session.State.Model;

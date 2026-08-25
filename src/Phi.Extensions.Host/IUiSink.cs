@@ -43,6 +43,18 @@ public interface IUiSink
     /// </summary>
     void SubmitTranscriptLine(TranscriptLine line);
 
+    /// <summary>
+    /// Submit a custom-typed assistant message (<c>IPhiApi.SubmitCustomMessage</c>)
+    /// into the host's projector. Rendered by whatever renderer is
+    /// registered for <paramref name="customType"/> via
+    /// <c>RegisterMessageRenderer</c>; without one the host falls back to
+    /// plain text.
+    /// </summary>
+    void SubmitCustomMessageLine(
+        string customType,
+        string content,
+        IReadOnlyDictionary<string, object?>? details);
+
     /// <summary>Show a picker; resolve with the selection or <c>null</c> on cancel.</summary>
     Task<string?> ShowSelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout);
 

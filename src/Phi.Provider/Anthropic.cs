@@ -450,6 +450,17 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
                 ["is_error"] = t.IsError,
             }),
         },
+        // Extension-injected custom message: surface as assistant text so the
+        // model sees it in context (CustomType / Details are render-only).
+        CustomMessage c => new JsonObject
+        {
+            ["role"] = "assistant",
+            ["content"] = new JsonArray(new JsonObject
+            {
+                ["type"] = "text",
+                ["text"] = c.Text,
+            }),
+        },
         _ => throw new NotSupportedException(
             $"Message type {message.GetType().Name} not supported by the Anthropic provider yet"),
     };

@@ -71,6 +71,12 @@ internal sealed class TuiUiSink : IUiSink
         _transcript.SubmitCustomLine(line);
     }
 
+    public void SubmitCustomMessageLine(
+        string customType,
+        string content,
+        IReadOnlyDictionary<string, object?>? details)
+        => _transcript.SubmitCustomMessageLine(customType, content, details);
+
     public Task<string?> ShowSelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout)
         => _dialogShower.ShowSelectAsync(title, options, timeout);
 

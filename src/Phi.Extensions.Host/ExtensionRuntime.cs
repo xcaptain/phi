@@ -33,7 +33,7 @@ namespace Phi.Extensions.Host;
 /// <c>PhiEvent</c>s for observation handlers.
 /// </para>
 /// </summary>
-internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
+internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers, ISlashCommandRegistry
 {
     private readonly Phi.Session _session;
     private readonly List<LoadedExtension> _extensions = [];
@@ -60,12 +60,43 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
     /// <summary>TranscriptLine.Type → renderer (produces the host visual fragment).</summary>
     private readonly Dictionary<string, TranscriptLineRenderer> _transcriptLineRenderers = new(StringComparer.Ordinal);
 
-    public ExtensionRuntime(Phi.Session session, IPhiUiBridge uiBridge)
+    /// <summary>Custom assistant message CustomType → renderer.</summary>
+    private readonly Dictionary<string, MessageRenderer> _messageRenderers = new(StringComparer.Ordinal);
+
+    // ── Slash command registry (ISlashCommandRegistry) ──
+    // Stored with the canonical key (no leading '/'); the API accepts both
+    // "/foo" and "foo". Dispatched by PromptInput.HandleInput after the
+    // built-in switch misses.
+    internal sealed record CommandEntry(
+        LoadedExtension Ext,
+        PhiCommandHandler Handler,
+        string Description,
+        string Usage,
+        IReadOnlyList<string>? Aliases);
+
+    public ExtensionRuntime(Phi.ISession session, IPhiUiBridge uiBridge)
     {
         ArgumentNullException.ThrowIfNull(session);
         UiBridge = uiBridge ?? throw new ArgumentNullException(nameof(uiBridge));
-        _session = session;
+        // The extension-internal surface (RegisterExtensionTool /
+        // AppendExtensionEntry / InjectCustomMessage /
+        // AddExtensionPromptGuideline / RemoveExtensionTools) lives on the
+        // concrete Session class. Tests that drive the dispatcher path
+        // without loading a real session can pass any ISession; the runtime
+        // tolerates that by disabling the extension-tool surface for that
+        // session. Real composition roots always pass a Phi.Session.
+        _session = session as Phi.Session;
     }
+
+    /// <summary>
+    /// The <see cref="IPhiContext"/> projected for this session's extension
+    /// call sites. Lazily built the first time it's read so the cost is paid
+    /// only when something actually needs it; subsequent reads reuse the
+    /// same instance (matches what every extension's <c>api.Context</c>
+    /// would return if it had been captured at Initialize time).
+    /// </summary>
+    public IPhiContext Context => _context ??= new PhiContext(_session, UiBridge);
+    private IPhiContext? _context;
 
     /// <summary>The UI bridge the runtime forwards UI-bound calls to.</summary>
     public IPhiUiBridge UiBridge { get; }
@@ -82,7 +113,22 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
     public CapabilityEnforcementMode CapabilityEnforcement { get; set; } = CapabilityEnforcementMode.Transparent;
 
     /// <summary>The session this runtime is bound to.</summary>
-    public Phi.Session Session => _session;
+    public Phi.ISession Session => _session!;
+
+    /// <summary>
+    /// Concrete <see cref="Phi.Session"/> view used internally by the host
+    /// for extension-internal surfaces (RegisterExtensionTool,
+    /// AppendExtensionEntry, InjectCustomMessage,
+    /// AddExtensionPromptGuideline, RemoveExtensionTools). Returns the
+    /// session when the underlying ISession is a real Session (the
+    /// production path); throws otherwise (tests that don't need the
+    /// extension surface shouldn't be calling these methods).
+    /// </summary>
+    internal Phi.Session SessionConcrete =>
+        _session ?? throw new InvalidOperationException(
+            $"ExtensionRuntime cannot use the extension-internal session " +
+            $"surface against the supplied ISession ({_session?.GetType().Name ?? "null"}); " +
+            $"the runtime requires a real Phi.Session.");
 
     public IReadOnlyList<LoadedExtension> Extensions => _extensions;
 
@@ -182,7 +228,11 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
     /// </summary>
     public void Initialize()
     {
-        _eventDispatch = new EventDispatch(_session, UiBridge);
+        // The event dispatch needs a session to subscribe to; when the
+        // runtime was built against a non-Session ISession (tests) we skip
+        // it — observation handlers won't fire, but the registry / command
+        // dispatch paths still work.
+        _eventDispatch = _session is null ? null : new EventDispatch(_session, UiBridge);
 
         var context = new PhiContext(_session, UiBridge);
         // Sprint 3: hook handlers receive the real session-aware context
@@ -246,7 +296,7 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
                 AddPromptGuideline(from, g);
         }
         var wrapped = new HookWrappingTool(tool, _hooks);
-        _session.RegisterExtensionTool(wrapped);
+        SessionConcrete.RegisterExtensionTool(wrapped);
     }
 
     /// <summary>
@@ -268,15 +318,29 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
         string name,
         PhiCommandHandler handler,
         string description,
+        string usage,
         IReadOnlyList<string>? aliases)
     {
         ArgumentNullException.ThrowIfNull(name);
         ArgumentNullException.ThrowIfNull(handler);
-        Commands[name] = (from, handler, description, aliases);
+        var key = name.TrimStart('/');
+        if (key.Length == 0)
+            throw new ArgumentException(
+                $"Extension '{from.Name}' registered a slash command with no name", nameof(name));
+        _commandsByName[key] = new CommandEntry(from, handler, description, usage, aliases);
     }
 
-    /// <summary>Registered slash commands, keyed by name (with leading '/' stripped).</summary>
-    public Dictionary<string, (LoadedExtension Ext, PhiCommandHandler Handler, string Description, IReadOnlyList<string>? Aliases)> Commands { get; } = [];
+    /// <summary>
+    /// Registered slash commands, keyed by the canonical name (no leading
+    /// <c>/</c>). The UI's <c>PromptInput.HandleInput</c> consults this
+    /// dictionary after the built-in switch falls through; the
+    /// autocomplete strip uses <see cref="ISlashCommandRegistry.AllCommands"/>
+    /// to list extension commands alongside the built-in ones.
+    /// </summary>
+    private readonly Dictionary<string, CommandEntry> _commandsByName =
+        new(StringComparer.Ordinal);
+
+    public IReadOnlyDictionary<string, CommandEntry> Commands => _commandsByName;
 
     /// <summary>
     /// Appends a guideline to the live system prompt and surfaces it in
@@ -285,7 +349,7 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
     public void AddPromptGuideline(LoadedExtension from, string guideline)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(guideline);
-        _session.AddExtensionPromptGuideline(guideline);
+        SessionConcrete.AddExtensionPromptGuideline(guideline);
     }
 
     /// <summary>
@@ -348,6 +412,64 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
         return false;
     }
 
+    /// <inheritdoc />
+    public bool TryGetMessageRenderer(string customType, out object renderer)
+    {
+        if (_messageRenderers.TryGetValue(customType, out var r))
+        {
+            renderer = r;
+            return true;
+        }
+        renderer = null!;
+        return false;
+    }
+
+    // ──────── ISlashCommandRegistry ────────
+
+    /// <inheritdoc />
+    public IEnumerable<Phi.Slash.SlashCommandDef> AllCommands
+    {
+        get
+        {
+            foreach (var (key, entry) in Commands)
+            {
+                // The autocomplete strip is the only consumer today; in v1
+                // we ignore aliases and require the user to type the primary
+                // name. The data is here so a future alias-aware completion
+                // pass doesn't need to re-query the registry.
+                yield return new Phi.Slash.SlashCommandDef(
+                    "/" + key,
+                    entry.Description,
+                    entry.Usage);
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public bool TryDispatch(string commandName, string args, IPhiContext context, out string? result)
+    {
+        var key = commandName.TrimStart('/');
+        if (!_commandsByName.TryGetValue(key, out var entry))
+        {
+            result = null;
+            return false;
+        }
+        try
+        {
+            result = entry.Handler(args, context);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // A misbehaving extension must not crash the prompt dispatch path
+            // or kill the session — surface the failure as a transient
+            // message and treat it as a non-fatal dispatch (still "handled",
+            // so the caller doesn't fall through to submit-as-prompt).
+            result = $"slash command '/{key}' failed: {ex.GetType().Name}: {ex.Message}";
+            return true;
+        }
+    }
+
     // ──────── Renderer registration (called by PhiApi during Setup) ────────
 
     /// <summary>
@@ -388,6 +510,23 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
     }
 
     /// <summary>
+    /// Registers a renderer for a custom-typed assistant message
+    /// (<c>IPhiApi.RegisterMessageRenderer</c>). The UI chat components
+    /// invoke this via <see cref="IExtensionRenderers"/> when a
+    /// <see cref="Phi.Chat.CustomMessageLine"/> with a matching
+    /// <see cref="Phi.Chat.CustomMessageLine.CustomType"/> arrives.
+    /// </summary>
+    public void RegisterMessageRenderer(
+        LoadedExtension from,
+        string customType,
+        MessageRenderer renderer)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(customType);
+        ArgumentNullException.ThrowIfNull(renderer);
+        _messageRenderers[customType] = renderer;
+    }
+
+    /// <summary>
     /// Submits an extension-produced transcript line into the host's chat
     /// projector. Called by <see cref="PhiApi.SubmitTranscriptLine"/>.
     /// Routed through the UI bridge so the line lands on the live
@@ -397,6 +536,47 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
     {
         ArgumentNullException.ThrowIfNull(line);
         UiBridge.SubmitTranscriptLine(line);
+    }
+
+    /// <summary>
+    /// Injects a custom-typed assistant message (<c>IPhiApi.SubmitCustomMessage</c>).
+    /// The message is persisted + added to the live harness (so the model
+    /// sees it on the next turn) and surfaced in the projector via the UI
+    /// bridge's custom-message path.
+    /// </summary>
+    public void SubmitCustomMessage(
+        string text,
+        string customType,
+        IReadOnlyDictionary<string, object?>? details,
+        MessageDelivery delivery,
+        bool triggerTurn)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        ArgumentException.ThrowIfNullOrWhiteSpace(customType);
+
+        var message = new Phi.Agent.CustomMessage
+        {
+            CustomType = customType,
+            Content = text,
+            Details = details is null ? null : ExtensionDataSerializer.ToJsonNode(details),
+            Display = true,
+        };
+        SessionConcrete.InjectCustomMessage(message);
+
+        if (triggerTurn)
+        {
+            var followUp = new Phi.Agent.UserMessage { Content = text };
+            if (delivery == MessageDelivery.Steer)
+                SessionConcrete.EnqueueSteering(followUp);
+            else
+                SessionConcrete.EnqueueFollowUp(followUp);
+        }
+
+        // Render the custom message via the message renderer (or plain-text
+        // fallback). Only when a real UI bridge is attached — headless tests
+        // use NullPhiUiBridge / NullUiSink which discard.
+        if (UiBridge is PhiUiBridge bridge)
+            bridge.SubmitCustomMessageLine(customType, text, details);
     }
 
     public void Dispose()
@@ -415,6 +595,8 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers
         _toolDescriptors.Clear();
         _toolCardRenderers.Clear();
         _transcriptLineRenderers.Clear();
+        _messageRenderers.Clear();
+        _commandsByName.Clear();
         _hooks.Dispose();
     }
 }

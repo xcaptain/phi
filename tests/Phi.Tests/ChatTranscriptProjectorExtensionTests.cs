@@ -50,6 +50,12 @@ public class ChatTranscriptProjectorExtensionTests
             renderer = null!;
             return false;
         }
+
+        public bool TryGetMessageRenderer(string customType, out object renderer)
+        {
+            renderer = null!;
+            return false;
+        }
     }
 
     [Test]
@@ -133,6 +139,12 @@ public class ChatTranscriptProjectorExtensionTests
         }
 
         public bool TryGetTranscriptLineRenderer(string lineType, out object renderer)
+        {
+            renderer = null!;
+            return false;
+        }
+
+        public bool TryGetMessageRenderer(string customType, out object renderer)
         {
             renderer = null!;
             return false;

@@ -19,6 +19,8 @@ namespace Phi.Agent;
 [JsonSerializable(typeof(AssistantSessionEntry))]
 [JsonSerializable(typeof(ToolResultSessionEntry))]
 [JsonSerializable(typeof(CompactionSessionEntry))]
+[JsonSerializable(typeof(CustomSessionEntry))]
+[JsonSerializable(typeof(ExtensionSessionEntry))]
 [JsonSerializable(typeof(CompactionDetails))]
 [JsonSerializable(typeof(ContentBlock))]
 [JsonSerializable(typeof(TextBlock))]

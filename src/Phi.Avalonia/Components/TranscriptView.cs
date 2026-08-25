@@ -206,8 +206,29 @@ public sealed class TranscriptView
         ToolCallLine tc => CreateToolCallHandle(tc),
         PersistentErrorLine e => new StaticHandle(CreatePersistentErrorBubble(e)),
         CustomLine cu => CreateCustomLineHandle(cu),
+        CustomMessageLine cm => CreateCustomMessageHandle(cm),
         _ => new StaticHandle(new TextBlock { Text = $"[unknown line: {line.GetType().Name}]" }),
     };
+
+    /// <summary>
+    /// Renders an extension-injected custom assistant message. Dispatches by
+    /// <see cref="CustomMessageLine.CustomType"/> to the renderer registered
+    /// via <c>IPhiApi.RegisterMessageRenderer</c>; falls back to a plain
+    /// text bubble when no renderer is registered.
+    /// </summary>
+    private LineHandle CreateCustomMessageHandle(CustomMessageLine line)
+    {
+        if (_renderers?.TryGetMessageRenderer(line.CustomType, out var r) == true
+            && r is Phi.Extensions.Rendering.MessageRenderer renderer)
+        {
+            var fragment = renderer(line.CustomType, line.Content, line.Details);
+            if (fragment is Control control)
+                return new StaticHandle(control);
+            if (fragment is string text)
+                return new StaticHandle(CreateCustomTextBubble(text));
+        }
+        return new StaticHandle(CreateCustomTextBubble(line.Content));
+    }
 
     /// <summary>
     /// Renders an extension-submitted <see cref="CustomLine"/>. Dispatches

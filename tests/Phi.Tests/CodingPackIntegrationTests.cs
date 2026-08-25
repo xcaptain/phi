@@ -146,6 +146,49 @@ public class CodingPackIntegrationTests : IDisposable
         await Assert.That(readResult.IsError).IsFalse();
         await Assert.That(readResult.Text).Contains("hi from coding pack");
     }
+
+    [Test]
+    public async Task CodingPack_SlashCommand_Tools_IsDispatched()
+    {
+        // End-to-end proof of the extension slash dispatcher using the
+        // always-loaded CodingPack: /tools must be routed to the runtime's
+        // registry (not fall through to the LLM) and return the transient
+        // message the UI would show.
+        //
+        // Use a plain env (no ExtensionRuntimeFactory) and register CodingPack
+        // into our own runtime so we can hold its handle — BuildEnv would
+        // already have registered it via the factory, double-adding tools.
+        var env = new SessionEnvironment
+        {
+            ProviderResolver = new FixedResolver(new NullProvider()),
+            SystemPrompt = new SystemPromptOptions { ResolvedSystemPrompt = "stub" },
+            MaxTurns = 5,
+            ContextWindowTokens = ContextWindow.DefaultContextWindowTokens,
+            AutoCompactTokenThreshold = null,
+            AutoCompactEnabled = true,
+            CompactionKeepRecentTokens = ContextWindow.DefaultCompactionKeepRecentTokens,
+            Tools = [],
+        };
+        var session = await Phi.Session.LoadAsync(_cwd, env, providerName: "stub", model: "m");
+        session.HasUi = false;
+        using var runtime = new ExtensionRuntime(session, new NullPhiUiBridge());
+        runtime.RegisterCompiledExtension(new CodingPackExt());
+        runtime.Initialize();
+
+        // Registered command appears in the merged catalog.
+        await Assert.That(runtime.AllCommands.Select(c => c.Name))
+            .IsEquivalentTo(["/tools"]);
+
+        // Dispatch hits the handler and returns the transient string.
+        var hit = runtime.TryDispatch("tools", "", runtime.Context, out var result);
+        await Assert.That(hit).IsTrue();
+        await Assert.That(result).IsEqualTo("coding-pack tools: bash, read, write, edit");
+
+        // Leading slash is normalised; args are passed through.
+        var hit2 = runtime.TryDispatch("/tools", "filter", runtime.Context, out var result2);
+        await Assert.That(hit2).IsTrue();
+        await Assert.That(result2).IsEqualTo("coding-pack tools (filter): bash, read, write, edit");
+    }
 }
 
 /// <summary>Test-only harness accessor (same pattern as Phi.Extensions.Host.Tests).</summary>

@@ -92,6 +92,15 @@ internal sealed class AvaloniaUiSink : IUiSink
         PostUi(() => _projector.SubmitCustomLine(line.Type, line.Id, line.Content, line.Details));
     }
 
+    public void SubmitCustomMessageLine(
+        string customType,
+        string content,
+        IReadOnlyDictionary<string, object?>? details)
+    {
+        DeskLog.Write($"extension.custom_message[{customType}]: {content}");
+        PostUi(() => _projector.SubmitCustomMessageLine(customType, content, details));
+    }
+
     public async Task<string?> ShowSelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout)
     {
         if (options.Count == 0) return null;

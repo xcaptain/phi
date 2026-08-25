@@ -102,7 +102,7 @@ internal sealed class PhiApi : IPhiApi
         IReadOnlyList<string>? aliases = null)
     {
         AssertAlive();
-        _runtime.RegisterCommand(_extension, name, handler, description, aliases);
+        _runtime.RegisterCommand(_extension, name, handler, description, usage, aliases);
     }
 
     public void AddPromptGuideline(string guideline)
@@ -134,7 +134,10 @@ internal sealed class PhiApi : IPhiApi
     public void RegisterMessageRenderer(
         string customType,
         Rendering.MessageRenderer renderer)
-        => throw new NotImplementedException("RegisterMessageRenderer lands in Sprint 4 (custom-typed assistant messages).");
+    {
+        AssertAlive();
+        _runtime.RegisterMessageRenderer(_extension, customType, renderer);
+    }
 
     // ──────── Events ────────
 
@@ -179,7 +182,8 @@ internal sealed class PhiApi : IPhiApi
         bool triggerTurn = true)
     {
         EnforceCapability(nameof(SubmitCustomMessage));
-        throw new NotImplementedException("SubmitCustomMessage lands in Sprint 4 (custom transcript lines + renderer).");
+        AssertAlive();
+        _runtime.SubmitCustomMessage(text, customType, details, delivery, triggerTurn);
     }
 
     public void SubmitTranscriptLine(TranscriptLine line)
@@ -190,7 +194,13 @@ internal sealed class PhiApi : IPhiApi
     }
 
     public Task AppendEntryAsync(string ns, IReadOnlyDictionary<string, object?> data)
-        => throw new NotImplementedException("AppendEntryAsync lands in Sprint 2 (persistence pipeline).");
+    {
+        AssertAlive();
+        ArgumentException.ThrowIfNullOrWhiteSpace(ns);
+        ArgumentNullException.ThrowIfNull(data);
+        _runtime.SessionConcrete.AppendExtensionEntry(ns, ExtensionDataSerializer.ToJsonNode(data));
+        return Task.CompletedTask;
+    }
 
     public void Notify(string message, NotifyLevel level = NotifyLevel.Info)
     {
@@ -200,8 +210,14 @@ internal sealed class PhiApi : IPhiApi
     }
 
     public void SwitchModel(string model)
-        => throw new NotImplementedException("SwitchModel lands in Sprint 2 (model switch on session).");
+    {
+        AssertAlive();
+        _runtime.Session.SwitchModel(model);
+    }
 
     public void SwitchProvider(IPhiProvider provider, string providerName, string model)
-        => throw new NotImplementedException("SwitchProvider lands in Sprint 2 (provider ownership transfer).");
+    {
+        AssertAlive();
+        _runtime.Session.SwitchProvider(provider, providerName, model);
+    }
 }

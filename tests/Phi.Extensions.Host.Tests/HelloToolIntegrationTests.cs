@@ -91,10 +91,18 @@ public class HelloToolIntegrationTests : IDisposable
         // Setup() ran without throwing (SetupResults empty).
         await Assert.That(runtime.SetupResults.Count).IsEqualTo(0);
 
-        // HelloTool no longer registers "/hello" in v1 — there's no UI
-        // dispatcher for extension commands yet (lands in Sprint 4); the
-        // Commands dictionary is reserved for the future dispatcher wire.
-        await Assert.That(runtime.Commands.Count).IsEqualTo(0);
+        // HelloTool registers "/hello" — the runtime's slash command registry
+        // exposes it for the UI dispatcher (PromptInput.HandleInput consults
+        // it after the built-in switch).
+        await Assert.That(runtime.Commands.Count).IsEqualTo(1);
+        await Assert.That(runtime.AllCommands.Select(c => c.Name))
+            .IsEquivalentTo(["/hello"]);
+
+        // Dispatch it: the handler greets the named person and returns the
+        // transient message.
+        var hit = runtime.TryDispatch("hello", "Phi", runtime.Context, out var result2);
+        await Assert.That(hit).IsTrue();
+        await Assert.That(result2).IsEqualTo("hello Phi");
 
         // ──────── Tool invocation (the "tool call 可用" criterion) ────────
         var tool = session.HarnessForTest().Tools.Single(t => t.Name == "hello");
@@ -194,4 +202,29 @@ internal static class SessionTestExtensions
             .GetField("_harness", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
             .GetValue(session) as Phi.Agent.Harness
         ?? throw new InvalidOperationException("harness not initialized");
+}
+
+// ExtensionRuntime.Session is typed Phi.ISession; tests that need the harness
+// peek (which lives on the concrete Session) use these helpers that route
+// through the runtime's SessionConcrete.
+internal static class ExtensionRuntimeTestExtensions
+{
+    public static Phi.Agent.Harness HarnessForTest(
+        this Phi.Extensions.Host.ExtensionRuntime runtime) =>
+        runtime.SessionConcrete.GetType()
+            .GetField("_harness", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .GetValue(runtime.SessionConcrete) as Phi.Agent.Harness
+        ?? throw new InvalidOperationException("harness not initialized");
+
+    /// <summary>
+    /// Resolves the session's <c>Storage</c> via reflection on the concrete
+    /// session. Tests use this to assert what landed on disk without
+    /// having to cast through <c>Phi.Session</c> themselves.
+    /// </summary>
+    public static Phi.Agent.SessionStorage StorageForTest(
+        this Phi.Extensions.Host.ExtensionRuntime runtime) =>
+        runtime.SessionConcrete.GetType()
+            .GetProperty("Storage", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)!
+            .GetValue(runtime.SessionConcrete) as Phi.Agent.SessionStorage
+        ?? throw new InvalidOperationException("session storage not initialized");
 }

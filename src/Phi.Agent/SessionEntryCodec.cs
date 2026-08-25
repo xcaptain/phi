@@ -46,6 +46,10 @@ public static class SessionEntryCodec
                 ?? throw new InvalidDataException("Failed to deserialize toolResult entry"),
             "compaction" => JsonSerializer.Deserialize(line, PhiAgentJsonContext.Default.CompactionSessionEntry)
                 ?? throw new InvalidDataException("Failed to deserialize compaction entry"),
+            "custom" => JsonSerializer.Deserialize(line, PhiAgentJsonContext.Default.CustomSessionEntry)
+                ?? throw new InvalidDataException("Failed to deserialize custom entry"),
+            "extension" => JsonSerializer.Deserialize(line, PhiAgentJsonContext.Default.ExtensionSessionEntry)
+                ?? throw new InvalidDataException("Failed to deserialize extension entry"),
             _ => throw new InvalidDataException(
                 $"Unknown session entry kind '{kind}': {line}"),
         };

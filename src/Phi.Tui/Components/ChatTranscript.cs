@@ -131,6 +131,22 @@ public sealed class ChatTranscript : IDisposable
     }
 
     /// <summary>
+    /// Adds an extension-injected custom assistant message into the
+    /// projector. The sink routes <c>IPhiApi.SubmitCustomMessage</c> here;
+    /// the transcript renders it via whatever message renderer the extension
+    /// registered (falling back to a plain text bubble).
+    /// </summary>
+    public void SubmitCustomMessageLine(
+        string customType,
+        string content,
+        IReadOnlyDictionary<string, object?>? details)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(customType);
+        ArgumentNullException.ThrowIfNull(content);
+        _projector?.SubmitCustomMessageLine(customType, content, details);
+    }
+
+    /// <summary>
     /// Clears the transcript and rebuilds it from a message list. Used when
     /// switching to a resumed session.
     /// </summary>
@@ -222,8 +238,29 @@ public sealed class ChatTranscript : IDisposable
         ToolCallLine tc => CreateToolCallVisual(tc),
         PersistentErrorLine e => CreatePersistentErrorVisual(e),
         CustomLine cu => CreateCustomLineVisual(cu),
+        CustomMessageLine cm => CreateCustomMessageVisual(cm),
         _ => throw new InvalidOperationException($"Unknown line type: {line.GetType()}"),
     };
+
+    /// <summary>
+    /// Renders an extension-injected custom assistant message. Dispatches by
+    /// <see cref="CustomMessageLine.CustomType"/> to the renderer registered
+    /// via <c>IPhiApi.RegisterMessageRenderer</c>; falls back to a plain
+    /// text bubble when no renderer is registered.
+    /// </summary>
+    private LineVisual CreateCustomMessageVisual(CustomMessageLine line)
+    {
+        if (_projector?.Renderers?.TryGetMessageRenderer(line.CustomType, out var r) == true
+            && r is Phi.Extensions.Rendering.MessageRenderer renderer)
+        {
+            var fragment = renderer(line.CustomType, line.Content, line.Details);
+            if (fragment is Visual visual)
+                return new StaticVisual(visual);
+            if (fragment is string text)
+                return CreateCustomTextVisual(text);
+        }
+        return CreateCustomTextVisual(line.Content);
+    }
 
     /// <summary>
     /// Renders an extension-submitted <see cref="CustomLine"/>. Dispatches

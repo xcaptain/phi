@@ -337,10 +337,63 @@ public sealed class Session : ISession
         MarkPersisted();
     }
 
+    /// <summary>
+    /// Appends a namespaced extension entry (<c>IPhiApi.AppendEntryAsync</c>)
+    /// to the session's JSONL without turning it into conversation content.
+    /// The entry is persisted for the extension's own bookkeeping and
+    /// replayed on resume, but <see cref="LoadMessages"/> filters it out so
+    /// it never enters the harness / model context.
+    /// </summary>
+    public void AppendExtensionEntry(
+        string ns,
+        System.Text.Json.Nodes.JsonNode? data)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(ns);
+        var entry = new ExtensionSessionEntry(
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), ns, data);
+        lock (_lock)
+        {
+            _storage.Append(entry);
+            TouchRecord();
+        }
+        MarkPersisted();
+    }
+
+    /// <summary>
+    /// Injects an extension-produced custom message
+    /// (<c>IPhiApi.SubmitCustomMessage</c>): persists it, appends it to the
+    /// live harness so the model sees it on the next turn, and surfaces it
+    /// in <see cref="State.Messages"/> for the transcript to render via the
+    /// registered message renderer.
+    /// </summary>
+    public void InjectCustomMessage(CustomMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentException.ThrowIfNullOrWhiteSpace(message.CustomType);
+        ThrowIfNoRuntime();
+
+        _harness!.AppendMessage(message);
+        AppendMessage(message);
+
+        var messages = _harness.Messages;
+        UpdateState(s => s with
+        {
+            Messages = [.. messages],
+            ContextUsedTokens = EstimateContextUsage(messages),
+        });
+        // Mirror the projector's resume edge so the custom line appears
+        // immediately even though it didn't come through a HarnessEvent.
+        _lastMessageCount = messages.Count;
+    }
+
     public IReadOnlyList<IAgentMessage> LoadMessages()
     {
         lock (_lock)
-            return [.. _storage.ReadAll().Select(SessionEntryConverter.ToAgentMessage)];
+            return [.. _storage.ReadAll()
+                // Extension entries are bookkeeping (AppendEntryAsync), not
+                // conversation history — they never round-trip to a message.
+                .Where(e => e is not ExtensionSessionEntry)
+                .Select(SessionEntryConverter.ToAgentMessage)];
     }
 
     public void Touch()

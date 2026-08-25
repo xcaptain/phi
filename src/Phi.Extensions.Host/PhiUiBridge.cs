@@ -58,6 +58,18 @@ public sealed class PhiUiBridge : IPhiUiBridge
     public void SubmitTranscriptLine(TranscriptLine line)
         => Resolve().SubmitTranscriptLine(line);
 
+    /// <summary>
+    /// Internal forwarding for <c>SubmitCustomMessage</c> rendering — not part
+    /// of the frozen <see cref="IPhiUiBridge"/> surface; used by
+    /// <see cref="ExtensionRuntime.SubmitCustomMessage"/> to push the custom
+    /// message line into the live projector.
+    /// </summary>
+    internal void SubmitCustomMessageLine(
+        string customType,
+        string content,
+        IReadOnlyDictionary<string, object?>? details)
+        => Resolve().SubmitCustomMessageLine(customType, content, details);
+
     /// <inheritdoc />
     public Task<string?> SelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout = null)
         => Resolve().ShowSelectAsync(title, options, timeout);

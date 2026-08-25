@@ -314,6 +314,48 @@ public class ChatTranscriptProjectorTests
     }
 
     [Test]
+    public async Task SubmitCustomMessageLine_AddsCustomMessageLine()
+    {
+        var session = new MockSession();
+        using var projector = new ChatTranscriptProjector(session);
+        var fired = 0;
+        projector.Changed += _ => fired++;
+
+        projector.SubmitCustomMessageLine("ext:notice", "hi there",
+            new Dictionary<string, object?> { ["level"] = "warn" });
+
+        await Assert.That(fired).IsEqualTo(1);
+        await Assert.That(projector.Current).Count().IsEqualTo(1);
+        await Assert.That(projector.Current[0]).IsTypeOf<CustomMessageLine>();
+        var line = (CustomMessageLine)projector.Current[0];
+        await Assert.That(line.CustomType).IsEqualTo("ext:notice");
+        await Assert.That(line.Content).IsEqualTo("hi there");
+        await Assert.That(line.Details!["level"]).IsEqualTo("warn");
+    }
+
+    [Test]
+    public async Task ResumeReplay_CustomMessage_ProjectsCustomMessageLine()
+    {
+        // A persisted CustomMessage (restored by Session.LoadMessages) must
+        // project as a CustomMessageLine, mirroring how a resumed extension
+        // message shows up in the transcript.
+        var session = new MockSession();
+        session.SetMessages(new CustomMessage
+        {
+            CustomType = "ext:notice",
+            Content = "replayed",
+            Display = true,
+        });
+        using var projector = new ChatTranscriptProjector(session);
+
+        await Assert.That(projector.Current).Count().IsEqualTo(1);
+        await Assert.That(projector.Current[0]).IsTypeOf<CustomMessageLine>();
+        var line = (CustomMessageLine)projector.Current[0];
+        await Assert.That(line.CustomType).IsEqualTo("ext:notice");
+        await Assert.That(line.Content).IsEqualTo("replayed");
+    }
+
+    [Test]
     public async Task ClearAndLoad_ReplacesProjectionEntirely()
     {
         var session = new MockSession();

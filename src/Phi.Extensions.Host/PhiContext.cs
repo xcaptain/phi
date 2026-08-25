@@ -10,10 +10,10 @@ namespace Phi.Extensions.Host;
 /// </summary>
 internal sealed class PhiContext : IPhiContext
 {
-    private readonly Session _session;
+    private readonly ISession _session;
     private readonly IPhiUiBridge _uiBridge;
 
-    public PhiContext(Session session, IPhiUiBridge uiBridge)
+    public PhiContext(ISession session, IPhiUiBridge uiBridge)
     {
         _session = session;
         _uiBridge = uiBridge;

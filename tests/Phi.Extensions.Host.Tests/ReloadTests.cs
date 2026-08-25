@@ -119,7 +119,7 @@ public class ReloadTests : IDisposable
 
         // New runtime should have the extension loaded and its tool registered.
         await Assert.That(newRuntime.Extensions.Count).IsEqualTo(1);
-        var toolNames = newRuntime.Session.HarnessForTest().Tools.Select(t => t.Name).ToList();
+        var toolNames = newRuntime.HarnessForTest().Tools.Select(t => t.Name).ToList();
         await Assert.That(toolNames).Contains("hello");
     }
 

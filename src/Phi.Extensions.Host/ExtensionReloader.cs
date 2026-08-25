@@ -38,7 +38,7 @@ internal sealed class ExtensionReloader
         // 2. Drop old-extension tools from the harness BEFORE unloading their
         //    ALCs — otherwise the harness keeps strong references to the old
         //    assembly, which defeats the collectible-ALC GC unload.
-        _runtime.Session.RemoveExtensionTools();
+        _runtime.SessionConcrete.RemoveExtensionTools();
 
         // 3. Unload old ALCs (GC dance happens at the call site after this
         //    returns — we can't force GC mid-return).

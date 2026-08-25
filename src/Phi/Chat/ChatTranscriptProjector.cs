@@ -124,6 +124,23 @@ public sealed class ChatTranscriptProjector : IDisposable
     }
 
     /// <summary>
+    /// Adds a custom-typed assistant message line (<c>IPhiApi.SubmitCustomMessage</c>).
+    /// The message was already persisted + injected into the harness by the
+    /// session; this only surfaces it for rendering via the registered
+    /// message renderer (falling back to plain text).
+    /// </summary>
+    public void SubmitCustomMessageLine(
+        string customType,
+        string content,
+        IReadOnlyDictionary<string, object?>? details = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(customType);
+        ArgumentNullException.ThrowIfNull(content);
+        AddLine(new CustomMessageLine(NewId("cm"), customType, content, details));
+        Notify();
+    }
+
+    /// <summary>
     /// Clears the projection and reloads it from <paramref name="messages"/>.
     /// Use after navigation when the new session's history should be
     /// rendered without first running a fresh turn.
@@ -231,6 +248,12 @@ public sealed class ChatTranscriptProjector : IDisposable
                 break;
             case ToolResultMessage tr:
                 CompleteToolByToolCallId(tr.ToolCallId, tr);
+                break;
+            case CustomMessage cm:
+                // Extension-injected custom message. The Details field is a
+                // JsonNode on the message; re-expose the raw text + type so
+                // the renderer dispatch (RegisterMessageRenderer) can use it.
+                AddLine(new CustomMessageLine(NewId("cm"), cm.CustomType, cm.Text, null));
                 break;
         }
     }

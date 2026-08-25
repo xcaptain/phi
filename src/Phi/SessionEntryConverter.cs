@@ -18,6 +18,8 @@ public static class SessionEntryConverter
             a.Timestamp, a.Content, a.StopReason, a.Usage),
         ToolResultMessage t => new ToolResultSessionEntry(
             t.Timestamp, t.ToolCallId, t.ToolName, t.Content, t.IsError, t.Details),
+        CustomMessage c => new CustomSessionEntry(
+            c.Timestamp, c.CustomType, c.Text, c.Details),
         _ => throw new NotSupportedException(
             $"Session persistence does not support message type {msg.GetType().Name}"),
     };
@@ -56,6 +58,14 @@ public static class SessionEntryConverter
             // live-state shape. This keeps the runtime / provider layer
             // free of any compaction-specific IAgentMessage subtype.
             Content = ContextWindow.CompactionSummaryPrefix + c.Summary,
+            Timestamp = c.Timestamp,
+        },
+        CustomSessionEntry c => new CustomMessage
+        {
+            CustomType = c.CustomType,
+            Content = c.Content,
+            Details = c.Details,
+            Display = true,
             Timestamp = c.Timestamp,
         },
         _ => throw new NotSupportedException(

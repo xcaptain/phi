@@ -29,6 +29,10 @@ public class UiBridgeTests
         public void NotifyStatus(string message) => Statuses.Add(message);
         public void FlashError(string message, bool persistent) => Errors.Add((message, persistent));
         public void SubmitTranscriptLine(TranscriptLine line) => Lines.Add(line);
+        public void SubmitCustomMessageLine(string customType, string content, IReadOnlyDictionary<string, object?>? details)
+            => CustomMessageLines.Add((customType, content, details));
+
+        public List<(string CustomType, string Content, IReadOnlyDictionary<string, object?>? Details)> CustomMessageLines { get; } = [];
 
         public Task<string?> ShowSelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout)
             => OnSelect?.Invoke(title, options, timeout) ?? Task.FromResult<string?>(null);

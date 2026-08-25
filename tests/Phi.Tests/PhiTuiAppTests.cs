@@ -3,6 +3,8 @@ using Phi.Tests.Helpers;
 using Phi.Tui;
 using Phi.Tui.Components;
 using XenoAtom.Terminal.UI.Controls;
+using Phi.Extensions;
+using Phi.Extensions.Host;
 
 namespace Phi.Tests;
 
@@ -108,5 +110,71 @@ public class PhiTuiAppTests
         session.UpdateState(s => s with { LastError = "429 rate limit exceeded" });
 
         await Assert.That(transcript.Flow.Items.Count).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task PromptInput_ExtensionSlashCommand_Dispatched_HandlerResultShownAsTransient()
+    {
+        // Direct PromptInput dispatch test — bypasses PhiTuiApp's reflection
+        // path entirely and exercises the closure shape PhiTuiApp constructs
+        // (Func<string, string, string?> with the live IPhiContext captured
+        // by the runtime). The runtime-level dispatch is covered by
+        // SlashCommandDispatcherTests; this test pins the wiring between
+        // PromptInput and the dispatch closure.
+        var session = new MockSession();
+        var transcript = new ChatTranscript();
+        var providers = new ProviderManager();
+
+        var runtime = new Phi.Extensions.Host.ExtensionRuntime(session, new NullPhiUiBridge());
+        try
+        {
+            runtime.RegisterCompiledExtension(new CapturingSlashExt(api =>
+                api.RegisterCommand("/hello",
+                    (args, _) => $"hi {args}",
+                    description: "demo")));
+            runtime.Initialize();
+
+            // Mirror what PhiTuiApp.BuildCurrentPage does: build a closure
+            // that ignores the per-call ctx and uses the runtime's cached one.
+            Phi.Extensions.IPhiContext? ctx = runtime.Context;
+            Func<string, string, string?> dispatcher = (name, args) =>
+                runtime.TryDispatch(name, args, ctx!, out var msg) ? msg : null;
+
+            var input = new PromptInput(
+                session, providers, transcript,
+                commands: [new Phi.Slash.SlashCommandDef("/hello", "demo")],
+                dispatcher: dispatcher);
+            input.Build();
+
+            // Submit via the same path the editor's Accepted handler uses:
+            // locate HandleInput and invoke it directly. This is the path
+            // exercised by "/hello world" → dispatcher → "hi world".
+            var handleInput = typeof(PromptInput)
+                .GetMethod("HandleInput",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            handleInput.Invoke(input, ["/hello world"]);
+
+            // Slash command results surface as a transient line (the bottom
+            // status region of the transcript), not a persisted flow row.
+            await Assert.That(transcript.TransientText).IsEqualTo("hi world");
+        }
+        finally
+        {
+            runtime.Dispose();
+        }
+    }
+
+    /// <summary>Mirrors the extension registration pattern used in
+    /// <see cref="TranscriptLineSubmissionTests"/>: a one-shot
+    /// <see cref="Phi.Extensions.IPhiExtension"/> that captures its
+    /// <see cref="Phi.Extensions.IPhiApi"/> for the test to drive.</summary>
+    [PhiExtension(
+        Name = "slash-dispatch-fixture",
+        Version = "1.0.0",
+        Description = "Test extension that registers one slash command for the dispatch test.",
+        Capabilities = ExtensionCapability.UiInteract)]
+    private sealed class CapturingSlashExt(Action<IPhiApi> onSetup) : IPhiExtension
+    {
+        public void Setup(IPhiApi api) => onSetup(api);
     }
 }

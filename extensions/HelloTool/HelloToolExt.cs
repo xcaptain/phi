@@ -78,12 +78,20 @@ public sealed class HelloToolExt : IPhiExtension
 
         api.AddPromptGuideline("When the user says hi, greet them back with hello(\"world\").");
 
-        // No /hello slash command in v1: the runtime's Commands dictionary
-        // has no UI dispatcher (PromptInput's HandleInput hard-codes the
-        // built-in /new /sessions /reload /exit switches and doesn't
-        // consult ExtensionRuntime.Commands). Registering here would be
-        // dead state — the command wouldn't fire. Sprint 4 wires the
-        // dispatcher (extension prompts and slash commands alike flow
-        // through one path); add the registration back then.
+        // Sprint 4.5: extension slash commands are dispatched by the TUI's
+        // PromptInput after the built-in switch misses. The handler here
+        // submits a user message that greets the person (mirroring what the
+        // model would do if it had invoked the hello tool itself).
+        api.RegisterCommand(
+            "/hello",
+            (args, _) =>
+            {
+                var who = string.IsNullOrWhiteSpace(args) ? "world" : args;
+                api.SubmitUserMessage($"Say hello to {who}");
+                return $"hello {who}";
+            },
+            description: "Say hello to someone.",
+            usage: "/hello [name]",
+            aliases: ["/hi"]);
     }
 }

@@ -117,3 +117,18 @@ public sealed record CustomLine(
     string LineType,
     string Content,
     IReadOnlyDictionary<string, object?>? Details) : ChatLine(Id);
+
+/// <summary>
+/// A custom-typed assistant message injected by an extension via
+/// <c>IPhiApi.SubmitCustomMessage</c>. <see cref="CustomType"/> is the
+/// discriminator the host uses to look up a renderer registered via
+/// <c>IPhiApi.RegisterMessageRenderer</c>; without one the host falls back
+/// to a plain-text bubble of <see cref="Content"/>. Unlike
+/// <see cref="CustomLine"/>, this represents a real (persisted,
+/// model-visible) message, not a transient transcript row.
+/// </summary>
+public sealed record CustomMessageLine(
+    string Id,
+    string CustomType,
+    string Content,
+    IReadOnlyDictionary<string, object?>? Details) : ChatLine(Id);

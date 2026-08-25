@@ -1,6 +1,8 @@
 using Phi.Chat;
+using Phi.Extensions;
 using Phi.Extensions.Host;
 using Phi.Providers;
+using Phi.Slash;
 using Phi.Tui.Components;
 using XenoAtom.Terminal;
 using XenoAtom.Terminal.UI;
@@ -31,6 +33,8 @@ public sealed class PhiTuiApp
     private readonly TuiDialogShower _dialogShower;
     private readonly Action<IUiSink> _onSinkBuilt;
     private readonly Func<IExtensionRenderers?>? _renderersAccessor;
+    private readonly Func<ISlashCommandRegistry?>? _commandsAccessor;
+    private readonly Func<IPhiContext>? _contextAccessor;
 
     /// <summary>
     /// Fired every time a chat page is built (initially + on every
@@ -49,12 +53,12 @@ public sealed class PhiTuiApp
     public IUiSink CurrentSink { get; private set; } = new NullUiSink();
 
     public PhiTuiApp(ISession initialSession, ProviderManager providers)
-        : this(initialSession, providers, null, null, null)
+        : this(initialSession, providers, null, null, null, null, null)
     {
     }
 
     public PhiTuiApp(ISession initialSession, ProviderManager providers, TuiDialogShower? dialogShower)
-        : this(initialSession, providers, dialogShower, null, null)
+        : this(initialSession, providers, dialogShower, null, null, null, null)
     {
     }
 
@@ -63,7 +67,7 @@ public sealed class PhiTuiApp
         ProviderManager providers,
         TuiDialogShower? dialogShower,
         Action<IUiSink>? onSinkBuilt)
-        : this(initialSession, providers, dialogShower, onSinkBuilt, null)
+        : this(initialSession, providers, dialogShower, onSinkBuilt, null, null, null)
     {
     }
 
@@ -73,6 +77,29 @@ public sealed class PhiTuiApp
         TuiDialogShower? dialogShower,
         Action<IUiSink>? onSinkBuilt,
         Func<IExtensionRenderers?>? renderersAccessor)
+        : this(initialSession, providers, dialogShower, onSinkBuilt, renderersAccessor, null, null)
+    {
+    }
+
+    public PhiTuiApp(
+        ISession initialSession,
+        ProviderManager providers,
+        TuiDialogShower? dialogShower,
+        Action<IUiSink>? onSinkBuilt,
+        Func<IExtensionRenderers?>? renderersAccessor,
+        Func<ISlashCommandRegistry?>? commandsAccessor)
+        : this(initialSession, providers, dialogShower, onSinkBuilt, renderersAccessor, commandsAccessor, null)
+    {
+    }
+
+    public PhiTuiApp(
+        ISession initialSession,
+        ProviderManager providers,
+        TuiDialogShower? dialogShower,
+        Action<IUiSink>? onSinkBuilt,
+        Func<IExtensionRenderers?>? renderersAccessor,
+        Func<ISlashCommandRegistry?>? commandsAccessor,
+        Func<IPhiContext>? contextAccessor)
     {
         ArgumentNullException.ThrowIfNull(initialSession);
         ArgumentNullException.ThrowIfNull(providers);
@@ -82,6 +109,8 @@ public sealed class PhiTuiApp
         _dialogShower = dialogShower ?? new TuiDialogShower(() => null!);
         _onSinkBuilt = onSinkBuilt ?? (_ => { });
         _renderersAccessor = renderersAccessor;
+        _commandsAccessor = commandsAccessor;
+        _contextAccessor = contextAccessor;
         _currentSession = new State<ISession>(initialSession);
     }
 
@@ -133,7 +162,30 @@ public sealed class PhiTuiApp
         SinkBuilt?.Invoke(sink);
         _onSinkBuilt(sink);
 
-        var input = new PromptInput(session, _providers, transcript);
+        // Build a single dispatcher closure so the conditional expression has
+        // a single nullable reference type (null when no registry is wired).
+        Func<string, string, string?>? dispatcher = null;
+        if (_commandsAccessor is { } registryAccessor)
+        {
+            // The handler receives the live session context (read from
+            // Session.SystemPrompt / Cwd / etc.); the accessor is null in
+            // hosts without an extension runtime, in which case dispatch is
+            // disabled anyway.
+            ISlashCommandRegistry? registry = registryAccessor();
+            IPhiContext? context = _contextAccessor?.Invoke();
+            if (registry is not null && context is not null)
+            {
+                dispatcher = (name, args) =>
+                    registry.TryDispatch(name, args, context, out var msg) ? msg : null;
+            }
+        }
+
+        var input = new PromptInput(
+            session,
+            _providers,
+            transcript,
+            commands: ResolveAllCommands(_commandsAccessor?.Invoke()),
+            dispatcher: dispatcher);
         input.SessionReplaced += OnSessionReplaced;
         input.Build();
 
@@ -171,5 +223,22 @@ public sealed class PhiTuiApp
     private void OnSessionReplaced(ISession next)
     {
         _currentSession.Value = next;
+    }
+
+    /// <summary>
+    /// Merges built-in commands (<see cref="SlashCommandCatalog.All"/>) with
+    /// whatever the supplied registry exposes. Returns
+    /// <see cref="SlashCommandCatalog.All"/> unchanged when no registry is
+    /// available (headless / no-extensions case).
+    /// </summary>
+    private static IReadOnlyList<SlashCommandDef> ResolveAllCommands(
+        ISlashCommandRegistry? registry)
+    {
+        if (registry is null) return SlashCommandCatalog.All;
+        var merged = new List<SlashCommandDef>(
+            SlashCommandCatalog.All.Count + /* rough */ 16);
+        merged.AddRange(SlashCommandCatalog.All);
+        merged.AddRange(registry.AllCommands);
+        return merged;
     }
 }

@@ -96,7 +96,9 @@ using (session)
     var app = new PhiTuiApp(session, providerManager,
         new TuiDialogShower(() => null!),   // terminal app resolves late inside dialogs
         onSinkBuilt: sink => currentSink = sink,
-        renderersAccessor: () => currentRuntime);
+        renderersAccessor: () => currentRuntime,
+        commandsAccessor: () => currentRuntime,
+        contextAccessor: () => currentRuntime?.Context);
     app.Run();
 }
 return 0;

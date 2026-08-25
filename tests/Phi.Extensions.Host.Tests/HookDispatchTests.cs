@@ -184,6 +184,7 @@ public class HookDispatchTests
         public void NotifyStatus(string message) { }
         public void FlashError(string message, bool persistent) { }
         public void SubmitTranscriptLine(TranscriptLine line) { }
+        public void SubmitCustomMessageLine(string customType, string content, IReadOnlyDictionary<string, object?>? details) { }
         public Task<string?> ShowSelectAsync(string title, IReadOnlyList<string> options, TimeSpan? timeout) => Task.FromResult<string?>(null);
         public Task<bool> ShowConfirmAsync(string title, string message, TimeSpan? timeout) => Task.FromResult(false);
         public Task<string?> ShowInputAsync(string title, string placeholder, TimeSpan? timeout) => Task.FromResult<string?>(null);

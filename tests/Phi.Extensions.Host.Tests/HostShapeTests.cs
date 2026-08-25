@@ -23,11 +23,15 @@ public class HostShapeTests
             "InvalidateAllGenerations",
             "RegisterCommand",
             "RegisterCompiledExtension",
+            "RegisterMessageRenderer",
             "RegisterTool",
             "RegisterToolCard",
             "RegisterTranscriptLineRenderer",
+            "SubmitCustomMessage",
             "SubmitTranscriptLine",
             "SubscribeEvent",
+            "TryDispatch",
+            "TryGetMessageRenderer",
             "TryGetToolCardRenderer",
             "TryGetToolDescriptor",
             "TryGetTranscriptLineRenderer",
@@ -45,8 +49,10 @@ public class HostShapeTests
 
     private static readonly string[] sourceArray =
         [
+            "AllCommands",
             "CapabilityEnforcement",
             "Commands",
+            "Context",
             "Extensions",
             "LoadResults",
             "SetupResults",
