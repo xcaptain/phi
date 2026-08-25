@@ -102,8 +102,8 @@ internal static class ProjectTrustGate
         return approved ? assemblyPaths : [];
     }
 
-    private static IReadOnlyList<string> ExtractNames(IReadOnlyList<string> assemblyPaths) =>
-        assemblyPaths.Select(Path.GetFileName).ToList()!;
+    private static List<string> ExtractNames(IReadOnlyList<string> assemblyPaths) =>
+        assemblyPaths.Select(Path.GetFileName).Where(n => n is not null).Select(n => n!).ToList();
 
     /// <summary>
     /// Test seam: lets the production code stay non-static while unit

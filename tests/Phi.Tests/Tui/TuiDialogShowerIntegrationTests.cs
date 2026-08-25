@@ -28,6 +28,9 @@ namespace Phi.Tests.Tui;
 [NotInParallel(TuiTestGroups.BindingManager)]
 public class TuiDialogShowerIntegrationTests
 {
+    private static readonly string[] PickOptions =
+        ["gpt-4o", "claude-sonnet", "gemini-pro"];
+
     [Test]
     public async Task ConfirmAsync_FromWorkerThread_OnTimeout_ReturnsFalseWithoutThrowing()
     {
@@ -75,7 +78,7 @@ public class TuiDialogShowerIntegrationTests
         var task = Task.Run(async () =>
             await shower.ShowSelectAsync(
                 title: "Pick a model",
-                options: new[] { "gpt-4o", "claude-sonnet", "gemini-pro" },
+                options: PickOptions,
                 timeout: TimeSpan.FromMilliseconds(200)));
 
         string? result = await task.WaitAsync(TimeSpan.FromSeconds(5));

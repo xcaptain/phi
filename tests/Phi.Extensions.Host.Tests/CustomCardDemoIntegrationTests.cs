@@ -33,6 +33,7 @@ public class CustomCardDemoIntegrationTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
     }
 
@@ -79,7 +80,7 @@ public class CustomCardDemoIntegrationTests : IDisposable
         // Descriptor + renderer are queryable through IExtensionRenderers.
         var hasDescriptor = runtime.TryGetToolDescriptor("demo", out var descriptor);
         await Assert.That(hasDescriptor).IsTrue();
-        await Assert.That(descriptor.IconKey).IsEqualTo("🎨");
+        await Assert.That(descriptor!.IconKey).IsEqualTo("🎨");
 
         var hasCardRenderer = runtime.TryGetToolCardRenderer("demo", out var cardRenderer);
         await Assert.That(hasCardRenderer).IsTrue();

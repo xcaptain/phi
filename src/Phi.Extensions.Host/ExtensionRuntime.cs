@@ -35,7 +35,7 @@ namespace Phi.Extensions.Host;
 /// </summary>
 internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers, ISlashCommandRegistry
 {
-    private readonly Phi.Session _session;
+    private readonly Phi.Session? _session;
     private readonly List<LoadedExtension> _extensions = [];
 
     private readonly HookRegistry _hooks = new();
@@ -95,7 +95,7 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers, ISlas
     /// same instance (matches what every extension's <c>api.Context</c>
     /// would return if it had been captured at Initialize time).
     /// </summary>
-    public IPhiContext Context => _context ??= new PhiContext(_session, UiBridge);
+    public IPhiContext Context => _context ??= new PhiContext(_session!, UiBridge);
     private IPhiContext? _context;
 
     /// <summary>The UI bridge the runtime forwards UI-bound calls to.</summary>
@@ -234,7 +234,7 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers, ISlas
         // dispatch paths still work.
         _eventDispatch = _session is null ? null : new EventDispatch(_session, UiBridge);
 
-        var context = new PhiContext(_session, UiBridge);
+        var context = new PhiContext(_session!, UiBridge);
         // Sprint 3: hook handlers receive the real session-aware context
         // (Ui.HasUi + PhiUiBridge) so permission-gate style hooks can ask
         // the user for confirmation via the host UI. Without this the
@@ -379,7 +379,7 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers, ISlas
     // ──────── IExtensionRenderers ────────
 
     /// <inheritdoc />
-    public bool TryGetToolDescriptor(string toolName, out ToolDescriptor descriptor)
+    public bool TryGetToolDescriptor(string toolName, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out ToolDescriptor descriptor)
     {
         if (_toolDescriptors.TryGetValue(toolName, out descriptor))
             return true;

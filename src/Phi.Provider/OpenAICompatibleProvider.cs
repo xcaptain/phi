@@ -26,12 +26,24 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
         http.Dispose();
     }
 
-    public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
+    public IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
         string model,
         string system,
         IList<IAgentMessage> messages,
         IReadOnlyList<Tool> tools,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ProviderRetry.WithRetriesAsync(
+            ct => StreamOnceAsync(model, system, messages, tools, ct),
+            config.MaxRetries,
+            config.MaxRetryDelay,
+            cancellationToken);
+
+    private async IAsyncEnumerable<ProviderEvent> StreamOnceAsync(
+        string model,
+        string system,
+        IList<IAgentMessage> messages,
+        IReadOnlyList<Tool> tools,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var payload = BuildPayload(model, system, messages, tools);
 
@@ -48,7 +60,11 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
         if (!response.IsSuccessStatusCode)
         {
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            yield return new ProviderErrorEvent($"HTTP {(int)response.StatusCode}: {errorBody}");
+            yield return new ProviderErrorEvent(
+                $"HTTP {(int)response.StatusCode}: {errorBody}")
+            {
+                HttpStatus = (int)response.StatusCode,
+            };
             yield break;
         }
 
@@ -153,6 +169,11 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
         yield return new ProviderResponseEndEvent(finalMessage, finishReason);
     }
 
+    private static bool IsEmptyFailedTurn(IAgentMessage message) =>
+        message is AssistantMessage a
+        && a.StopReason is StopReasons.Error or StopReasons.Aborted
+        && a.Content.Count == 0;
+
     private static int GetToolCallIndex(JsonElement toolCallDelta)
     {
         if (toolCallDelta.TryGetProperty("index", out var indexElement) &&
@@ -183,6 +204,10 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
         }
         foreach (var msg in messages)
         {
+            // Terminal failures stay in history for diagnostics, but an
+            // empty error/aborted assistant turn is not model context and
+            // must not be replayed (mirrors tau's _provider_context filter).
+            if (IsEmptyFailedTurn(msg)) continue;
             messagesArray.Add((JsonNode)MessageToOpenAi(msg));
         }
 

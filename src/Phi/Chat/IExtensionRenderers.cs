@@ -27,7 +27,9 @@ public interface IExtensionRenderers
     /// built-in <c>ToolDescriptors.For</c> table when this returns
     /// <c>false</c>.
     /// </summary>
-    bool TryGetToolDescriptor(string toolName, out ToolDescriptor descriptor);
+    bool TryGetToolDescriptor(
+        string toolName,
+        [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out ToolDescriptor descriptor);
 
     /// <summary>
     /// Looks up a tool card renderer for <paramref name="toolName"/>.

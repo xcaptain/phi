@@ -248,7 +248,7 @@ public sealed class ChatTranscript : IDisposable
     /// via <c>IPhiApi.RegisterMessageRenderer</c>; falls back to a plain
     /// text bubble when no renderer is registered.
     /// </summary>
-    private LineVisual CreateCustomMessageVisual(CustomMessageLine line)
+    private StaticVisual CreateCustomMessageVisual(CustomMessageLine line)
     {
         if (_projector?.Renderers?.TryGetMessageRenderer(line.CustomType, out var r) == true
             && r is Phi.Extensions.Rendering.MessageRenderer renderer)
@@ -270,7 +270,7 @@ public sealed class ChatTranscript : IDisposable
     /// Without a registered renderer the line falls back to a plain text
     /// bubble of <see cref="CustomLine.Content"/>.
     /// </summary>
-    private LineVisual CreateCustomLineVisual(CustomLine line)
+    private StaticVisual CreateCustomLineVisual(CustomLine line)
     {
         if (_projector?.Renderers?.TryGetTranscriptLineRenderer(line.LineType, out var r) == true
             && r is Phi.Extensions.Rendering.TranscriptLineRenderer renderer)

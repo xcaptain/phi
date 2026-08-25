@@ -33,6 +33,7 @@ public class PermissionGateIntegrationTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
     }
 

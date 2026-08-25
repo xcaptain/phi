@@ -59,4 +59,12 @@ public sealed record ProviderResponseEndEvent(AssistantMessage Message, string? 
 public sealed record ProviderErrorEvent(string Message, JsonNode? Data = null) : ProviderEvent
 {
     public override string Kind => "Error";
+
+    /// <summary>
+    /// HTTP status code when the error came from a non-success response;
+    /// null for stream-level or network failures. Lets the retry driver
+    /// classify transient statuses (429/5xx) without parsing
+    /// <see cref="Message"/>.
+    /// </summary>
+    public int? HttpStatus { get; init; }
 }

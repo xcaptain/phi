@@ -900,6 +900,13 @@ public sealed class Session : ISession
                         SessionStatsCalculator.Calculate(harness.Messages),
                         _accumulatedSummaryUsage),
                     ContextUsedTokens = EstimateContextUsage(harness.Messages),
+                    // Terminal provider failures arrive as a normal
+                    // TurnEndEvent carrying StopReason=Error (the loop no
+                    // longer throws) — surface ErrorMessage so the status
+                    // router can classify and display it.
+                    LastError = te.FinalMessage.StopReason == StopReasons.Error
+                        ? te.FinalMessage.ErrorMessage ?? te.FinalMessage.Text
+                        : s.LastError,
                 });
             }
         }

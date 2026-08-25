@@ -46,6 +46,7 @@ public class ProjectTrustGateTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         SessionPaths.PhiHome = _previousPhiHome;
         ResetAuditLoggerCache();
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
@@ -208,7 +209,7 @@ public class ProjectTrustGateTests : IDisposable
         }
     }
 
-    private List<System.Text.Json.Nodes.JsonNode> ReadAudit()
+    private static List<System.Text.Json.Nodes.JsonNode> ReadAudit()
     {
         var p = AuditLogger.Path;
         if (!File.Exists(p)) return [];

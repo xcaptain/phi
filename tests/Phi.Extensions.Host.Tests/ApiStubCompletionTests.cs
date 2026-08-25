@@ -1,7 +1,5 @@
 using System.Text.Json.Nodes;
 using Phi.Agent;
-using Phi.Extensions;
-using Phi.Extensions.Host;
 using Phi.Extensions.Rendering;
 using Phi.Prompts;
 using Phi.Provider;
@@ -29,6 +27,7 @@ public class ApiStubCompletionTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
     }
 

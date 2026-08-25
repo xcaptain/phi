@@ -108,7 +108,7 @@ public sealed class TuiDialogShower
             // the Dialog's keydown handlers below cover the same logic
             // when the focus is on the body / dialog chrome instead.
             yesBtn.ClickRouted += (_, _) => { tcs.TrySetResult(true); dialog.Close(); };
-            noBtn.ClickRouted  += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
+            noBtn.ClickRouted += (_, _) => { tcs.TrySetResult(false); dialog.Close(); };
             dialog.KeyDownRouted += (_, ev) =>
             {
                 switch (ev.Key)

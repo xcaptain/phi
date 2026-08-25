@@ -262,6 +262,26 @@ public class SessionRuntimeTests : IDisposable
     }
 
     [Test]
+    public async Task SubmitPrompt_ProviderError_SetsLastErrorWithoutThrowing()
+    {
+        // A provider-level failure (no response-end event) becomes a terminal
+        // error assistant message; the session routes its ErrorMessage into
+        // LastError so the status bar can display it, and persists the
+        // message into history.
+        var session = await Create(StubProvider.Echo(
+            new ProviderErrorEvent("HTTP 503: overloaded") { HttpStatus = 503 }));
+
+        session.SubmitPrompt("hi");
+        await WaitForAsync(() => session.State.LastError is { Length: > 0 });
+        await WaitForAsync(() => !session.State.IsRunning);
+
+        await Assert.That(session.State.LastError).Contains("503");
+        var errorMessage = session.State.Messages.OfType<AssistantMessage>().Single();
+        await Assert.That(errorMessage.StopReason).IsEqualTo(StopReasons.Error);
+        await Assert.That(errorMessage.ErrorMessage).Contains("503");
+    }
+
+    [Test]
     public async Task NewRun_ClearsPreviousLastError()
     {
         // First run fails (LastError set); the next run must start with a

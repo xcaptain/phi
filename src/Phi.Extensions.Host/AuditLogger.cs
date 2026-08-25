@@ -96,7 +96,7 @@ internal sealed record AuditEvent(
             $"required={required}; declared={declared}");
 
     /// <summary>Capability violation under strict mode (v1.5+):
-        /// an action was blocked because the extension lacks the cap.</summary>
+    /// an action was blocked because the extension lacks the cap.</summary>
     public static AuditEvent CapabilityBlocked(string ext, string method, ExtensionCapability required, ExtensionCapability declared)
         => new("capability_blocked", DateTimeOffset.UtcNow, ext, method,
             $"required={required}; declared={declared}");

@@ -24,7 +24,7 @@ public sealed record ProjectTrustStore
     /// captures the choice + the extension names the decision covered +
     /// whether to remember it.
     /// </summary>
-    public Dictionary<string, ProjectTrustDecision> Decisions { get; init; } = new();
+    public Dictionary<string, ProjectTrustDecision> Decisions { get; init; } = [];
 
     public static string DefaultPath => Path.Combine(SessionPaths.PhiHome, "trust.json");
 

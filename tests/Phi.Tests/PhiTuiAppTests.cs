@@ -4,7 +4,6 @@ using Phi.Tui;
 using Phi.Tui.Components;
 using XenoAtom.Terminal.UI.Controls;
 using Phi.Extensions;
-using Phi.Extensions.Host;
 
 namespace Phi.Tests;
 

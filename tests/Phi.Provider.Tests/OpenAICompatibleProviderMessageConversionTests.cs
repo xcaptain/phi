@@ -91,6 +91,63 @@ public class OpenAICompatibleProviderMessageConversionTests
         await Assert.That(handler.LastRequestBody!.Contains("\"tool_calls\"")).IsFalse();
     }
 
+    [Test]
+    public async Task StreamResponseAsync_EmptyFailedAssistantMessage_IsExcludedFromRequestBody()
+    {
+        // Terminal failures are persisted in history for diagnostics, but an
+        // empty error/aborted assistant turn is not model context and must
+        // not poison the next request (mirrors tau's _provider_context).
+        var handler = new FixtureHttpHandler("Fixtures/DeepSeekBasicChat.sse");
+        var provider = CreateProvider(handler);
+
+        _ = await CollectEvents(provider.StreamResponseAsync(
+            model: "deepseek-v4-flash",
+            system: "",
+            messages: [
+                new UserMessage { Content = "Hi" },
+                new AssistantMessage
+                {
+                    StopReason = StopReasons.Error,
+                    ErrorMessage = "Provider produced no ProviderResponseEndEvent.",
+                },
+                new AssistantMessage
+                {
+                    StopReason = StopReasons.Aborted,
+                },
+                new UserMessage { Content = "again" },
+            ],
+            tools: []));
+
+        var body = handler.LastRequestBody!;
+        await Assert.That(body).DoesNotContain("\"role\":\"assistant\"");
+        await Assert.That(body).Contains("\"content\":\"again\"");
+    }
+
+    [Test]
+    public async Task StreamResponseAsync_FailedAssistantMessageWithContent_IsKeptInRequestBody()
+    {
+        // Only EMPTY failed turns are dropped; a failure that carries content
+        // (e.g. the max_turns overrun message) stays in the replayed context.
+        var handler = new FixtureHttpHandler("Fixtures/DeepSeekBasicChat.sse");
+        var provider = CreateProvider(handler);
+
+        _ = await CollectEvents(provider.StreamResponseAsync(
+            model: "deepseek-v4-flash",
+            system: "",
+            messages: [
+                new UserMessage { Content = "Hi" },
+                new AssistantMessage
+                {
+                    Content = [new TextBlock("Agent stopped after max_turns=5")],
+                    StopReason = StopReasons.Error,
+                },
+                new UserMessage { Content = "again" },
+            ],
+            tools: []));
+
+        await Assert.That(handler.LastRequestBody!).Contains("Agent stopped after max_turns=5");
+    }
+
     private static async Task<List<ProviderEvent>> CollectEvents(
         IAsyncEnumerable<ProviderEvent> source)
     {

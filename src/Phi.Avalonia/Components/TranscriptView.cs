@@ -216,7 +216,7 @@ public sealed class TranscriptView
     /// via <c>IPhiApi.RegisterMessageRenderer</c>; falls back to a plain
     /// text bubble when no renderer is registered.
     /// </summary>
-    private LineHandle CreateCustomMessageHandle(CustomMessageLine line)
+    private StaticHandle CreateCustomMessageHandle(CustomMessageLine line)
     {
         if (_renderers?.TryGetMessageRenderer(line.CustomType, out var r) == true
             && r is Phi.Extensions.Rendering.MessageRenderer renderer)
@@ -238,7 +238,7 @@ public sealed class TranscriptView
     /// transcript row. Without a registered renderer the line falls back
     /// to a plain text bubble of <see cref="CustomLine.Content"/>.
     /// </summary>
-    private LineHandle CreateCustomLineHandle(CustomLine line)
+    private StaticHandle CreateCustomLineHandle(CustomLine line)
     {
         if (_renderers?.TryGetTranscriptLineRenderer(line.LineType, out var r) == true
             && r is Phi.Extensions.Rendering.TranscriptLineRenderer renderer)

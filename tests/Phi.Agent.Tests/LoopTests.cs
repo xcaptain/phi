@@ -119,8 +119,12 @@ public class LoopTests
     }
 
     [Test]
-    public async Task RunAgentAsync_NoFinalResponse_ThrowsWithProviderError()
+    public async Task RunAgentAsync_NoFinalResponse_SynthesizesErrorAssistantMessage()
     {
+        // The provider stream ended after an error event, without a final
+        // response. Matching tau's canonicalize_provider_stream, the loop
+        // turns this into a terminal assistant message with StopReason=Error
+        // (preserving the last provider error) instead of throwing.
         var fake = new FakePhiProvider(
         [
             [
@@ -130,13 +134,47 @@ public class LoopTests
 
         var messages = new List<IAgentMessage> { new UserMessage { Content = "hi" } };
 
-        var ex = await Assert.That(async () =>
+        var events = new List<HarnessEvent>();
+        await foreach (var ev in AgentLoop.RunAgentAsync(
+            fake, "test", "", messages, []))
         {
-            await foreach (var _ in AgentLoop.RunAgentAsync(
-                fake, "test", "", messages, [])) { }
-        }).Throws<InvalidOperationException>();
+            events.Add(ev);
+        }
 
-        await Assert.That(ex!.Message).Contains("HTTP 401");
+        var turnEnd = events.OfType<TurnEndEvent>().Single();
+        await Assert.That(turnEnd.FinalMessage.StopReason).IsEqualTo(StopReasons.Error);
+        await Assert.That(turnEnd.FinalMessage.ErrorMessage).Contains("HTTP 401");
+
+        // The failure is appended to history (for diagnostics), and the loop
+        // stops — no tool execution, no further turns.
+        var assistant = messages.OfType<AssistantMessage>().Single();
+        await Assert.That(assistant.StopReason).IsEqualTo(StopReasons.Error);
+        await Assert.That(events.OfType<TurnStartEvent>().Count()).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task RunAgentAsync_EmptyStream_SynthesizesErrorAssistantMessage()
+    {
+        // Defensive: the provider completed without any events at all — no
+        // deltas, no error, no response end. Still a terminal error message.
+        var fake = new FakePhiProvider(
+        [
+            [],
+        ]);
+
+        var messages = new List<IAgentMessage> { new UserMessage { Content = "hi" } };
+
+        var events = new List<HarnessEvent>();
+        await foreach (var ev in AgentLoop.RunAgentAsync(
+            fake, "test", "", messages, []))
+        {
+            events.Add(ev);
+        }
+
+        var turnEnd = events.OfType<TurnEndEvent>().Single();
+        await Assert.That(turnEnd.FinalMessage.StopReason).IsEqualTo(StopReasons.Error);
+        await Assert.That(turnEnd.FinalMessage.ErrorMessage)
+            .Contains("Stream ended without a final response");
     }
 
     [Test]

@@ -110,24 +110,33 @@ public sealed class ProviderManager : IProviderResolver
     /// state involved, so callers can construct a provider without holding
     /// a <see cref="ProviderManager"/> reference.
     /// </summary>
-    public static IPhiProvider CreateProvider(ProviderCatalogEntry entry, string apiKey) => entry.Kind switch
+    public static IPhiProvider CreateProvider(ProviderCatalogEntry entry, string apiKey)
     {
-        ProviderKind.OpenAICompatible => new Phi.Provider.OpenAICompatibleProvider(
-            new Phi.Provider.OpenAICompatibleConfig
-            {
-                ApiKey = apiKey,
-                BaseUrl = entry.BaseUrl,
-                Provider = entry.Name,
-            },
-            new HttpClient()),
-        ProviderKind.Anthropic => new Phi.Provider.AnthropicProvider(
-            new Phi.Provider.AnthropicConfig
-            {
-                ApiKey = apiKey,
-                BaseUrl = entry.BaseUrl,
-                Provider = entry.Name,
-            },
-            new HttpClient()),
-        _ => throw new NotSupportedException($"Provider kind {entry.Kind} is not implemented"),
-    };
+        switch (entry.Kind)
+        {
+            case ProviderKind.OpenAICompatible:
+                var openAiConfig = new Phi.Provider.OpenAICompatibleConfig
+                {
+                    ApiKey = apiKey,
+                    BaseUrl = entry.BaseUrl,
+                    Provider = entry.Name,
+                };
+                // HttpClient.Timeout covers the whole request including the
+                // streamed body — wire the configured value explicitly so a
+                // long stream isn't killed by the 100s default.
+                return new Phi.Provider.OpenAICompatibleProvider(
+                    openAiConfig, new HttpClient { Timeout = openAiConfig.Timeout });
+            case ProviderKind.Anthropic:
+                var anthropicConfig = new Phi.Provider.AnthropicConfig
+                {
+                    ApiKey = apiKey,
+                    BaseUrl = entry.BaseUrl,
+                    Provider = entry.Name,
+                };
+                return new Phi.Provider.AnthropicProvider(
+                    anthropicConfig, new HttpClient { Timeout = anthropicConfig.Timeout });
+            default:
+                throw new NotSupportedException($"Provider kind {entry.Kind} is not implemented");
+        }
+    }
 }

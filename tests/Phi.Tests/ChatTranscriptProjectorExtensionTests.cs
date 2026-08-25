@@ -1,7 +1,5 @@
 using Phi.Agent;
 using Phi.Chat;
-using Phi.Extensions;
-using Phi.Extensions.Host;
 using Phi.Extensions.Rendering;
 using Phi.Tests.Helpers;
 using Phi.Tui.Components.ToolCards;
@@ -110,7 +108,7 @@ public class ChatTranscriptProjectorExtensionTests
         var renderers = new ThrowingRenderers();
         var card = ToolCardRegistry.For("boom", renderers);
 
-        var toolCall = new ToolCall("c1", "boom") { Arguments = new System.Text.Json.Nodes.JsonObject() };
+        var toolCall = new ToolCall("c1", "boom") { Arguments = [] };
         card.ShowPending(toolCall);
         // Must not throw; body falls back to the truncated output.
         card.Complete(new ToolResult([new TextBlock("output")]));

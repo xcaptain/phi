@@ -174,7 +174,7 @@ public sealed class Harness(
                 {
                     hasNext = await enumerator.MoveNextAsync();
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
                     cancelled = true;
                     break;

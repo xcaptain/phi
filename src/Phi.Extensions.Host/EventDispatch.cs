@@ -39,7 +39,7 @@ internal sealed class EventDispatch : IDisposable
 
     public IDisposable Register(string eventName, LoadedExtension ext, Func<PhiEvent, IPhiContext, ValueTask> handler)
     {
-        if (_disposed) throw new ObjectDisposedException(nameof(EventDispatch));
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
         var list = _handlers.TryGetValue(eventName, out var existing)
             ? existing

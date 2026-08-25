@@ -164,7 +164,7 @@ public class SessionSwitchTests : IDisposable
         var session = await NewSessionAsync();
         var currentId = session.State.SessionId;
 
-        await Assert.That(() => session.ResumeAsync("does-not-exist"))
+        await Assert.That(async () => await session.ResumeAsync("does-not-exist"))
             .Throws<InvalidOperationException>();
 
         // The session must not dispose itself when ResumeAsync throws —

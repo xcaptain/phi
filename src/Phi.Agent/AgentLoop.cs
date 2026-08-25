@@ -158,11 +158,25 @@ public static class AgentLoop
 
             if (final is null)
             {
+                // The provider stream ended without a terminal response.
+                // Mirror tau's canonicalize_provider_stream: turn the failure
+                // into a terminal assistant message with StopReason=Error
+                // (persisted for diagnostics, excluded from future provider
+                // context by the providers' message conversion) instead of
+                // throwing — the turn ends gracefully via the Error branch
+                // below, and the session routes ErrorMessage to the UI.
                 var detail = lastError is not null
                     ? $" Last provider error: {lastError.Message}"
                     : " Stream ended without a final response.";
-                throw new InvalidOperationException(
-                    $"Provider produced no ProviderResponseEndEvent.{detail}");
+                final = new AssistantMessage
+                {
+                    Api = provider.GetType().Name,
+                    Provider = "agent",
+                    Model = model,
+                    Content = [],
+                    StopReason = StopReasons.Error,
+                    ErrorMessage = $"Provider produced no ProviderResponseEndEvent.{detail}",
+                };
             }
 
             messages.Add(final);

@@ -1,6 +1,3 @@
-using Phi.Extensions;
-using Phi.Extensions.Host;
-
 namespace Phi.Extensions.Host.Tests;
 
 /// <summary>
@@ -178,10 +175,11 @@ public class UiBridgeTests
     }
 
     [Test]
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Performance", "CA1806:Do not create unused object", Justification = "Constructed only to assert that the constructor rejects a null sink.")]
     public void Ctor_NullSink_Throws()
     {
-        IUiSink nullSink = null!;
-        Assert.Throws<ArgumentNullException>(() => new PhiUiBridge(nullSink));
+        IUiSink sink = null!;
+        Assert.Throws<ArgumentNullException>(() => new PhiUiBridge(sink));
     }
 
     [Test]

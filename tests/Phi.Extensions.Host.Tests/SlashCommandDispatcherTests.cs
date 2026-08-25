@@ -2,7 +2,6 @@ using Phi.Agent;
 using Phi.Prompts;
 using Phi.Provider;
 using Phi.Providers;
-using Phi.Slash;
 
 namespace Phi.Extensions.Host.Tests;
 
@@ -17,6 +16,8 @@ namespace Phi.Extensions.Host.Tests;
 [NotInParallel("slash-dispatch")]
 public class SlashCommandDispatcherTests : IDisposable
 {
+    private static readonly string[] ExpectedCommandNames = ["/hello", "/boom"];
+
     private readonly string _cwd;
 
     public SlashCommandDispatcherTests()
@@ -27,6 +28,7 @@ public class SlashCommandDispatcherTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
     }
 
@@ -154,6 +156,6 @@ public class SlashCommandDispatcherTests : IDisposable
         // Two registrations (one with leading '/', one without).
         await Assert.That(runtime.AllCommands.Count()).IsEqualTo(2);
         await Assert.That(runtime.AllCommands.Select(c => c.Name))
-            .IsEquivalentTo(new[] { "/hello", "/boom" });
+            .IsEquivalentTo(SlashCommandDispatcherTests.ExpectedCommandNames);
     }
 }

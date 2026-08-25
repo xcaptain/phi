@@ -71,8 +71,11 @@ public class HarnessTests
     }
 
     [Test]
-    public async Task RunAsync_ProviderErrorPropagates_ThroughOuterLoop()
+    public async Task RunAsync_ProviderError_SurfacesAsErrorTurnEnd_DoesNotThrow()
     {
+        // Provider-level failures are terminal assistant messages
+        // (StopReason=Error), not exceptions — the loop ends gracefully so
+        // the session can persist the failure and route it to the UI.
         var fake = new FakePhiProvider(
         [
             new ProviderEvent[]
@@ -83,12 +86,57 @@ public class HarnessTests
 
         var harness = CreateHarness(fake);
 
-        var ex = await Assert.That(async () =>
+        var events = new List<HarnessEvent>();
+        await foreach (var ev in harness.RunAsync("hi"))
+        {
+            events.Add(ev);
+        }
+
+        var turnEnd = events.OfType<TurnEndEvent>().Single();
+        await Assert.That(turnEnd.FinalMessage.StopReason).IsEqualTo(StopReasons.Error);
+        await Assert.That(turnEnd.FinalMessage.ErrorMessage).Contains("HTTP 500");
+
+        // user + assistant(error) — the failure stays in history.
+        await Assert.That(harness.Messages.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task RunAsync_NonUserCancellation_Propagates()
+    {
+        // An OperationCanceledException whose token is NOT the run's
+        // cancellation token (e.g. an HttpClient timeout) is a provider
+        // failure, not a user interrupt — it must propagate to the caller
+        // (Session records it as LastError) instead of being swallowed as
+        // "interrupted".
+        var harness = new Harness(
+            new TimeoutStubProvider(), Array.Empty<Tool>(), "test-model");
+
+        await Assert.That(async () =>
         {
             await foreach (var _ in harness.RunAsync("hi")) { }
-        }).Throws<InvalidOperationException>();
+        }).Throws<OperationCanceledException>();
+    }
 
-        await Assert.That(ex!.Message).Contains("HTTP 500");
+    /// <summary>Provider that dies mid-stream with a non-user cancellation.</summary>
+    private sealed class TimeoutStubProvider : IPhiProvider
+    {
+        public void Dispose() { }
+
+        public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
+            string model,
+            string system,
+            IList<IAgentMessage> messages,
+            IReadOnlyList<Tool> tools,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            // Simulates HttpClient.Timeout: canceled by an internal token,
+            // not by the caller's cancellationToken.
+            throw new TaskCanceledException("The request timed out.");
+#pragma warning disable CS0162 // unreachable — satisfies the async-iterator yield requirement
+            yield break;
+#pragma warning restore CS0162
+        }
     }
 
     [Test]

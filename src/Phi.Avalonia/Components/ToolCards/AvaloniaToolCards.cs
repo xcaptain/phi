@@ -3,9 +3,7 @@ using System.Text.Json.Nodes;
 using Avalonia.Controls;
 using Avalonia.Media;
 using Phi.Agent;
-using Phi.Chat;
 using Phi.Extensions.CodingPack.Tools.Details;
-using Phi.Extensions.Rendering;
 using TextBlock = global::Avalonia.Controls.TextBlock;
 
 namespace Phi.Avalonia.Components.ToolCards;

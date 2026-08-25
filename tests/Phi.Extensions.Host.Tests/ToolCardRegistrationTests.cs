@@ -23,6 +23,7 @@ public class ToolCardRegistrationTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
     }
 
@@ -79,8 +80,8 @@ public class ToolCardRegistrationTests : IDisposable
         // Descriptor is overrideable.
         var hasDescriptor = rt.TryGetToolDescriptor("deploy", out var descriptor);
         await Assert.That(hasDescriptor).IsTrue();
-        await Assert.That(descriptor.Title).IsEqualTo("deploy");
-        await Assert.That(descriptor.IconKey).IsEqualTo("🚀");
+        await Assert.That(descriptor!.Title).IsEqualTo("deploy");
+        await Assert.That(descriptor!.IconKey).IsEqualTo("🚀");
 
         // Renderer is queryable and callable.
         var hasRenderer = rt.TryGetToolCardRenderer("deploy", out var renderer);

@@ -50,7 +50,9 @@ public static class ProjectExtensions
                     // editors' temp / staging artefacts don't trip
                     // trust prompts.
                     var name = Path.GetFileName(p);
-                    return !name.StartsWith('.') && !name.EndsWith(".deps.json") && !name.EndsWith(".runtimeconfig.json");
+                    return !name.StartsWith('.')
+                        && !name.EndsWith(".deps.json", StringComparison.Ordinal)
+                        && !name.EndsWith(".runtimeconfig.json", StringComparison.Ordinal);
                 })
                 .OrderBy(p => p, StringComparer.Ordinal)
                 .ToList();

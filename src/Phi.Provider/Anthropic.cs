@@ -27,12 +27,24 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
         http.Dispose();
     }
 
-    public async IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
+    public IAsyncEnumerable<ProviderEvent> StreamResponseAsync(
         string model,
         string system,
         IList<IAgentMessage> messages,
         IReadOnlyList<Tool> tools,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ProviderRetry.WithRetriesAsync(
+            ct => StreamOnceAsync(model, system, messages, tools, ct),
+            config.MaxRetries,
+            config.MaxRetryDelay,
+            cancellationToken);
+
+    private async IAsyncEnumerable<ProviderEvent> StreamOnceAsync(
+        string model,
+        string system,
+        IList<IAgentMessage> messages,
+        IReadOnlyList<Tool> tools,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var payload = BuildPayload(model, system, messages, tools);
 
@@ -53,32 +65,21 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
         request.Headers.Add("anthropic-version", config.AnthropicVersion);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
 
-        // We use a flag + break to work around CS1631 (no yield in catch).
-        ProviderErrorEvent? sendError = null;
-        HttpResponseMessage response;
-        try
-        {
-            response = await http.SendAsync(
-                request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        }
-        catch (HttpRequestException ex)
-        {
-            sendError = new ProviderErrorEvent(
-                $"HTTP request failed: {ex.Message}" +
-                (ex.InnerException is not null ? $" ({ex.InnerException.Message})" : ""));
-            yield break;
-        }
-
-        if (sendError is not null)
-        {
-            yield return sendError;
-            yield break;
-        }
+        // Network failures (HttpRequestException) and HttpClient timeouts
+        // propagate to the retry driver in StreamResponseAsync, which
+        // retries pre-content failures and converts the rest into
+        // ProviderErrorEvent.
+        using var response = await http.SendAsync(
+            request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            yield return new ProviderErrorEvent($"HTTP {(int)response.StatusCode}: {errorBody}");
+            yield return new ProviderErrorEvent(
+                $"HTTP {(int)response.StatusCode}: {errorBody}")
+            {
+                HttpStatus = (int)response.StatusCode,
+            };
             yield break;
         }
 
@@ -431,6 +432,11 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
         return payload;
     }
 
+    private static bool IsEmptyFailedTurn(IAgentMessage message) =>
+        message is AssistantMessage a
+        && a.StopReason is StopReasons.Error or StopReasons.Aborted
+        && a.Content.Count == 0;
+
     private static JsonObject MessageToAnthropic(IAgentMessage message) => message switch
     {
         UserMessage u => new JsonObject
@@ -478,6 +484,15 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
         var i = 0;
         while (i < messages.Count)
         {
+            // Terminal failures stay in history for diagnostics, but an
+            // empty error/aborted assistant turn is not model context —
+            // Anthropic rejects empty content arrays (mirrors tau's
+            // _provider_context filter).
+            if (IsEmptyFailedTurn(messages[i]))
+            {
+                i++;
+                continue;
+            }
             if (messages[i] is ToolResultMessage)
             {
                 var blocks = new JsonArray();

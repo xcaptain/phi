@@ -36,6 +36,7 @@ public class CustomCardDemoToolCardTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
     }
 
@@ -78,7 +79,7 @@ public class CustomCardDemoToolCardTests : IDisposable
             Arguments = new System.Text.Json.Nodes.JsonObject { ["text"] = "hello" },
         };
         card.ShowPending(call);
-        card.Complete(new ToolResult([new TextBlock("ok")])) ;
+        card.Complete(new ToolResult([new TextBlock("ok")]));
 
         await Assert.That(card.Visual).IsNotNull();
     }

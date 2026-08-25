@@ -171,6 +171,34 @@ public class AnthropicProviderMessageConversionTests
         await Assert.That(handler.LastRequestBody!).Contains("\"is_error\":true");
     }
 
+    [Test]
+    public async Task StreamResponseAsync_EmptyFailedAssistantMessage_IsExcludedFromRequestBody()
+    {
+        // Anthropic rejects empty assistant content arrays, so an empty
+        // error/aborted turn must be dropped before building the payload
+        // (mirrors tau's _provider_context filter).
+        var handler = new FixtureHttpHandler("Fixtures/AnthropicBasicChat.sse");
+        var provider = CreateProvider(handler);
+
+        _ = await CollectEvents(provider.StreamResponseAsync(
+            model: "claude-sonnet-4-5",
+            system: "",
+            messages: [
+                new UserMessage { Content = "Hi" },
+                new AssistantMessage
+                {
+                    StopReason = StopReasons.Error,
+                    ErrorMessage = "Provider produced no ProviderResponseEndEvent.",
+                },
+                new UserMessage { Content = "again" },
+            ],
+            tools: []));
+
+        var body = handler.LastRequestBody!;
+        await Assert.That(body).DoesNotContain("\"role\":\"assistant\"");
+        await Assert.That(body).Contains("again");
+    }
+
     private static async Task<List<ProviderEvent>> CollectEvents(
         IAsyncEnumerable<ProviderEvent> source)
     {

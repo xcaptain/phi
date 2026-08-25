@@ -34,6 +34,7 @@ public class CapabilityEnforcementTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         SessionPaths.PhiHome = _previousPhiHome;
         ResetAuditLoggerCache();
         if (Directory.Exists(_auditDir)) Directory.Delete(_auditDir, recursive: true);

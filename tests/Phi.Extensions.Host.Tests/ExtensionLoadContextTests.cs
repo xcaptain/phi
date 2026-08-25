@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Phi.Extensions.Host.Tests;
 
@@ -10,6 +11,7 @@ namespace Phi.Extensions.Host.Tests;
 /// Sprint 4's bundle support (runtimes/{rid}/ lib + native resolution) works.
 /// </summary>
 [NotInParallel("alc")]
+[UnconditionalSuppressMessage("Usage", "TUnitAssertions0005:Assert.That(...) should not be used with a constant value")]
 public class ExtensionLoadContextTests : IDisposable
 {
     private readonly string _bundleDir;
@@ -22,6 +24,7 @@ public class ExtensionLoadContextTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         try { Directory.Delete(_bundleDir, recursive: true); } catch { /* best-effort */ }
     }
 

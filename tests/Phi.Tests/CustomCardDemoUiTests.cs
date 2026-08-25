@@ -37,6 +37,7 @@ public class CustomCardDemoUiTests : IDisposable
 
     public void Dispose()
     {
+        GC.SuppressFinalize(this);
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
     }
 
@@ -80,7 +81,7 @@ public class CustomCardDemoUiTests : IDisposable
             Arguments = new System.Text.Json.Nodes.JsonObject { ["text"] = "hello" },
         };
         card.ShowPending(call);
-        card.Complete(new ToolResult([new TextBlock("ok")])) ;
+        card.Complete(new ToolResult([new TextBlock("ok")]));
 
         var custom = (CustomToolCard)card;
         // String-returning renderer is wrapped as a Markup body.
@@ -95,7 +96,7 @@ public class CustomCardDemoUiTests : IDisposable
         using var rt = runtime;
         using var projector = new Phi.Chat.ChatTranscriptProjector(session, rt);
 
-        var call = new ToolCall("d1", "demo") { Arguments = new System.Text.Json.Nodes.JsonObject() };
+        var call = new ToolCall("d1", "demo") { Arguments = [] };
         session.EmitHarnessEvent(new AssistantToolCallEvent(call));
 
         var line = projector.Current.OfType<Phi.Chat.ToolCallLine>().Single();

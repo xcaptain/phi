@@ -13,7 +13,7 @@ public class HookDispatchTests
 {
     private readonly HookRegistry _registry = new();
 
-    private static Tool EchoTool(string name = "echo") => new AnonymousTool(name);
+    private static AnonymousTool EchoTool(string name = "echo") => new(name);
 
     private sealed class AnonymousTool(string name) : Tool
     {

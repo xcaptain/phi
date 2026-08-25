@@ -293,7 +293,7 @@ public class PromptInputViewTests
     {
         var (session, active, view, _) = Create(
             pickFolder: () => Task.FromResult<string?>("/picked"));
-        session.OnNewSession = cwd => new MockSession { Cwd = cwd };
+        session.OnNewSession = cwd => new MockSession { Cwd = cwd ?? "" };
 
         var sentinelIdx = view.WorkspaceItems.Count - 1;
         await Assert.That(view.WorkspaceItems[sentinelIdx].IsSentinel).IsTrue();

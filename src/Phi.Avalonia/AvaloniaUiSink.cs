@@ -147,7 +147,7 @@ internal sealed class AvaloniaUiSink : IUiSink
     {
         return await ShowDialogAsync<string?>(title, timeout, w =>
         {
-            var textBox = new TextBox { Watermark = placeholder, Text = placeholder };
+            var textBox = new TextBox { PlaceholderText = placeholder, Text = placeholder };
             var ok = new Button { Content = "OK" };
             var cancel = new Button { Content = "Cancel" };
             ok.Click += (_, _) => w.Close(textBox.Text);

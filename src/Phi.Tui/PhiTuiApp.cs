@@ -34,7 +34,7 @@ public sealed class PhiTuiApp
     private readonly Action<IUiSink> _onSinkBuilt;
     private readonly Func<IExtensionRenderers?>? _renderersAccessor;
     private readonly Func<ISlashCommandRegistry?>? _commandsAccessor;
-    private readonly Func<IPhiContext>? _contextAccessor;
+    private readonly Func<IPhiContext?>? _contextAccessor;
 
     /// <summary>
     /// Fired every time a chat page is built (initially + on every
@@ -99,7 +99,7 @@ public sealed class PhiTuiApp
         Action<IUiSink>? onSinkBuilt,
         Func<IExtensionRenderers?>? renderersAccessor,
         Func<ISlashCommandRegistry?>? commandsAccessor,
-        Func<IPhiContext>? contextAccessor)
+        Func<IPhiContext?>? contextAccessor)
     {
         ArgumentNullException.ThrowIfNull(initialSession);
         ArgumentNullException.ThrowIfNull(providers);

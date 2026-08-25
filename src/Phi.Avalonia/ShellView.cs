@@ -49,7 +49,7 @@ public sealed class ShellView : IDisposable
     // The most recently built UI sink — kept here so actions triggered from
     // the sidebar (e.g. "Reload extensions" on a session row) can surface
     // results / errors through the live UI without re-resolving the bridge.
-    private IUiSink? _lastSink;
+    private AvaloniaUiSink? _lastSink;
 
     // The row currently in rename-edit mode, if any, plus the top level
     // whose pointer presses commit the edit (see AttachRenameDismiss).
