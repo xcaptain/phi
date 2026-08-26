@@ -83,11 +83,13 @@ public class TuiDataTests
         HarnessEvent? captured = null;
         session.HarnessEvent += e => captured = e;
 
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("hi"));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new AssistantMessage(), new TextDeltaEvent("hi")));
 
         await Assert.That(captured).IsNotNull();
-        await Assert.That(captured).IsTypeOf<AssistantTextDeltaEvent>();
-        await Assert.That(((AssistantTextDeltaEvent)captured!).Delta).IsEqualTo("hi");
+        await Assert.That(captured).IsTypeOf<MessageUpdateEvent>();
+        var update = (MessageUpdateEvent)captured!;
+        await Assert.That(((TextDeltaEvent)update.ProviderEvent).Delta).IsEqualTo("hi");
     }
 
     [Test]
@@ -116,7 +118,8 @@ public class TuiDataTests
         session.EmitHarnessEvent(new TurnStartEvent(1));
 
         // 3. Assistant streams text.
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("world"));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new AssistantMessage(), new TextDeltaEvent("world")));
 
         // 4. Turn ends → streaming stops.
         session.EmitHarnessEvent(new TurnEndEvent(
@@ -157,7 +160,8 @@ public class TuiDataTests
         // Simulate a full turn with AddUserMessage first.
         t1.AddUserMessage("hello");
         session.EmitHarnessEvent(new TurnStartEvent(1));
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("world"));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new AssistantMessage(), new TextDeltaEvent("world")));
 
         // Remember item count before StateChanged fires.
         session.EmitHarnessEvent(new TurnEndEvent(

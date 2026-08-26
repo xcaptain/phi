@@ -34,20 +34,20 @@ public class AnthropicProviderToolCallTests
         }
 
         // Text delta (the "I'll check that." text block).
-        await Assert.That(events.OfType<ProviderTextDeltaEvent>().Count()).IsEqualTo(1);
-        var firstText = events.OfType<ProviderTextDeltaEvent>().Single();
-        await Assert.That(firstText.Delta).IsEqualTo("I'll check that.");
+        var textUpdates = events.OfType<TextDeltaEvent>().ToList();
+        var toolUpdates = events.OfType<ToolCallEvent>().ToList();
+        await Assert.That(textUpdates.Count).IsEqualTo(1);
+        await Assert.That(textUpdates[0].Delta).IsEqualTo("I'll check that.");
 
         // Exactly one tool call.
-        var toolCallEvents = events.OfType<ProviderToolCallEvent>().ToList();
-        await Assert.That(toolCallEvents.Count).IsEqualTo(1);
-        await Assert.That(toolCallEvents[0].ToolCall.Id).IsEqualTo("toolu_bash");
-        await Assert.That(toolCallEvents[0].ToolCall.Name).IsEqualTo("bash");
-        await Assert.That(toolCallEvents[0].ToolCall.Arguments["command"]!.GetValue<string>())
+        await Assert.That(toolUpdates.Count).IsEqualTo(1);
+        await Assert.That(toolUpdates[0].ToolCall.Id).IsEqualTo("toolu_bash");
+        await Assert.That(toolUpdates[0].ToolCall.Name).IsEqualTo("bash");
+        await Assert.That(toolUpdates[0].ToolCall.Arguments["command"]!.GetValue<string>())
             .IsEqualTo("ls -la");
 
         // Response ends with tool_use stop reason.
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
+        var end = events.OfType<AssistantDoneEvent>().Single();
         await Assert.That(end.FinishReason).IsEqualTo(StopReasons.ToolUse);
     }
 
@@ -69,26 +69,24 @@ public class AnthropicProviderToolCallTests
             events.Add(ev);
         }
 
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
-        var content = end.Message.Content;
+        // The provider doesn't accumulate content into the terminal's
+        // Message.Content (the loop's canonicalizer owns the partial).
+        // Here we just verify the granular events arrived correctly —
+        // building the final Content is the loop's job.
+        var textDelta = events.OfType<TextDeltaEvent>().Single();
+        await Assert.That(textDelta.Delta).IsEqualTo("I'll check that.");
 
-        // Order: ThinkingBlock → TextBlock → ToolCall
-        await Assert.That(content.Count).IsEqualTo(3);
-        await Assert.That(content[0]).IsTypeOf<ThinkingBlock>();
-        await Assert.That(content[1]).IsTypeOf<TextBlock>();
-        await Assert.That(content[2]).IsTypeOf<ToolCall>();
+        var thinkingDelta = events.OfType<ThinkingDeltaEvent>().Single();
+        await Assert.That(thinkingDelta.Delta).IsEqualTo("Let me check the system.");
 
-        var thinking = (ThinkingBlock)content[0];
-        await Assert.That(thinking.Thinking).IsEqualTo("Let me check the system.");
-        await Assert.That(thinking.ThinkingSignature).IsEqualTo("sig_abc123");
-
-        var text = (TextBlock)content[1];
-        await Assert.That(text.Text).IsEqualTo("I'll check that.");
-
-        var toolCall = (ToolCall)content[2];
-        await Assert.That(toolCall.Name).IsEqualTo("bash");
-        await Assert.That(toolCall.Arguments["command"]!.GetValue<string>())
+        var toolCallEvent = events.OfType<ToolCallEvent>().Single();
+        await Assert.That(toolCallEvent.ToolCall.Id).IsEqualTo("toolu_bash");
+        await Assert.That(toolCallEvent.ToolCall.Name).IsEqualTo("bash");
+        await Assert.That(toolCallEvent.ToolCall.Arguments["command"]!.GetValue<string>())
             .IsEqualTo("ls -la");
+
+        var end = events.OfType<AssistantDoneEvent>().Single();
+        await Assert.That(end.FinishReason).IsEqualTo(StopReasons.ToolUse);
     }
 
     [Test]
@@ -138,12 +136,12 @@ public class AnthropicProviderToolCallTests
             events.Add(ev);
         }
 
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
+        var end = events.OfType<AssistantDoneEvent>().Single();
         await Assert.That(end.Message.StopReason).IsEqualTo(StopReasons.ToolUse);
     }
 
     [Test]
-    public async Task StreamResponseAsync_ThinkingBlockLifecycle_EmitsStartDeltasAndEnd()
+    public async Task StreamResponseAsync_ThinkingBlockLifecycle_EmitsDeltasAndEnd()
     {
         var handler = new FixtureHttpHandler("Fixtures/AnthropicThinkingToolCall.sse");
         var provider = CreateProvider(handler);
@@ -160,24 +158,27 @@ public class AnthropicProviderToolCallTests
             events.Add(ev);
         }
 
-        // Lifecycle: start → 1 delta → end, in that order.
-        var starts = events.OfType<ProviderThinkingStartEvent>().ToList();
-        var deltas = events.OfType<ProviderThinkingDeltaEvent>().ToList();
-        var ends = events.OfType<ProviderThinkingEndEvent>().ToList();
+        // Lifecycle: deltas → end (blocks open lazily on the first delta;
+        // there is no separate ThinkingStartEvent in the protocol).
+        var deltas = events.OfType<ThinkingDeltaEvent>().ToList();
+        var ends = events.OfType<ThinkingEndEvent>().ToList();
 
-        await Assert.That(starts.Count).IsEqualTo(1);
         await Assert.That(deltas.Count).IsEqualTo(1);
         await Assert.That(deltas[0].Delta).IsEqualTo("Let me check the system.");
         await Assert.That(ends.Count).IsEqualTo(1);
 
-        // End carries the consolidated block with the signature collected
-        // from signature_delta.
-        await Assert.That(ends[0].Block.Thinking).IsEqualTo("Let me check the system.");
+        // The end event carries the signature (collected across signature_delta
+        // events by the canonicalizer). The Thinking text itself is
+        // accumulated from the deltas in the streamed partial — verify it
+        // directly from the granular deltas rather than the event payload.
         await Assert.That(ends[0].Block.ThinkingSignature).IsEqualTo("sig_abc123");
+        await Assert.That(string.Concat(deltas.Select(d => d.Delta)))
+            .IsEqualTo("Let me check the system.");
 
-        // Order: start < delta < end.
-        await Assert.That(events.IndexOf(starts[0])).IsLessThan(events.IndexOf(deltas[0]));
-        await Assert.That(events.IndexOf(deltas[0])).IsLessThan(events.IndexOf(ends[0]));
+        // Order: first delta < end.
+        var deltaIdx = events.FindLastIndex(e => e is ThinkingDeltaEvent);
+        var endIdx = events.FindIndex(e => e is ThinkingEndEvent);
+        await Assert.That(deltaIdx).IsLessThan(endIdx);
     }
 
     [Test]
@@ -241,31 +242,45 @@ public class AnthropicProviderToolCallTests
         }
 
         // Three thinking deltas stream individually, in order.
-        var thinking = events.OfType<ProviderThinkingDeltaEvent>().ToList();
+        var thinking = events.OfType<ThinkingDeltaEvent>().ToList();
         await Assert.That(thinking.Count).IsEqualTo(3);
         await Assert.That(thinking[0].Delta).IsEqualTo("Step 1: ");
         await Assert.That(thinking[1].Delta).IsEqualTo("check the ");
         await Assert.That(thinking[2].Delta).IsEqualTo("system.");
 
-        // End consolidates them AND keeps the signature.
-        var end = events.OfType<ProviderThinkingEndEvent>().Single();
-        await Assert.That(end.Block.Thinking).IsEqualTo("Step 1: check the system.");
+        // End carries the signature (collected from signature_delta). The
+        // Thinking text itself is reconstructed from the streamed deltas in
+        // the partial — verify directly from the deltas rather than the
+        // event payload.
+        var end = events.OfType<ThinkingEndEvent>().Single();
         await Assert.That(end.Block.ThinkingSignature).IsEqualTo("sig-multi");
+        await Assert.That(string.Concat(thinking.Select(d => d.Delta)))
+            .IsEqualTo("Step 1: check the system.");
 
-        // Final AssistantMessage also carries the same consolidated block.
-        var responseEnd = events.OfType<ProviderResponseEndEvent>().Single();
-        var block = responseEnd.Message.Content.OfType<ThinkingBlock>().Single();
-        await Assert.That(block.Thinking).IsEqualTo("Step 1: check the system.");
-        await Assert.That(block.ThinkingSignature).IsEqualTo("sig-multi");
+        // The provider's terminal Message has empty Content (the loop's
+        // canonicalizer owns the partial). Verify the granular events are
+        // correct and that the partial reconstruction in the loop would
+        // produce the expected block.
+        var deltas = events.OfType<ThinkingDeltaEvent>().ToList();
+        var reconstructed = string.Concat(deltas.Select(d => d.Delta));
+        await Assert.That(reconstructed).IsEqualTo("Step 1: check the system.");
+
+        var endEv = events.OfType<ThinkingEndEvent>().Single();
+        // The thinking text is accumulated via the streamed deltas in the
+        // partial. The end event itself only carries the signature (the
+        // canonicalizer owns the partial). Verify both.
+        await Assert.That(endEv.Block.ThinkingSignature).IsEqualTo("sig-multi");
+        await Assert.That(string.Concat(deltas.Select(d => d.Delta)))
+            .IsEqualTo("Step 1: check the system.");
 
         // Order: thinking lifecycle happens before the text delta.
-        var firstTextDeltaIdx = events.FindIndex(e => e is ProviderTextDeltaEvent);
-        var lastThinkingDeltaIdx = events.FindLastIndex(e => e is ProviderThinkingDeltaEvent);
+        var firstTextDeltaIdx = events.FindIndex(e => e is TextDeltaEvent);
+        var lastThinkingDeltaIdx = events.FindLastIndex(e => e is ThinkingDeltaEvent);
         await Assert.That(lastThinkingDeltaIdx).IsLessThan(firstTextDeltaIdx);
     }
 
     [Test]
-    public async Task StreamResponseAsync_TextBlocksDoNotEmitThinkingStartOrEnd()
+    public async Task StreamResponseAsync_TextBlocksDoNotEmitThinkingEvents()
     {
         // Sanity check: only thinking blocks trigger thinking lifecycle events.
         // Text blocks must stay quiet on that channel.
@@ -282,9 +297,73 @@ public class AnthropicProviderToolCallTests
             events.Add(ev);
         }
 
-        await Assert.That(events.OfType<ProviderThinkingStartEvent>().Count()).IsEqualTo(0);
-        await Assert.That(events.OfType<ProviderThinkingDeltaEvent>().Count()).IsEqualTo(0);
-        await Assert.That(events.OfType<ProviderThinkingEndEvent>().Count()).IsEqualTo(0);
+        await Assert.That(events.OfType<ThinkingDeltaEvent>()).IsEmpty();
+        await Assert.That(events.OfType<ThinkingEndEvent>()).IsEmpty();
+    }
+
+    [Test]
+    public async Task StreamResponseAsync_ThinkingBlockWithoutSignature_StillEmitsEnd()
+    {
+        // Regression: the end event must fire for EVERY thinking block that
+        // streamed a delta, not just the ones that carried signature_delta
+        // fragments (models without extended-thinking signatures, or
+        // gateways that strip them, still close their thinking blocks).
+        var handler = new InlineSseHandler("""
+            event: message_start
+            data: {"type":"message_start","message":{"id":"m","model":"claude-sonnet-4-5","usage":{"input_tokens":1,"output_tokens":1,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}
+
+            event: content_block_start
+            data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"no signature here"}}
+
+            event: content_block_stop
+            data: {"type":"content_block_stop","index":0}
+
+            event: content_block_start
+            data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+            event: content_block_delta
+            data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Done."}}
+
+            event: content_block_stop
+            data: {"type":"content_block_stop","index":1}
+
+            event: message_delta
+            data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}
+
+            event: message_stop
+            data: {"type":"message_stop"}
+            """);
+        var http = new HttpClient(handler);
+        var provider = new AnthropicProvider(
+            new AnthropicConfig
+            {
+                ApiKey = "test-key",
+                BaseUrl = "https://api.anthropic.com",
+                Provider = "anthropic",
+            },
+            http);
+
+        var events = new List<ProviderEvent>();
+        await foreach (var ev in provider.StreamResponseAsync(
+            model: "claude-sonnet-4-5",
+            system: "",
+            messages: [new UserMessage { Content = "go" }],
+            tools: []))
+        {
+            events.Add(ev);
+        }
+
+        var end = events.OfType<ThinkingEndEvent>().Single();
+        await Assert.That(end.Block.ThinkingSignature).IsNull();
+        // The end event lands after the delta, before the text block starts.
+        var deltaIdx = events.FindIndex(e => e is ThinkingDeltaEvent);
+        var endIdx = events.FindIndex(e => e is ThinkingEndEvent);
+        var textIdx = events.FindIndex(e => e is TextDeltaEvent);
+        await Assert.That(deltaIdx).IsLessThan(endIdx);
+        await Assert.That(endIdx).IsLessThan(textIdx);
     }
 
     private static async Task<List<ProviderEvent>> CollectEvents(

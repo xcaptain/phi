@@ -48,11 +48,12 @@ public sealed record TurnEndEvent(
 // ──────── Message streaming ────────
 
 /// <summary>
-/// Fired when the model begins emitting an assistant message (text or
-/// tool calls). <c>Message</c> may still be incomplete at this point —
-/// follow <c>MessageUpdateEvent</c>s for deltas.
+/// Fired when a message lands in the conversation (assistant, user prompt,
+/// tool result, synthesized error, etc.). For streamed assistant messages
+/// <c>Message</c> is still incomplete at this point — follow
+/// <c>MessageUpdateEvent</c>s for deltas.
 /// </summary>
-public sealed record MessageStartEvent(Phi.Agent.AssistantMessage Message) : PhiEvent;
+public sealed record MessageStartEvent(Phi.Agent.IAgentMessage Message) : PhiEvent;
 
 /// <summary>
 /// Fired on each streaming delta. <c>AssistantMessageEvent</c> is the
@@ -63,7 +64,8 @@ public sealed record MessageUpdateEvent(
     Phi.Agent.ProviderEvent AssistantMessageEvent) : PhiEvent;
 
 /// <summary>
-/// Fired when the model finishes emitting an assistant message.
-/// <c>Message</c> is final (including usage stats if reported).
+/// Fired when a message has finished landing. <c>Message</c> is final for
+/// assistant messages (including usage stats if reported), or a complete
+/// snapshot for user/tool-result/error messages.
 /// </summary>
-public sealed record MessageEndEvent(Phi.Agent.AssistantMessage Message) : PhiEvent;
+public sealed record MessageEndEvent(Phi.Agent.IAgentMessage Message) : PhiEvent;

@@ -61,7 +61,7 @@ public class ProviderEventTests
     [Test]
     public async Task TextDelta_KindIsTextDelta()
     {
-        var ev = new ProviderTextDeltaEvent("hello");
+        var ev = new TextDeltaEvent("hello");
 
         await Assert.That(ev.Kind).IsEqualTo("TextDelta");
         await Assert.That(ev.Delta).IsEqualTo("hello");
@@ -70,7 +70,7 @@ public class ProviderEventTests
     [Test]
     public async Task ErrorEvent_DefaultDataIsNull()
     {
-        var ev = new ProviderErrorEvent("boom");
+        var ev = new AssistantErrorEvent("boom");
 
         await Assert.That(ev.Kind).IsEqualTo("Error");
         await Assert.That(ev.Data).IsNull();

@@ -148,6 +148,19 @@ public class UserMessageTests
 
         await Assert.That(msg).IsNotNull();
     }
+
+    [Test]
+    public async Task Deserialize_MismatchedRoleField_IsIgnoredAndRoleStaysFixed()
+    {
+        // Role is a per-type literal (tau's Literal["user"]): the wire value
+        // never overrides it.
+        const string json = """{"role":"assistant","content":"hi","timestamp":1}""";
+
+        var msg = JsonSerializer.Deserialize<UserMessage>(json, Options);
+
+        await Assert.That(msg).IsNotNull();
+        await Assert.That(msg!.Role).IsEqualTo("user");
+    }
 }
 
 public class AssistantMessageTests
@@ -271,6 +284,20 @@ public class AssistantMessageTests
         await Assert.That(msg.Text).IsEqualTo("hello world");
         await Assert.That(msg.ThinkingText).IsEqualTo("inner thought");
         await Assert.That(msg.ToolCalls.Count).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Serialize_ResponseProvider_AppearsInWire()
+    {
+        var msg = new AssistantMessage
+        {
+            ResponseProvider = "anthropic",
+            Timestamp = 1_700_000_000_000,
+        };
+
+        var json = JsonSerializer.Serialize(msg, Options);
+
+        await Assert.That(json).Contains("\"responseProvider\":\"anthropic\"");
     }
 }
 

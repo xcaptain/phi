@@ -68,14 +68,14 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
         // Network failures (HttpRequestException) and HttpClient timeouts
         // propagate to the retry driver in StreamResponseAsync, which
         // retries pre-content failures and converts the rest into
-        // ProviderErrorEvent.
+        // AssistantErrorEvent.
         using var response = await http.SendAsync(
             request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
         if (!response.IsSuccessStatusCode)
         {
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            yield return new ProviderErrorEvent(
+            yield return new AssistantErrorEvent(
                 $"HTTP {(int)response.StatusCode}: {errorBody}")
             {
                 HttpStatus = (int)response.StatusCode,
@@ -83,15 +83,40 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
             yield break;
         }
 
+        // Pi-compatible begin marker. The loop already synthesizes
+        // MessageStartEvent before driving this stream, so this is a
+        // no-op at the agent layer — it's here so projectors / extensions
+        // can observe an explicit begin signal from the provider.
+        yield return new AssistantStartEvent();
+
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
-        var accumulatedText = new StringBuilder();
-        var thinkingStates = new Dictionary<int, ThinkingBlockState>();
-        var completedThinkingBlocks = new SortedDictionary<int, ThinkingBlock>();
+        // The provider is intentionally dumb: it just translates wire format
+        // into typed ProviderEvents and yields them. The agent loop (and
+        // CompactionSummarizer) build the running AssistantMessage partial by
+        // passing each event through AssistantMessageBuilder.Apply. This
+        // mirrors tau: providers yield raw AssistantMessageEvents; the loop
+        // accumulates via canonicalize_provider_stream + _assistant_events.
+        //
+        // Anthropic's wire format has a quirk: content_block_start(type=thinking)
+        // and content_block_start(type=text) both exist but carry no payload —
+        // the canonicalizer opens thinking/text blocks lazily on the first
+        // delta of that block kind. Only tool_use needs upfront id/name from
+        // content_block_start. We also track per-index signature fragments
+        // internally because Anthropic sends signature_delta as a separate
+        // event kind (vs OpenAI, which folds signature into the thinking
+        // block's text); the consolidated value surfaces on the
+        // ThinkingEndEvent so the public protocol never carries a separate
+        // signature fragment event.
         var toolCallBuilders = new Dictionary<int, AnthropicToolCallBuilder>();
-        var finishReason = StopReasons.Stop;
+        // Indices that have received at least one thinking_delta — the set
+        // of open thinking blocks. content_block_stop for one of these
+        // emits ThinkingEndEvent (with or without a signature).
+        var seenThinkingDelta = new HashSet<int>();
+        var thinkingSignatures = new Dictionary<int, string>();
         Usage usage = new();
+        string? wireStopReason = null;
 
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
@@ -125,60 +150,96 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
                     break;
 
                 case "content_block_start":
-                    var startIndex = GetIndex(chunk);
-                    if (chunk.TryGetProperty("content_block", out var startBlock) &&
-                        startBlock.ValueKind == JsonValueKind.Object &&
-                        startBlock.TryGetProperty("type", out var startType) &&
-                        startType.ValueKind == JsonValueKind.String)
                     {
-                        switch (startType.GetString())
+                        var startIndex = GetIndex(chunk);
+                        if (chunk.TryGetProperty("content_block", out var startBlock) &&
+                            startBlock.ValueKind == JsonValueKind.Object &&
+                            startBlock.TryGetProperty("type", out var startType) &&
+                            startType.ValueKind == JsonValueKind.String &&
+                            startType.GetString() == "tool_use")
                         {
-                            case "thinking":
-                                thinkingStates[startIndex] = new ThinkingBlockState();
-                                yield return new ProviderThinkingStartEvent();
-                                break;
-                            case "tool_use":
-                                if (!toolCallBuilders.TryGetValue(startIndex, out var tb))
-                                {
-                                    tb = new AnthropicToolCallBuilder();
-                                    toolCallBuilders[startIndex] = tb;
-                                }
-                                if (startBlock.TryGetProperty("id", out var id) &&
-                                    id.ValueKind == JsonValueKind.String)
-                                    tb.Id = id.GetString();
-                                if (startBlock.TryGetProperty("name", out var name) &&
-                                    name.ValueKind == JsonValueKind.String)
-                                    tb.Name = name.GetString();
-                                break;
+                            // Only tool_use needs upfront setup (id/name land in
+                            // content_block_start; arg JSON streams in via deltas).
+                            // Thinking/text blocks open lazily on first delta.
+                            if (!toolCallBuilders.TryGetValue(startIndex, out var tb))
+                            {
+                                tb = new AnthropicToolCallBuilder();
+                                toolCallBuilders[startIndex] = tb;
+                            }
+                            if (startBlock.TryGetProperty("id", out var id) &&
+                                id.ValueKind == JsonValueKind.String)
+                                tb.Id = id.GetString();
+                            if (startBlock.TryGetProperty("name", out var name) &&
+                                name.ValueKind == JsonValueKind.String)
+                                tb.Name = name.GetString();
                         }
+                        break;
                     }
-                    break;
 
                 case "content_block_delta":
-                    var deltaIndex = GetIndex(chunk);
-                    HandleContentBlockDelta(
-                        chunk,
-                        accumulatedText,
-                        thinkingStates,
-                        toolCallBuilders,
-                        out var textDelta,
-                        out var thinkingDelta);
-                    if (textDelta is { } d)
-                        yield return new ProviderTextDeltaEvent(d);
-                    if (thinkingDelta is { } td)
-                        yield return new ProviderThinkingDeltaEvent(td);
-                    break;
+                    {
+                        var deltaIndex = GetIndex(chunk);
+                        var (deltaKind, deltaPayload) = ExtractContentBlockDelta(chunk);
+                        switch (deltaKind, deltaPayload)
+                        {
+                            case (ContentBlockDeltaKind.Text, { } text):
+                                yield return new TextDeltaEvent(text);
+                                break;
+                            case (ContentBlockDeltaKind.Thinking, { } thinkingText):
+                                // Lazy-open the thinking block on the first
+                                // thinking_delta for this index, mirroring tau's
+                                // canonicalize_provider_stream. The block's
+                                // existence is implied — there's no separate
+                                // ThinkingStartEvent to emit.
+                                seenThinkingDelta.Add(deltaIndex);
+                                yield return new ThinkingDeltaEvent(thinkingText);
+                                break;
+                            case (ContentBlockDeltaKind.Signature, { } sig):
+                                // Signature fragments land on a separate delta
+                                // stream. The signature is adapter-internal
+                                // state — accumulate per-index and surface the
+                                // consolidated value on the ThinkingEndEvent so
+                                // the public protocol stays clean. No
+                                // ThinkingSignatureEvent leak.
+                                thinkingSignatures[deltaIndex] =
+                                    (thinkingSignatures.TryGetValue(deltaIndex, out var prev) ? prev : "")
+                                    + sig;
+                                break;
+                            case (ContentBlockDeltaKind.InputJson, { } fragment):
+                                if (!toolCallBuilders.TryGetValue(deltaIndex, out var builder))
+                                {
+                                    builder = new AnthropicToolCallBuilder();
+                                    toolCallBuilders[deltaIndex] = builder;
+                                }
+                                builder.AppendArguments(fragment);
+                                break;
+                        }
+                        break;
+                    }
 
                 case "content_block_stop":
-                    var stopIndex = GetIndex(chunk);
-                    if (thinkingStates.TryGetValue(stopIndex, out var tState))
                     {
-                        var block = tState.ToBlock();
-                        completedThinkingBlocks[stopIndex] = block;
-                        thinkingStates.Remove(stopIndex);
-                        yield return new ProviderThinkingEndEvent(block);
+                        var stopIndex = GetIndex(chunk);
+                        if (toolCallBuilders.TryGetValue(stopIndex, out var tcb))
+                        {
+                            yield return new ToolCallEvent(tcb.Build());
+                            toolCallBuilders.Remove(stopIndex);
+                        }
+                        else if (seenThinkingDelta.Remove(stopIndex))
+                        {
+                            // Close the thinking block at this index — every
+                            // block that streamed a delta gets an end event,
+                            // signature or not. The signature (when Anthropic
+                            // sent signature_delta fragments) rides on the
+                            // end event so consumers see the consolidated
+                            // state on a single ThinkingEndEvent.
+                            var sig = thinkingSignatures.TryGetValue(stopIndex, out var s)
+                                ? s : null;
+                            yield return new ThinkingEndEvent(
+                                new ThinkingBlock("") { ThinkingSignature = sig });
+                        }
+                        break;
                     }
-                    break;
 
                 case "message_delta":
                     if (chunk.TryGetProperty("delta", out var msgDelta) &&
@@ -186,57 +247,77 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
                         sr.ValueKind == JsonValueKind.String &&
                         sr.GetString() is { } reason)
                     {
-                        finishReason = MapStopReason(reason);
+                        wireStopReason = reason;
                     }
                     if (chunk.TryGetProperty("usage", out var deltaUsage))
                         usage = ApplyMessageDeltaUsage(deltaUsage, usage);
                     break;
 
                 case "error":
-                    yield return new ProviderErrorEvent(
+                    yield return new AssistantErrorEvent(
                         ExtractErrorMessage(chunk));
                     yield break;
             }
         }
 
-        var toolCalls = toolCallBuilders
-            .OrderBy(kv => kv.Key)
-            .Select(kv => kv.Value.Build())
-            .ToList();
-
-        foreach (var toolCall in toolCalls)
+        // Surface any tool-call builders that never received a
+        // content_block_stop (truncated stream).
+        foreach (var (_, tcb) in toolCallBuilders.OrderBy(kv => kv.Key).ToList())
         {
-            yield return new ProviderToolCallEvent(toolCall);
+            yield return new ToolCallEvent(tcb.Build());
         }
-
-        // Completed thinking blocks (each already emitted a ThinkingEndEvent)
-        // plus any that were never properly stopped (stream drop, missing
-        // content_block_stop) — surface them too so the final message is
-        // faithful even on a truncated stream.
-        var finalThinkingBlocks = completedThinkingBlocks.Values.ToList();
-        foreach (var (idx, state) in thinkingStates.OrderBy(kv => kv.Key))
-        {
-            finalThinkingBlocks.Add(state.ToBlock());
-        }
-
-        var finalContent = new List<ContentBlock>();
-        finalContent.AddRange(finalThinkingBlocks);
-        if (accumulatedText.Length > 0)
-            finalContent.Add(new TextBlock(accumulatedText.ToString()));
-        finalContent.AddRange(toolCalls);
 
         var finalMessage = new AssistantMessage
         {
             Api = config.Api,
             Provider = config.Provider,
             Model = model,
-            Content = finalContent,
-            StopReason = finishReason,
+            Content = [],   // loop keeps streamed-order Content from partial; AdoptFinal copies stop_reason/usage/model/response metadata only
+            StopReason = AssistantMessageBuilder.MapFinishReason(MapAnthropicStopReason(wireStopReason)),
             Usage = usage,
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
 
-        yield return new ProviderResponseEndEvent(finalMessage, finishReason);
+        yield return new AssistantDoneEvent(
+            finalMessage, finalMessage.StopReason);
+    }
+
+    private enum ContentBlockDeltaKind { None, Text, Thinking, Signature, InputJson }
+
+    /// <summary>
+    /// Parses one <c>content_block_delta</c> chunk into a (kind, payload)
+    /// pair. Payload is the relevant string field (text / thinking text /
+    /// signature / input_json fragment); null when the chunk shape isn't
+    /// recognized.
+    /// </summary>
+    private static (ContentBlockDeltaKind Kind, string? Payload) ExtractContentBlockDelta(JsonElement chunk)
+    {
+        if (!chunk.TryGetProperty("delta", out var delta) || delta.ValueKind != JsonValueKind.Object)
+            return (ContentBlockDeltaKind.None, null);
+        if (!delta.TryGetProperty("type", out var t) || t.ValueKind != JsonValueKind.String)
+            return (ContentBlockDeltaKind.None, null);
+
+        switch (t.GetString())
+        {
+            case "text_delta":
+                if (delta.TryGetProperty("text", out var text) && text.ValueKind == JsonValueKind.String)
+                    return (ContentBlockDeltaKind.Text, text.GetString());
+                return (ContentBlockDeltaKind.Text, null);
+            case "thinking_delta":
+                if (delta.TryGetProperty("thinking", out var thinking) && thinking.ValueKind == JsonValueKind.String)
+                    return (ContentBlockDeltaKind.Thinking, thinking.GetString());
+                return (ContentBlockDeltaKind.Thinking, null);
+            case "signature_delta":
+                if (delta.TryGetProperty("signature", out var sig) && sig.ValueKind == JsonValueKind.String)
+                    return (ContentBlockDeltaKind.Signature, sig.GetString());
+                return (ContentBlockDeltaKind.Signature, null);
+            case "input_json_delta":
+                if (delta.TryGetProperty("partial_json", out var pj) && pj.ValueKind == JsonValueKind.String)
+                    return (ContentBlockDeltaKind.InputJson, pj.GetString());
+                return (ContentBlockDeltaKind.InputJson, null);
+            default:
+                return (ContentBlockDeltaKind.None, null);
+        }
     }
 
     private static int GetIndex(JsonElement chunk)
@@ -246,89 +327,34 @@ public sealed class AnthropicProvider(AnthropicConfig config, HttpClient http) :
         return 0;
     }
 
-    private static void HandleContentBlockDelta(
-        JsonElement chunk,
-        StringBuilder accumulatedText,
-        Dictionary<int, ThinkingBlockState> thinkingStates,
-        Dictionary<int, AnthropicToolCallBuilder> toolCallBuilders,
-        out string? textDelta,
-        out string? thinkingDelta)
+    /// <summary>
+    /// Returns the trailing <see cref="ThinkingBlock"/> on
+    /// <paramref name="partial"/>, or an empty block if the last block is
+    /// something else. Anthropic only closes thinking blocks via
+    /// <c>content_block_stop</c> immediately after the trailing
+    /// ThinkingBlock, so the partial's last block at that point is the one
+    /// we want.
+    /// </summary>
+    private static ThinkingBlock ExtractLastThinkingBlock(AssistantMessage partial)
     {
-        textDelta = null;
-        thinkingDelta = null;
-
-        if (!chunk.TryGetProperty("delta", out var delta) ||
-            delta.ValueKind != JsonValueKind.Object)
-        {
-            return;
-        }
-        if (!delta.TryGetProperty("type", out var deltaType) ||
-            deltaType.ValueKind != JsonValueKind.String)
-        {
-            return;
-        }
-
-        var index = GetIndex(chunk);
-
-        switch (deltaType.GetString())
-        {
-            case "text_delta":
-                if (delta.TryGetProperty("text", out var text) &&
-                    text.ValueKind == JsonValueKind.String &&
-                    text.GetString() is { Length: > 0 } t)
-                {
-                    accumulatedText.Append(t);
-                    textDelta = t;
-                }
-                break;
-
-            case "thinking_delta":
-                if (!thinkingStates.TryGetValue(index, out var state))
-                {
-                    state = new ThinkingBlockState();
-                    thinkingStates[index] = state;
-                }
-                if (delta.TryGetProperty("thinking", out var thinking) &&
-                    thinking.ValueKind == JsonValueKind.String &&
-                    thinking.GetString() is { Length: > 0 } th)
-                {
-                    state.Text.Append(th);
-                    thinkingDelta = th;
-                }
-                break;
-
-            case "signature_delta":
-                if (thinkingStates.TryGetValue(index, out var sigState) &&
-                    delta.TryGetProperty("signature", out var sig) &&
-                    sig.ValueKind == JsonValueKind.String &&
-                    sig.GetString() is { Length: > 0 } s)
-                {
-                    sigState.Signature.Append(s);
-                }
-                break;
-
-            case "input_json_delta":
-                if (!delta.TryGetProperty("partial_json", out var pj) ||
-                    pj.ValueKind != JsonValueKind.String)
-                {
-                    return;
-                }
-                if (!toolCallBuilders.TryGetValue(index, out var builder))
-                {
-                    builder = new AnthropicToolCallBuilder();
-                    toolCallBuilders[index] = builder;
-                }
-                builder.AppendArguments(pj.GetString() ?? "");
-                break;
-        }
+        if (partial.Content.Count > 0 && partial.Content[^1] is ThinkingBlock tb)
+            return tb;
+        return new ThinkingBlock("");
     }
 
-    private static string MapStopReason(string reason) => reason switch
+    /// <summary>
+    /// Maps an Anthropic wire stop_reason string to the canonical OpenAI
+    /// vocabulary that <see cref="AssistantMessageBuilder.MapFinishReason"/>
+    /// understands ("stop" / "tool_use" / "length"). Anthropic-specific
+    /// values like <c>end_turn</c> collapse to <c>stop</c>; unknown values
+    /// pass through unchanged.
+    /// </summary>
+    private static string MapAnthropicStopReason(string? reason) => reason switch
     {
-        "end_turn" => StopReasons.Stop,
-        "stop_sequence" => StopReasons.Stop,
-        "tool_use" => StopReasons.ToolUse,
-        "max_tokens" => StopReasons.Length,
+        "end_turn" or "stop_sequence" => "stop",
+        "tool_use" => "tool_use",
+        "max_tokens" => "length",
+        null => "stop",
         _ => reason,
     };
 
@@ -610,28 +636,5 @@ internal sealed class AnthropicToolCallBuilder
         {
             return [];
         }
-    }
-}
-
-/// <summary>
-/// Per-index state for a streamed Anthropic thinking block. Tracks the
-/// accumulating text and signature across <c>thinking_delta</c> and
-/// <c>signature_delta</c> events until <c>content_block_stop</c> flushes
-/// the consolidated <see cref="ThinkingBlock"/>.
-/// </summary>
-internal sealed class ThinkingBlockState
-{
-    public readonly StringBuilder Text = new();
-    public readonly StringBuilder Signature = new();
-
-    public ThinkingBlock ToBlock()
-    {
-        var text = Text.ToString();
-        var signature = Signature.Length > 0 ? Signature.ToString() : null;
-        if (signature is null)
-        {
-            return new ThinkingBlock(text);
-        }
-        return new ThinkingBlock(text) { ThinkingSignature = signature };
     }
 }

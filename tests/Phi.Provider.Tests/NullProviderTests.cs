@@ -17,8 +17,8 @@ public class NullProviderTests
         }
 
         var error = events.Single();
-        await Assert.That(error).IsTypeOf<ProviderErrorEvent>();
-        await Assert.That(((ProviderErrorEvent)error).Message).Contains("/connect");
+        await Assert.That(error).IsTypeOf<AssistantErrorEvent>();
+        await Assert.That(((AssistantErrorEvent)error).Message).Contains("/connect");
     }
 
     [Test]
@@ -33,7 +33,7 @@ public class NullProviderTests
             events.Add(ev);
         }
 
-        await Assert.That(events.OfType<ProviderResponseEndEvent>()).IsEmpty();
+        await Assert.That(events.OfType<AssistantDoneEvent>()).IsEmpty();
     }
 
     [Test]

@@ -30,7 +30,6 @@ public sealed class ChatTranscriptProjector : IDisposable
     private bool _isStreaming;
     private string? _thinkingLineId;
     private string? _textLineId;
-    private DateTime _thinkingStart;
 
     /// <summary>
     /// The projector emits this event after each mutation. Renderers should
@@ -194,29 +193,48 @@ public sealed class ChatTranscriptProjector : IDisposable
                 FinishTextStream();
                 FinishThinkingStream();
                 break;
-            case AssistantThinkingStartEvent:
+            case MessageStartEvent ms when ms.Message is AssistantMessage:
+                // The agent loop emits MessageStart before any streaming
+                // updates for an assistant message. Nothing to render yet
+                // — the first MessageUpdateEvent will open the actual line.
+                break;
+            case MessageUpdateEvent upd when upd.Message is AssistantMessage:
+                DispatchProviderEvent(upd.ProviderEvent);
+                break;
+            case MessageEndEvent me when me.Message is AssistantMessage:
                 FinishTextStream();
-                StartThinkingStream();
+                FinishThinkingStream();
                 break;
-            case AssistantThinkingDeltaEvent d:
-                AppendThinkingDelta(d.Delta);
+            case ToolExecutionEndEvent te:
+                CompleteTool(te.ToolCallId, te.ToolName, te.Result, te.IsError);
                 break;
-            case AssistantThinkingEndEvent e:
-                EndThinkingStream(e.Block.DurationMs);
+        }
+        Notify();
+    }
+
+    private void DispatchProviderEvent(ProviderEvent ev)
+    {
+        switch (ev)
+        {
+            case TextDeltaEvent t:
+                AppendTextDelta(t.Delta);
                 break;
-            case AssistantTextDeltaEvent d:
-                AppendTextDelta(d.Delta);
+            case ThinkingDeltaEvent t:
+                AppendThinkingDelta(t.Delta);
                 break;
-            case AssistantToolCallEvent tc:
+            case ThinkingEndEvent:
+                EndThinkingStream();
+                break;
+            case ToolCallEvent tc:
                 FinishTextStream();
                 FinishThinkingStream();
                 AddToolCall(tc.ToolCall);
                 break;
-            case ToolExecutionEndEvent te:
-                CompleteTool(te.ToolCall, te.Result);
+            case AssistantDoneEvent:
+                // Terminal signal — MessageEndEvent (handled by the outer
+                // switch) finalizes the streaming state.
                 break;
         }
-        Notify();
     }
 
     // ──────── Message replay ────────
@@ -229,14 +247,12 @@ public sealed class ChatTranscriptProjector : IDisposable
                 AppendUserTextInternal(u.Text);
                 break;
             case AssistantMessage a:
-                var durMs = a.Content.OfType<ThinkingBlock>().FirstOrDefault()?.DurationMs;
                 var thinking = a.ThinkingText;
                 if (thinking.Length > 0)
                 {
                     AddLine(new ThinkingLine(
                         NewId("th"),
                         thinking,
-                        durMs is { } d ? TimeSpan.FromMilliseconds(d) : null,
                         IsStreaming: false));
                 }
                 foreach (var tc in a.ToolCalls)
@@ -284,33 +300,31 @@ public sealed class ChatTranscriptProjector : IDisposable
     private void StartThinkingStream()
     {
         _thinkingLineId = NewId("th");
-        _thinkingStart = DateTime.UtcNow;
-        AddLine(new ThinkingLine(_thinkingLineId, "", null, IsStreaming: true));
+        AddLine(new ThinkingLine(_thinkingLineId, "", IsStreaming: true));
     }
 
     private void AppendThinkingDelta(string delta)
     {
-        if (_thinkingLineId is null) return;
-        if (!_indexById.TryGetValue(_thinkingLineId, out var idx)) return;
+        // Lazy-open the thinking line on the first delta (mirrors the
+        // canonicalizer: there is no separate ThinkingStartEvent). A
+        // text delta arriving after a closed thinking block starts a new
+        // text line via AppendTextDelta.
+        if (_thinkingLineId is null)
+        {
+            FinishTextStream();
+            StartThinkingStream();
+        }
+        if (!_indexById.TryGetValue(_thinkingLineId!, out var idx)) return;
         var old = (ThinkingLine)_lines[idx];
         _lines[idx] = old with { Text = old.Text + delta };
     }
 
-    private void EndThinkingStream(double? durationMs)
+    private void EndThinkingStream()
     {
         if (_thinkingLineId is null) return;
         if (!_indexById.TryGetValue(_thinkingLineId, out var idx)) return;
         var old = (ThinkingLine)_lines[idx];
-        // Prefer the harness-reported duration; fall back to wall clock
-        // between start and end (the harness may not always set DurationMs).
-        var duration = durationMs is { } d
-            ? TimeSpan.FromMilliseconds(d)
-            : (old.Duration ?? (DateTime.UtcNow - _thinkingStart));
-        _lines[idx] = old with
-        {
-            IsStreaming = false,
-            Duration = duration,
-        };
+        _lines[idx] = old with { IsStreaming = false };
     }
 
     private void FinishThinkingStream()
@@ -369,12 +383,12 @@ public sealed class ChatTranscriptProjector : IDisposable
         _toolCallIndexByToolCallId[call.Id] = _lines.Count - 1;
     }
 
-    private void CompleteTool(ToolCall call, ToolResult result)
+    private void CompleteTool(string toolCallId, string toolName, ToolResult result, bool isError)
     {
-        CompleteToolByToolCallId(call.Id, result);
+        CompleteToolByToolCallId(toolCallId, result, isError);
     }
 
-    private void CompleteToolByToolCallId(string toolCallId, ToolResult result)
+    private void CompleteToolByToolCallId(string toolCallId, ToolResult result, bool isError)
     {
         if (!_toolCallIndexByToolCallId.TryGetValue(toolCallId, out var idx))
         {
@@ -388,7 +402,7 @@ public sealed class ChatTranscriptProjector : IDisposable
         var old = (ToolCallLine)_lines[idx];
         _lines[idx] = old with
         {
-            ResultState = result.IsError ? ToolResultState.Failed : ToolResultState.Completed,
+            ResultState = isError ? ToolResultState.Failed : ToolResultState.Completed,
             ResultText = result.Text,
             DetailsJson = result.Details?.ToJsonString(),
         };
@@ -400,7 +414,7 @@ public sealed class ChatTranscriptProjector : IDisposable
         // projector's stub uses "" since the title is reconstructed by the
         // renderer from the descriptor.
         var result = new ToolResult(tr.Content, tr.Details, tr.IsError);
-        CompleteToolByToolCallId(toolCallId, result);
+        CompleteToolByToolCallId(toolCallId, result, tr.IsError);
     }
 
     private static string SerializeArgs(System.Text.Json.Nodes.JsonNode? args) =>

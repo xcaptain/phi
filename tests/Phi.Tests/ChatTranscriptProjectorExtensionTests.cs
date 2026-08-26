@@ -66,7 +66,8 @@ public class ChatTranscriptProjectorExtensionTests
         {
             Arguments = new System.Text.Json.Nodes.JsonObject { ["env"] = "prod" },
         };
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new AssistantMessage(), new ToolCallEvent(call)));
 
         var toolLine = projector.Current.OfType<ToolCallLine>().Single();
         await Assert.That(toolLine.ToolName).IsEqualTo("deploy");

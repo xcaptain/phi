@@ -60,7 +60,7 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
         if (!response.IsSuccessStatusCode)
         {
             var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
-            yield return new ProviderErrorEvent(
+            yield return new AssistantErrorEvent(
                 $"HTTP {(int)response.StatusCode}: {errorBody}")
             {
                 HttpStatus = (int)response.StatusCode,
@@ -68,13 +68,24 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
             yield break;
         }
 
+        // Pi-compatible begin marker. The loop already synthesizes
+        // MessageStartEvent before driving this stream, so this is a
+        // no-op at the agent layer — it's here so projectors / extensions
+        // can observe an explicit begin signal from the provider.
+        yield return new AssistantStartEvent();
+
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var reader = new StreamReader(stream);
 
-        var accumulatedText = new StringBuilder();
+        // The provider is intentionally dumb: it just translates wire format
+        // into typed ProviderEvents and yields them. The agent loop (and
+        // CompactionSummarizer) build the running AssistantMessage partial by
+        // passing each event through AssistantMessageBuilder.Apply. This
+        // mirrors tau: providers yield raw AssistantMessageEvents; the loop
+        // accumulates via canonicalize_provider_stream + _assistant_events.
         var toolCallBuilders = new Dictionary<int, ToolCallBuilder>();
-        var finishReason = StopReasons.Stop;
         string? responseModel = null;
+        string? wireFinishReason = null;
 
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
@@ -102,13 +113,24 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
 
             if (choice.TryGetProperty("delta", out var delta))
             {
+                // Reasoning / extended-thinking content: OpenAI-compatible
+                // endpoints surface this via a "reasoning_content" field on
+                // each delta. Translated to a ThinkingDeltaEvent so
+                // the loop's canonicalizer routes it to a ThinkingBlock.
+                if (delta.TryGetProperty("reasoning_content", out var reasoning) &&
+                    reasoning.ValueKind == JsonValueKind.String &&
+                    reasoning.GetString() is { } reasoningText &&
+                    reasoningText.Length > 0)
+                {
+                    yield return new ThinkingDeltaEvent(reasoningText);
+                }
+
                 if (delta.TryGetProperty("content", out var content) &&
                     content.ValueKind == JsonValueKind.String &&
                     content.GetString() is { } text &&
                     text.Length > 0)
                 {
-                    accumulatedText.Append(text);
-                    yield return new ProviderTextDeltaEvent(text);
+                    yield return new TextDeltaEvent(text);
                 }
 
                 if (delta.TryGetProperty("tool_calls", out var toolCallsArray) &&
@@ -131,42 +153,41 @@ public sealed class OpenAICompatibleProvider(OpenAICompatibleConfig config, Http
                 fr.ValueKind == JsonValueKind.String &&
                 fr.GetString() is { } reason)
             {
-                finishReason = reason switch
-                {
-                    "stop" => StopReasons.Stop,
-                    "length" => StopReasons.Length,
-                    "tool_calls" => StopReasons.ToolUse,
-                    _ => reason,
-                };
+                wireFinishReason = reason;
             }
         }
 
-        var toolCalls = toolCallBuilders
-            .OrderBy(kv => kv.Key)
-            .Select(kv => kv.Value.Build())
-            .ToList();
-
-        foreach (var toolCall in toolCalls)
+        // Flush accumulated tool calls as discrete events so the loop can
+        // apply them in order.
+        foreach (var toolCall in toolCallBuilders
+                     .OrderBy(kv => kv.Key)
+                     .Select(kv => kv.Value.Build()))
         {
-            yield return new ProviderToolCallEvent(toolCall);
+            yield return new ToolCallEvent(toolCall);
         }
 
+        // Terminal: build the authoritative final message from the accumulated
+        // text + tool calls. The loop calls AdoptFinal on this when consuming
+        // the AssistantDoneEvent; partial.Content (kept streamed-order
+        // by the loop) stays authoritative for Content, but StopReason /
+        // Usage / Model / response metadata come from this terminal message.
         var finalContent = new List<ContentBlock>();
-        if (accumulatedText.Length > 0)
-            finalContent.Add(new TextBlock(accumulatedText.ToString()));
-        finalContent.AddRange(toolCalls);
-
+        // (text was emitted as deltas; here we just attach any non-delta
+        // content the model produced directly. OpenAI doesn't normally send
+        // terminal content without deltas, so this stays empty.)
         var finalMessage = new AssistantMessage
         {
             Api = config.Api,
             Provider = config.Provider,
             Model = responseModel ?? model,
             Content = finalContent,
-            StopReason = finishReason,
+            StopReason = AssistantMessageBuilder.MapFinishReason(wireFinishReason),
             Timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
         };
 
-        yield return new ProviderResponseEndEvent(finalMessage, finishReason);
+        yield return new AssistantDoneEvent(
+            finalMessage,
+            AssistantMessageBuilder.MapFinishReason(wireFinishReason));
     }
 
     private static bool IsEmptyFailedTurn(IAgentMessage message) =>

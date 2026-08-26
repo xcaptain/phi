@@ -14,8 +14,8 @@ public class HarnessTests
         [
             new ProviderEvent[]
             {
-                new ProviderTextDeltaEvent("Hi back"),
-                new ProviderResponseEndEvent(
+                new TextDeltaEvent("Hi back"),
+                new AssistantDoneEvent(
                     new AssistantMessage
                     {
                         Api = "test", Provider = "fake", Model = "test",
@@ -34,10 +34,16 @@ public class HarnessTests
             events.Add(ev);
         }
 
-        await Assert.That(events.First()).IsTypeOf<TurnStartEvent>();
-        await Assert.That(((TurnStartEvent)events.First()).Turn).IsEqualTo(1);
-        await Assert.That(events.Last()).IsTypeOf<TurnEndEvent>();
-        await Assert.That(events.OfType<AssistantTextDeltaEvent>().Count()).IsEqualTo(1);
+        // Harness emits the user-prompt envelope first (MessageStart +
+        // MessageEnd), then TurnStart, then streamed MessageUpdates,
+        // then TurnEnd, then AgentEnd.
+        await Assert.That(events.First()).IsTypeOf<MessageStartEvent>();
+        await Assert.That(((MessageStartEvent)events.First()).Message).IsTypeOf<UserMessage>();
+        await Assert.That(events.OfType<MessageUpdateEvent>().Count()).IsEqualTo(1);
+        await Assert.That(events.OfType<MessageUpdateEvent>().Single().ProviderEvent)
+            .IsTypeOf<TextDeltaEvent>();
+        await Assert.That(events.OfType<TurnEndEvent>().Count()).IsEqualTo(1);
+        await Assert.That(events.Last()).IsTypeOf<AgentEndEvent>();
         await Assert.That(harness.Messages.Count).IsEqualTo(2); // user + assistant
     }
 
@@ -48,8 +54,8 @@ public class HarnessTests
         [
             new ProviderEvent[]
             {
-                new ProviderTextDeltaEvent("done"),
-                new ProviderResponseEndEvent(
+                new TextDeltaEvent("done"),
+                new AssistantDoneEvent(
                     new AssistantMessage
                     {
                         Api = "test", Provider = "fake", Model = "test",
@@ -80,7 +86,7 @@ public class HarnessTests
         [
             new ProviderEvent[]
             {
-                new ProviderErrorEvent("HTTP 500: server error"),
+                new AssistantErrorEvent("HTTP 500: server error"),
             },
         ]);
 
@@ -93,8 +99,8 @@ public class HarnessTests
         }
 
         var turnEnd = events.OfType<TurnEndEvent>().Single();
-        await Assert.That(turnEnd.FinalMessage.StopReason).IsEqualTo(StopReasons.Error);
-        await Assert.That(turnEnd.FinalMessage.ErrorMessage).Contains("HTTP 500");
+        await Assert.That(turnEnd.Message.StopReason).IsEqualTo(StopReasons.Error);
+        await Assert.That(turnEnd.Message.ErrorMessage).Contains("HTTP 500");
 
         // user + assistant(error) — the failure stays in history.
         await Assert.That(harness.Messages.Count).IsEqualTo(2);
@@ -140,15 +146,18 @@ public class HarnessTests
     }
 
     [Test]
-    public async Task RunAsync_CancelSurfacesAsHarnessErrorEvent_DoesNotThrow()
+    public async Task RunAsync_CancelSurfacesAsAbortedTurnEnd_DoesNotThrow()
     {
         // Pre-cancelled token + one queued event so FakePhiProvider yields
         // at least once before its ThrowIfCancellationRequested fires. The
-        // harness should swallow the OCE, surface it as a HarnessErrorEvent,
-        // and end the session normally — never re-throwing to the caller.
+        // harness should swallow the OCE, append an interrupted-tool
+        // placeholder (none in this case), synthesize an
+        // StopReason=Aborted AssistantMessage, yield its
+        // MessageStart/End/TurnEnd, and end the session normally — never
+        // re-throwing to the caller.
         var fake = new FakePhiProvider(
         [
-            [new ProviderTextDeltaEvent("hel")],
+            [new TextDeltaEvent("hel")],
         ]);
         var harness = CreateHarness(fake);
 
@@ -161,11 +170,15 @@ public class HarnessTests
             events.Add(ev);
         }
 
-        var errors = events.OfType<HarnessErrorEvent>().ToList();
-        await Assert.That(errors.Count).IsEqualTo(1);
-        await Assert.That(errors[0].Message).IsEqualTo("interrupted");
+        var turnEnds = events.OfType<TurnEndEvent>().ToList();
+        await Assert.That(turnEnds.Count).IsEqualTo(1);
+        await Assert.That(turnEnds[0].Message.StopReason).IsEqualTo(StopReasons.Aborted);
+        await Assert.That(turnEnds[0].Message.ErrorMessage).IsEqualTo("interrupted by user");
 
         await Assert.That(harness.Messages.OfType<UserMessage>().Count()).IsEqualTo(1);
+        // No tool calls were outstanding, so no placeholder; but the aborted
+        // assistant message is appended for diagnostics.
+        await Assert.That(harness.Messages.OfType<AssistantMessage>().Count()).IsEqualTo(1);
     }
 
     [Test]
@@ -174,14 +187,15 @@ public class HarnessTests
         // Pre-seed the harness with a partial assistant message (as if the
         // model streamed a tool call then the user hit Esc mid-tool), then
         // run with a cancelled token. RunAsync's catch path should call
-        // AppendInterruptedToolResults, leaving the message chain well-formed.
+        // AppendInterruptedToolResults AND yield a StopReason=Aborted
+        // TurnEndEvent so the session ends with a well-formed message chain.
         var toolCall = new ToolCall("c1", "bash")
         {
             Arguments = JsonNode.Parse("""{"command":"ls"}""")!.AsObject(),
         };
         var fake = new FakePhiProvider(
         [
-            [new ProviderTextDeltaEvent("x")],
+            [new TextDeltaEvent("x")],
         ]);
         var harness = new Harness(fake, Array.Empty<Tool>(), "test");
         harness.AppendMessage(new AssistantMessage
@@ -199,9 +213,9 @@ public class HarnessTests
             events.Add(ev);
         }
 
-        var errors = events.OfType<HarnessErrorEvent>().ToList();
-        await Assert.That(errors.Count).IsEqualTo(1);
-        await Assert.That(errors[0].Message).Contains("1 tool call");
+        var turnEnds = events.OfType<TurnEndEvent>().ToList();
+        await Assert.That(turnEnds.Count).IsEqualTo(1);
+        await Assert.That(turnEnds[0].Message.StopReason).IsEqualTo(StopReasons.Aborted);
 
         var result = harness.Messages.OfType<ToolResultMessage>().Single();
         await Assert.That(result.ToolCallId).IsEqualTo("c1");

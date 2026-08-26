@@ -387,9 +387,9 @@ public sealed class ChatTranscript : IDisposable
     });
 
     private static string ThinkingTitleMarkup(ThinkingLine line) =>
-        line.Duration is { } d
-            ? $"[dim]💭 Thought {FormatThinkingDuration(d)}[/]"
-            : "[dim]💭 Thinking…[/]";
+        line.IsStreaming
+            ? "[dim]💭 Thinking…[/]"
+            : "[dim]💭 Thought[/]";
 
     // ──────── Visual handles ────────
 
@@ -436,21 +436,6 @@ public sealed class ChatTranscript : IDisposable
     {
         var lines = text.Replace("\r\n", "\n").Split('\n');
         return string.Join('\n', lines.Select(l => $"[dim]{Escape(l)}[/]"));
-    }
-
-    /// <summary>
-    /// Formats a thinking-block duration for the "Thought Xs" header.
-    /// Sub-second → ms, sub-minute → one decimal seconds, otherwise m+s.
-    /// </summary>
-    public static string FormatThinkingDuration(TimeSpan elapsed)
-    {
-        if (elapsed.TotalSeconds < 1)
-            return $"{(int)elapsed.TotalMilliseconds}ms";
-        if (elapsed.TotalSeconds < 60)
-            return $"{elapsed.TotalSeconds:F1}s";
-        var minutes = (int)elapsed.TotalMinutes;
-        var seconds = (int)(elapsed.TotalSeconds - minutes * 60);
-        return $"{minutes}m{seconds}s";
     }
 
     private static string Escape(string text) =>

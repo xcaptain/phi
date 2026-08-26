@@ -31,6 +31,10 @@ public sealed class FakePhiProvider : IPhiProvider
             throw new InvalidOperationException(
                 "FakePhiProvider ran out of queued turns — provide one list per expected Stream call");
 
+        // Yield events verbatim. The agent loop's canonicalizer
+        // (AssistantMessageBuilder.Apply) folds each granular event into the
+        // running partial — the test stub doesn't maintain partial locally
+        // any more, matching how a real provider would feed the loop.
         foreach (var ev in turn)
         {
             cancellationToken.ThrowIfCancellationRequested();

@@ -27,6 +27,11 @@ public static class SessionStatusRouter
 
         var lastRoutedError = (string?)null;
 
+        // LastError is sourced exclusively from SessionState.LastError, which
+        // Session.RunOnceAsync sets from TurnEndEvent.Message.ErrorMessage when
+        // the assistant message terminates with StopReason=Error or Aborted.
+        // We do not subscribe to HarnessEvent — the session layer is the single
+        // point that turns an error assistant message into state.
         session.StateChanged += s =>
         {
             sink.SetRunning(s.IsRunning);
@@ -43,12 +48,6 @@ public static class SessionStatusRouter
                 sink.ClearError();
                 lastRoutedError = null;
             }
-        };
-
-        session.HarnessEvent += e =>
-        {
-            if (e is HarnessErrorEvent he)
-                RouteError(sink, he.Message, ref lastRoutedError);
         };
 
         // Initial sync.

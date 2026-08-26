@@ -39,13 +39,13 @@ public sealed record CompactionDividerLine(string Id, string SummaryLine) : Chat
 
 /// <summary>
 /// Model's chain-of-thought. <see cref="IsStreaming"/> is <c>true</c> while
-/// thinking deltas are arriving; <see cref="Duration"/> is filled in when
-/// <see cref="Phi.Agent.AssistantThinkingEndEvent"/> lands.
+/// thinking deltas are arriving and flips to <c>false</c> when the
+/// <see cref="Phi.Agent.MessageEndEvent"/> for the surrounding assistant
+/// message lands.
 /// </summary>
 public sealed record ThinkingLine(
     string Id,
     string Text,
-    TimeSpan? Duration,
     bool IsStreaming) : ChatLine(Id);
 
 /// <summary>

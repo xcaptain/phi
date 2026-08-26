@@ -7,7 +7,7 @@ namespace Phi.Provider.Tests;
 /// Provider-internal retry behavior (mirrors tau's provider-side retry):
 /// transient HTTP statuses and pre-content network failures are retried
 /// with backoff; once content has streamed the failure is surfaced as a
-/// <see cref="ProviderErrorEvent"/> instead of being retried (a retry
+/// <see cref="AssistantErrorEvent"/> instead of being retried (a retry
 /// would duplicate the already-emitted deltas for the consumer).
 /// </summary>
 public class ProviderRetryTests
@@ -81,9 +81,9 @@ public class ProviderRetryTests
 
         var events = await Run(provider);
 
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
-        await Assert.That(end.Message.Text).IsEqualTo("hello");
-        await Assert.That(events.OfType<ProviderErrorEvent>()).IsEmpty();
+        var end = events.OfType<AssistantDoneEvent>().Single();
+        await Assert.That(string.Concat(events.OfType<TextDeltaEvent>().Select(t => t.Delta))).IsEqualTo("hello");
+        await Assert.That(events.OfType<AssistantErrorEvent>()).IsEmpty();
         await Assert.That(handler.RequestCount).IsEqualTo(2);
     }
 
@@ -100,10 +100,10 @@ public class ProviderRetryTests
 
         // Default MaxRetries=2 → 3 attempts total, then the error surfaces.
         await Assert.That(handler.RequestCount).IsEqualTo(3);
-        var error = events.OfType<ProviderErrorEvent>().Single();
+        var error = events.OfType<AssistantErrorEvent>().Single();
         await Assert.That(error.HttpStatus).IsEqualTo(429);
         await Assert.That(error.Message).Contains("429");
-        await Assert.That(events.OfType<ProviderResponseEndEvent>()).IsEmpty();
+        await Assert.That(events.OfType<AssistantDoneEvent>()).IsEmpty();
     }
 
     [Test]
@@ -117,7 +117,7 @@ public class ProviderRetryTests
         var events = await Run(provider);
 
         await Assert.That(handler.RequestCount).IsEqualTo(1);
-        var error = events.OfType<ProviderErrorEvent>().Single();
+        var error = events.OfType<AssistantErrorEvent>().Single();
         await Assert.That(error.HttpStatus).IsEqualTo(401);
     }
 
@@ -131,7 +131,7 @@ public class ProviderRetryTests
 
         var events = await Run(provider);
 
-        await Assert.That(events.OfType<ProviderResponseEndEvent>().Count()).IsEqualTo(1);
+        await Assert.That(events.OfType<AssistantDoneEvent>().Count()).IsEqualTo(1);
         await Assert.That(handler.RequestCount).IsEqualTo(2);
     }
 
@@ -145,8 +145,8 @@ public class ProviderRetryTests
 
         var events = await Run(provider);
 
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
-        await Assert.That(end.Message.Text).IsEqualTo("hello");
+        var end = events.OfType<AssistantDoneEvent>().Single();
+        await Assert.That(string.Concat(events.OfType<TextDeltaEvent>().Select(t => t.Delta))).IsEqualTo("hello");
         await Assert.That(handler.RequestCount).IsEqualTo(2);
     }
 
@@ -162,7 +162,7 @@ public class ProviderRetryTests
 
         var events = await Run(provider);
 
-        await Assert.That(events.OfType<ProviderResponseEndEvent>().Count()).IsEqualTo(1);
+        await Assert.That(events.OfType<AssistantDoneEvent>().Count()).IsEqualTo(1);
         await Assert.That(handler.RequestCount).IsEqualTo(2);
     }
 
@@ -181,11 +181,11 @@ public class ProviderRetryTests
         var events = await Run(provider);
 
         await Assert.That(handler.RequestCount).IsEqualTo(1);
-        var text = string.Concat(events.OfType<ProviderTextDeltaEvent>().Select(e => e.Delta));
+        var text = string.Concat(events.OfType<TextDeltaEvent>().Select(t => t.Delta));
         await Assert.That(text).IsEqualTo("partial");
-        var error = events.OfType<ProviderErrorEvent>().Single();
+        var error = events.OfType<AssistantErrorEvent>().Single();
         await Assert.That(error.Message).Contains("connection drop");
-        await Assert.That(events.OfType<ProviderResponseEndEvent>()).IsEmpty();
+        await Assert.That(events.OfType<AssistantDoneEvent>()).IsEmpty();
     }
 
     [Test]
@@ -198,8 +198,8 @@ public class ProviderRetryTests
 
         var events = await Run(provider);
 
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
-        await Assert.That(end.Message.Text).IsEqualTo("hello");
+        var end = events.OfType<AssistantDoneEvent>().Single();
+        await Assert.That(string.Concat(events.OfType<TextDeltaEvent>().Select(t => t.Delta))).IsEqualTo("hello");
         await Assert.That(handler.RequestCount).IsEqualTo(2);
     }
 
@@ -213,7 +213,7 @@ public class ProviderRetryTests
 
         var events = await Run(provider);
 
-        await Assert.That(events.OfType<ProviderResponseEndEvent>().Count()).IsEqualTo(1);
+        await Assert.That(events.OfType<AssistantDoneEvent>().Count()).IsEqualTo(1);
         await Assert.That(handler.RequestCount).IsEqualTo(2);
     }
 }

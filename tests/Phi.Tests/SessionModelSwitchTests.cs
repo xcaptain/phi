@@ -187,8 +187,8 @@ public class SessionModelSwitchTests : IDisposable
             if (_gate is not null && _gateOnCall is { } g && call == g)
                 await _gate.Task.WaitAsync(cancellationToken);
 
-            yield return new ProviderTextDeltaEvent("ok");
-            yield return new ProviderResponseEndEvent(new AssistantMessage
+            yield return new TextDeltaEvent("ok");
+            yield return new AssistantDoneEvent(new AssistantMessage
             {
                 Model = model,
                 Content = [new TextBlock("ok")],

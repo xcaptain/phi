@@ -169,7 +169,10 @@ public sealed class CompactionSummarizer
         var prompt = BuildPrompt(messages, turnPrefixMessages, previousDetails);
         var request = new List<IAgentMessage> { new UserMessage { Content = prompt } };
 
-        var collected = new System.Text.StringBuilder();
+        var partial = new AssistantMessage
+        {
+            StopReason = StopReasons.Stop,
+        };
         var usage = new Usage();
         await foreach (var ev in provider.StreamResponseAsync(
             model, SummarizationSystemPrompt, request, [], cancellationToken)
@@ -177,16 +180,21 @@ public sealed class CompactionSummarizer
         {
             switch (ev)
             {
-                case ProviderTextDeltaEvent t:
-                    collected.Append(t.Delta);
-                    break;
-                case ProviderResponseEndEvent end:
+                case AssistantDoneEvent end:
+                    // Adopt the terminal usage — AdoptFinal skips Content
+                    // (the streamed order is authoritative) but the
+                    // terminal's usage/stats are the authoritative source.
                     if (end.Message.Usage is { } u) usage = u;
+                    break;
+                default:
+                    // Accumulate the running partial via the same
+                    // canonicalizer the agent loop uses.
+                    partial = AssistantMessageBuilder.Apply(partial, ev);
                     break;
             }
         }
 
-        var summary = collected.ToString().Trim();
+        var summary = partial.Text.Trim();
         if (summary.Length == 0)
             throw new InvalidOperationException(
                 "Compaction summarization returned an empty summary");

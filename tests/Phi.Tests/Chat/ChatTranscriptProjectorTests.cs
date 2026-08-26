@@ -111,39 +111,23 @@ public class ChatTranscriptProjectorTests
     }
 
     [Test]
-    public async Task ThinkingStartDeltaEnd_AppendsThinkingLineWithDuration()
+    public async Task ThinkingDeltaEnd_AppendsThinkingLine()
     {
         var session = new MockSession();
         using var projector = new ChatTranscriptProjector(session);
 
+        var partial = new AssistantMessage();
         session.EmitHarnessEvent(new TurnStartEvent(1));
-        session.EmitHarnessEvent(new AssistantThinkingStartEvent());
-        session.EmitHarnessEvent(new AssistantThinkingDeltaEvent("step 1"));
-        session.EmitHarnessEvent(new AssistantThinkingDeltaEvent(", step 2"));
-        session.EmitHarnessEvent(new AssistantThinkingEndEvent(
-            new ThinkingBlock("step 1, step 2") { DurationMs = 1500 }));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new ThinkingDeltaEvent("step 1")));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new ThinkingDeltaEvent(", step 2")));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            partial,
+            new ThinkingEndEvent(new ThinkingBlock("step 1, step 2"))));
 
         await Assert.That(projector.Current.Count).IsEqualTo(1);
         var thinking = (ThinkingLine)projector.Current[^1];
         await Assert.That(thinking.Text).IsEqualTo("step 1, step 2");
         await Assert.That(thinking.IsStreaming).IsFalse();
-        await Assert.That(thinking.Duration).IsEqualTo(TimeSpan.FromMilliseconds(1500));
-    }
-
-    [Test]
-    public async Task ThinkingEnd_WithoutDurationMs_FallsBackToWallClock()
-    {
-        var session = new MockSession();
-        using var projector = new ChatTranscriptProjector(session);
-
-        session.EmitHarnessEvent(new TurnStartEvent(1));
-        session.EmitHarnessEvent(new AssistantThinkingStartEvent());
-        Thread.Sleep(15);
-        session.EmitHarnessEvent(new AssistantThinkingEndEvent(new ThinkingBlock("x")));
-
-        var thinking = (ThinkingLine)projector.Current[^1];
-        await Assert.That(thinking.Duration).IsNotNull();
-        await Assert.That(thinking.Duration!.Value.TotalMilliseconds).IsGreaterThanOrEqualTo(10);
     }
 
     [Test]
@@ -152,9 +136,10 @@ public class ChatTranscriptProjectorTests
         var session = new MockSession();
         using var projector = new ChatTranscriptProjector(session);
 
+        var partial = new AssistantMessage();
         session.EmitHarnessEvent(new TurnStartEvent(1));
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("hello "));
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("world"));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new TextDeltaEvent("hello ")));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new TextDeltaEvent("world")));
 
         await Assert.That(projector.Current.Count).IsEqualTo(1);
         var text = (AssistantTextLine)projector.Current[^1];
@@ -168,11 +153,11 @@ public class ChatTranscriptProjectorTests
         var session = new MockSession();
         using var projector = new ChatTranscriptProjector(session);
 
+        var partial = new AssistantMessage();
         session.EmitHarnessEvent(new TurnStartEvent(1));
-        session.EmitHarnessEvent(new AssistantThinkingStartEvent());
-        session.EmitHarnessEvent(new AssistantThinkingDeltaEvent("thinking"));
-        session.EmitHarnessEvent(new AssistantThinkingEndEvent(new ThinkingBlock("thinking")));
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("answer"));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new ThinkingDeltaEvent("thinking")));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new ThinkingEndEvent(new ThinkingBlock("thinking"))));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new TextDeltaEvent("answer")));
 
         await Assert.That(projector.Current.Count).IsEqualTo(2);
         await Assert.That(projector.Current[0]).IsTypeOf<ThinkingLine>();
@@ -185,12 +170,13 @@ public class ChatTranscriptProjectorTests
         var session = new MockSession();
         using var projector = new ChatTranscriptProjector(session);
 
-        session.EmitHarnessEvent(new TurnStartEvent(1));
+        var partial = new AssistantMessage();
         var call = new ToolCall("call-1", "read")
         {
             Arguments = new System.Text.Json.Nodes.JsonObject { ["path"] = "x.cs" },
         };
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new TurnStartEvent(1));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new ToolCallEvent(call)));
 
         var toolLine = (ToolCallLine)projector.Current[^1];
         await Assert.That(toolLine.ToolCallId).IsEqualTo("call-1");
@@ -205,10 +191,12 @@ public class ChatTranscriptProjectorTests
         var session = new MockSession();
         using var projector = new ChatTranscriptProjector(session);
 
+        var partial = new AssistantMessage();
         var call = new ToolCall("call-1", "bash");
         session.EmitHarnessEvent(new TurnStartEvent(1));
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
-        session.EmitHarnessEvent(new ToolExecutionEndEvent(call, new ToolResult([new TextBlock("ok")], null, IsError: false)));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new ToolCallEvent(call)));
+        session.EmitHarnessEvent(new ToolExecutionEndEvent(
+            call.Id, call.Name, new ToolResult([new TextBlock("ok")]), IsError: false));
 
         var toolLine = (ToolCallLine)projector.Current[^1];
         await Assert.That(toolLine.ResultState).IsEqualTo(ToolResultState.Completed);
@@ -221,10 +209,12 @@ public class ChatTranscriptProjectorTests
         var session = new MockSession();
         using var projector = new ChatTranscriptProjector(session);
 
+        var partial = new AssistantMessage();
         var call = new ToolCall("call-1", "bash");
         session.EmitHarnessEvent(new TurnStartEvent(1));
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
-        session.EmitHarnessEvent(new ToolExecutionEndEvent(call, new ToolResult([new TextBlock("bad")], null, IsError: true)));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new ToolCallEvent(call)));
+        session.EmitHarnessEvent(new ToolExecutionEndEvent(
+            call.Id, call.Name, new ToolResult([new TextBlock("bad")]), IsError: true));
 
         var toolLine = (ToolCallLine)projector.Current[^1];
         await Assert.That(toolLine.ResultState).IsEqualTo(ToolResultState.Failed);
@@ -268,12 +258,13 @@ public class ChatTranscriptProjectorTests
         var fired = 0;
         projector.Changed += _ => fired++;
 
+        var partial = new AssistantMessage();
         session.EmitHarnessEvent(new TurnStartEvent(1));
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("a"));
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("b"));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new TextDeltaEvent("a")));
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new TextDeltaEvent("b")));
         session.EmitHarnessEvent(new TurnEndEvent(new AssistantMessage { StopReason = StopReasons.Stop }));
 
-        // One per event (TurnStart, two text deltas, TurnEnd) = 4
+        // One per event (TurnStart, two message updates, TurnEnd) = 4
         await Assert.That(fired).IsEqualTo(4);
     }
 

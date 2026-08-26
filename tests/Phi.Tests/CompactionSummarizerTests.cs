@@ -39,8 +39,8 @@ public class CompactionSummarizerTests
     {
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("condensed"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("condensed"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("condensed")],
                 StopReason = StopReasons.Stop,
@@ -64,8 +64,8 @@ public class CompactionSummarizerTests
     {
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("summary")],
                 StopReason = StopReasons.Stop,

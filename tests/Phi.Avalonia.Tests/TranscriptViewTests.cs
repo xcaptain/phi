@@ -112,8 +112,10 @@ public class TranscriptViewTests
     {
         var (session, projector, view) = Create();
 
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("Hello "));
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("world"));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new Phi.Agent.AssistantMessage(), new TextDeltaEvent("Hello ")));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new Phi.Agent.AssistantMessage(), new TextDeltaEvent("world")));
 
         await Assert.That(view.LineCount).IsEqualTo(1);
 
@@ -131,7 +133,8 @@ public class TranscriptViewTests
         // the document flow (matching the user bubble's "no card" feel).
         var (session, projector, view) = Create();
 
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("hello"));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new Phi.Agent.AssistantMessage(), new TextDeltaEvent("hello")));
 
         var line = view.LineAt(0);
         await Assert.That(line).IsTypeOf<MarkdownViewer>();
@@ -145,10 +148,10 @@ public class TranscriptViewTests
         // thought doesn't dominate the transcript; user expands on demand.
         var (session, projector, view) = Create();
 
-        session.EmitHarnessEvent(new AssistantThinkingStartEvent());
-        session.EmitHarnessEvent(new AssistantThinkingDeltaEvent("let me reason"));
-        session.EmitHarnessEvent(new AssistantThinkingEndEvent(
-            new ThinkingBlock("let me reason") { DurationMs = 3000 }));
+        var partial = new Phi.Agent.AssistantMessage();
+        session.EmitHarnessEvent(new MessageUpdateEvent(partial, new ThinkingDeltaEvent("let me reason")));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            partial, new ThinkingEndEvent(new ThinkingBlock("let me reason"))));
 
         var section = (CollapsibleSection)view.LineAt(0);
         await Assert.That(section.IsExpanded).IsFalse();
@@ -168,7 +171,8 @@ public class TranscriptViewTests
         {
             Arguments = new System.Text.Json.Nodes.JsonObject { ["command"] = "ls" },
         };
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new Phi.Agent.AssistantMessage(), new ToolCallEvent(call)));
 
         var section = (CollapsibleSection)view.LineAt(0);
         await Assert.That(section.IsExpanded).IsFalse();
@@ -207,7 +211,8 @@ public class TranscriptViewTests
         {
             Arguments = new System.Text.Json.Nodes.JsonObject { ["command"] = "ls" },
         };
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new Phi.Agent.AssistantMessage(), new ToolCallEvent(call)));
 
         await Assert.That(view.LineCount).IsEqualTo(1);
         await Assert.That(projector.Current.OfType<ToolCallLine>().Single().ToolName).IsEqualTo("bash");
@@ -387,7 +392,8 @@ public class TranscriptViewTests
         await Assert.That(topOffset).IsEqualTo(0);
 
         // A new line arrives via the streaming path — must NOT snap back.
-        session.EmitHarnessEvent(new AssistantTextDeltaEvent("new tail"));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new Phi.Agent.AssistantMessage(), new TextDeltaEvent("new tail")));
         global::Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
         var stillAtTop = scroll.Offset.Y;

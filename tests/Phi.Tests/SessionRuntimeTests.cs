@@ -269,7 +269,7 @@ public class SessionRuntimeTests : IDisposable
         // LastError so the status bar can display it, and persists the
         // message into history.
         var session = await Create(StubProvider.Echo(
-            new ProviderErrorEvent("HTTP 503: overloaded") { HttpStatus = 503 }));
+            new AssistantErrorEvent("HTTP 503: overloaded") { HttpStatus = 503 }));
 
         session.SubmitPrompt("hi");
         await WaitForAsync(() => session.State.LastError is { Length: > 0 });
@@ -333,8 +333,8 @@ public class SessionRuntimeTests : IDisposable
         };
         var turnEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("hi"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("hi"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("hi")],
                 Usage = usage,

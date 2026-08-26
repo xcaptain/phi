@@ -28,11 +28,14 @@ public class OpenAICompatibleProviderTests
             events.Add(ev);
         }
 
-        var text = string.Concat(events.OfType<ProviderTextDeltaEvent>().Select(e => e.Delta));
+        var text = string.Concat(
+            events.OfType<TextDeltaEvent>()
+                .Select(t => t.Delta));
         await Assert.That(text).IsEqualTo("Hello! How can I help you today?");
 
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
-        await Assert.That(end.Message.Text).IsEqualTo("Hello! How can I help you today?");
+        var end = events.OfType<AssistantDoneEvent>().Single();
+        await Assert.That(string.Concat(events.OfType<TextDeltaEvent>().Select(t => t.Delta)))
+            .IsEqualTo("Hello! How can I help you today?");
         await Assert.That(end.Message.Model).IsEqualTo("deepseek-v4-flash");
         await Assert.That(end.Message.Provider).IsEqualTo("deepseek");
         await Assert.That(end.FinishReason).IsEqualTo(StopReasons.Stop);
@@ -102,8 +105,8 @@ public class OpenAICompatibleProviderTests
             events.Add(ev);
         }
 
-        await Assert.That(events.OfType<ProviderTextDeltaEvent>().Count()).IsEqualTo(0);
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
+        await Assert.That(events.OfType<TextDeltaEvent>()).IsEmpty();
+        var end = events.OfType<AssistantDoneEvent>().Single();
         await Assert.That(end.Message.Text).IsEqualTo("");
         await Assert.That(end.Message.Content).IsEmpty();
         await Assert.That(end.FinishReason).IsEqualTo(StopReasons.Stop);
@@ -137,8 +140,8 @@ public class OpenAICompatibleProviderTests
         var second = await CollectEvents(provider.StreamResponseAsync(
             "m", "", [new UserMessage { Content = "again" }], tools));
 
-        await Assert.That(first.OfType<ProviderResponseEndEvent>().Count()).IsEqualTo(1);
-        await Assert.That(second.OfType<ProviderResponseEndEvent>().Count()).IsEqualTo(1);
+        await Assert.That(first.OfType<AssistantDoneEvent>().Count()).IsEqualTo(1);
+        await Assert.That(second.OfType<AssistantDoneEvent>().Count()).IsEqualTo(1);
     }
 
     private static async Task<List<ProviderEvent>> CollectEvents(

@@ -175,7 +175,7 @@ public sealed class TranscriptView
                 t.UpdateText(a.Text);
                 break;
             case (ThinkingHandle t, ThinkingLine th):
-                t.UpdateText(th.Text, th.Duration);
+                t.UpdateText(th.Text, th.IsStreaming);
                 break;
             case (ToolCallHandle t, ToolCallLine tc):
                 if (t.LastResultState != tc.ResultState)
@@ -374,7 +374,7 @@ public sealed class TranscriptView
         {
             Foreground = AvaloniaTheme.TextSecondary,
         };
-        UpdateThinkingTitle(titleLabel, line.Duration, line.IsStreaming);
+        UpdateThinkingTitle(titleLabel, line.IsStreaming);
 
         var bodyLabel = new TextBlock
         {
@@ -388,19 +388,10 @@ public sealed class TranscriptView
         return new ThinkingHandle(titleLabel, bodyLabel, section);
     }
 
-    private static void UpdateThinkingTitle(TextBlock titleLabel, TimeSpan? duration, bool isStreaming)
+    private static void UpdateThinkingTitle(TextBlock titleLabel, bool isStreaming)
     {
-        titleLabel.Text = !isStreaming && duration is { } d
-            ? $"💭 Thought {FormatSeconds((int)d.TotalSeconds)}"
-            : "💭 Thinking…";
+        titleLabel.Text = isStreaming ? "💭 Thinking…" : "💭 Thought";
     }
-
-    private static string FormatSeconds(int seconds) => seconds switch
-    {
-        < 60 => $"{seconds}s",
-        < 3600 => $"{seconds / 60.0:F1}m",
-        _ => $"{seconds / 3600.0:F1}h",
-    };
 
     private static AssistantTextHandle CreateAssistantTextHandle(AssistantTextLine line)
     {
@@ -495,10 +486,10 @@ public sealed class TranscriptView
         Control root) : LineHandle
     {
         public override Control Root => root;
-        public void UpdateText(string text, TimeSpan? duration)
+        public void UpdateText(string text, bool isStreaming)
         {
             bodyLabel.Text = text;
-            UpdateThinkingTitle(titleLabel, duration, isStreaming: false);
+            UpdateThinkingTitle(titleLabel, isStreaming);
         }
     }
 

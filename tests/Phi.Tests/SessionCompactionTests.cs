@@ -97,8 +97,8 @@ public class SessionCompactionTests : IDisposable
         // returns a fixed summary text.
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
@@ -137,8 +137,8 @@ public class SessionCompactionTests : IDisposable
 
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
@@ -176,8 +176,8 @@ public class SessionCompactionTests : IDisposable
 
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
@@ -218,8 +218,8 @@ public class SessionCompactionTests : IDisposable
 
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
@@ -250,8 +250,8 @@ public class SessionCompactionTests : IDisposable
         var storedId = stored.Id;
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
@@ -289,8 +289,8 @@ public class SessionCompactionTests : IDisposable
 
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
@@ -395,8 +395,8 @@ public class SessionCompactionTests : IDisposable
 
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
@@ -434,8 +434,8 @@ public class SessionCompactionTests : IDisposable
         var storedId = stored.Id;
 
         var summaryProvider = StubProvider.Echo(
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
@@ -496,8 +496,8 @@ public class SessionCompactionTests : IDisposable
         var summaryUsage = new Usage { Input = 100, Output = 50, TotalTokens = 150, CacheRead = 20 };
         var summaryEvents = new ProviderEvent[]
         {
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,
@@ -533,8 +533,8 @@ public class SessionCompactionTests : IDisposable
 
         var originalUsage = new Usage { Input = 200, Output = 80, TotalTokens = 280, CacheRead = 40 };
         var summaryProvider = StubProvider.Echo(
-            new ProviderTextDeltaEvent("Summary"),
-            new ProviderResponseEndEvent(new AssistantMessage
+            new TextDeltaEvent("Summary"),
+            new AssistantDoneEvent(new AssistantMessage
             {
                 Content = [new TextBlock("Summary")],
                 StopReason = StopReasons.Stop,

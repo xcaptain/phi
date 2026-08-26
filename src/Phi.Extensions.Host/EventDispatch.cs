@@ -85,16 +85,22 @@ internal sealed class EventDispatch : IDisposable
                 Dispatch(new Phi.Extensions.Events.TurnStartEvent(t.Turn, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()));
                 break;
             case Phi.Agent.TurnEndEvent t:
-                Dispatch(new Phi.Extensions.Events.TurnEndEvent(_lastTurn, t.FinalMessage, []));
+                Dispatch(new Phi.Extensions.Events.TurnEndEvent(_lastTurn, t.Message, t.ToolResults ?? []));
                 break;
             case Phi.Agent.ToolExecutionStartEvent t:
-                Dispatch(new Phi.Extensions.Events.ToolExecutionStartEvent(t.ToolCallId, t.ToolName, []));
+                Dispatch(new Phi.Extensions.Events.ToolExecutionStartEvent(t.ToolCallId, t.ToolName, t.Args ?? []));
                 break;
             case Phi.Agent.ToolExecutionEndEvent t:
-                Dispatch(new Phi.Extensions.Events.ToolExecutionEndEvent(t.ToolCall.Id, t.ToolCall.Name, t.Result));
+                Dispatch(new Phi.Extensions.Events.ToolExecutionEndEvent(t.ToolCallId, t.ToolName, t.Result));
                 break;
-            case HarnessErrorEvent e:
-                // No public PhiEvent payload for harness errors yet; skip.
+            case Phi.Agent.MessageStartEvent m:
+                Dispatch(new Phi.Extensions.Events.MessageStartEvent(m.Message));
+                break;
+            case Phi.Agent.MessageUpdateEvent u:
+                Dispatch(new Phi.Extensions.Events.MessageUpdateEvent(u.Message, u.ProviderEvent));
+                break;
+            case Phi.Agent.MessageEndEvent m:
+                Dispatch(new Phi.Extensions.Events.MessageEndEvent(m.Message));
                 break;
         }
     }
@@ -111,9 +117,9 @@ internal sealed class EventDispatch : IDisposable
         if (prev is not null)
         {
             if (!prev.IsRunning && state.IsRunning)
-                Dispatch(new AgentStartEvent());
+                Dispatch(new Phi.Extensions.Events.AgentStartEvent());
             if (prev.IsRunning && !state.IsRunning)
-                Dispatch(new AgentEndEvent(state.Messages, WillRetry: false));
+                Dispatch(new Phi.Extensions.Events.AgentEndEvent(state.Messages, WillRetry: false));
 
             if (prev.SteeringCount != state.SteeringCount || prev.FollowUpCount != state.FollowUpCount)
                 Dispatch(new QueueUpdateEvent(state.SteeringCount, state.FollowUpCount));

@@ -13,7 +13,7 @@ namespace Phi.Provider;
 /// </list>
 /// Once content (text/thinking/tool-call events) has streamed to the
 /// consumer a retry would duplicate it, so mid-stream failures surface as a
-/// <see cref="ProviderErrorEvent"/> instead. Retries are transparent to the
+/// <see cref="AssistantErrorEvent"/> instead. Retries are transparent to the
 /// agent loop: it only ever sees one logical stream.
 /// </summary>
 internal static class ProviderRetry
@@ -79,14 +79,19 @@ internal static class ProviderRetry
                     var ev = enumerator.Current;
                     switch (ev)
                     {
-                        case ProviderTextDeltaEvent
-                            or ProviderThinkingStartEvent
-                            or ProviderThinkingDeltaEvent
-                            or ProviderThinkingEndEvent
-                            or ProviderToolCallEvent:
+                        case TextDeltaEvent
+                            or ThinkingDeltaEvent
+                            or ThinkingEndEvent
+                            or ToolCallEvent:
+                            // Any of these means the model has produced
+                            // content for this attempt — a mid-stream retry
+                            // would duplicate already-emitted deltas.
+                            // (AssistantStartEvent is also a content signal
+                            // upstream; the agent loop filters it to a
+                            // no-op so it doesn't reach here.)
                             emittedContent = true;
                             break;
-                        case ProviderErrorEvent err
+                        case AssistantErrorEvent err
                             when err.HttpStatus is { } status
                                 && IsTransientStatus(status)
                                 && attempt < maxRetries:
@@ -119,7 +124,7 @@ internal static class ProviderRetry
                     await DelayBeforeRetryAsync(attempt, maxRetryDelay, cancellationToken);
                     continue;
                 }
-                yield return new ProviderErrorEvent(
+                yield return new AssistantErrorEvent(
                     $"Network error: {networkFailure.Message}");
             }
 

@@ -7,9 +7,9 @@ namespace Phi.Agent;
 /// that owns session state (<see cref="Messages"/>) and adds the two
 /// session-level concerns the loop doesn't handle:
 /// <list type="bullet">
-/// <item>Initial prompt injection.</item>
-/// <item>Converting an in-flight cancellation into a
-/// <see cref="HarnessErrorEvent"/> + synthetic
+/// <item>Initial prompt injection (and its <see cref="MessageStartEvent"/>
+/// / <see cref="MessageEndEvent"/> envelope).</item>
+/// <item>Converting an in-flight cancellation into synthetic
 /// <c>Tool call interrupted by user</c> placeholders via
 /// <see cref="AppendInterruptedToolResults"/>, so the next session sees a
 /// well-formed history.</item>
@@ -136,13 +136,16 @@ public sealed class Harness(
     /// The loop drives multi-turn execution and drains the steering/follow-up
     /// queues; this method handles two session-level concerns only:
     /// <list type="bullet">
-    /// <item>Seed the initial user prompt into <see cref="Messages"/>.</item>
+    /// <item>Seed the initial user prompt into <see cref="Messages"/> and
+    /// emit its <see cref="MessageStartEvent"/> /
+    /// <see cref="MessageEndEvent"/> envelope.</item>
     /// <item>If <paramref name="cancellationToken"/> fires mid-turn, catch
     /// the resulting <see cref="OperationCanceledException"/> (which the
     /// loop propagates), append interrupted tool placeholders via
-    /// <see cref="AppendInterruptedToolResults"/>, and surface a
-    /// <see cref="HarnessErrorEvent"/>. The session ends normally
-    /// (yield break) — callers wanting to continue should inspect
+    /// <see cref="AppendInterruptedToolResults"/>, and synthesize an error
+    /// <see cref="AssistantMessage"/> via the loop's last partial
+    /// (preserved across the catch) so the session ends with a well-formed
+    /// <see cref="TurnEndEvent"/>. Callers wanting to continue should inspect
     /// <see cref="Messages"/> and start a new <see cref="RunAsync"/>
     /// invocation.</item>
     /// </list>
@@ -153,9 +156,11 @@ public sealed class Harness(
         Func<IReadOnlyList<IAgentMessage>>? getFollowUpMessages = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        _messages.Add(new UserMessage { Content = initialPrompt });
+        var userPrompt = new UserMessage { Content = initialPrompt };
+        _messages.Add(userPrompt);
+        yield return new MessageStartEvent(userPrompt);
+        yield return new MessageEndEvent(userPrompt);
 
-        var cancelled = false;
         // Manual enumerator so we can catch OperationCanceledException around
         // MoveNextAsync without violating CS1626 (yield in try-catch) while
         // preserving streaming semantics.
@@ -165,6 +170,7 @@ public sealed class Harness(
                 _maxTurns, cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
+        var cancelled = false;
         try
         {
             while (true)
@@ -191,11 +197,25 @@ public sealed class Harness(
 
         if (cancelled)
         {
-            var inserted = AppendInterruptedToolResults();
-            yield return new HarnessErrorEvent(
-                inserted > 0
-                    ? $"interrupted ({inserted} tool call(s) cancelled)"
-                    : "interrupted");
+            AppendInterruptedToolResults();
+            // Synthesize a terminal aborted AssistantMessage so the session
+            // ends with a normal TurnEndEvent (matching the tau pattern for
+            // aborted turns). The message is persisted in history as
+            // diagnostics but excluded from future provider context by the
+            // providers' message conversion. Api/Provider stay "unknown" —
+            // no provider produced this message (mirrors tau's
+            // _error_message, which sets model + stop_reason only).
+            var aborted = new AssistantMessage
+            {
+                Model = Model,
+                Content = [],
+                StopReason = StopReasons.Aborted,
+                ErrorMessage = "interrupted by user",
+            };
+            _messages.Add(aborted);
+            yield return new MessageStartEvent(aborted);
+            yield return new MessageEndEvent(aborted);
+            yield return new TurnEndEvent(aborted);
         }
     }
 }

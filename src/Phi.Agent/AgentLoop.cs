@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 
@@ -11,6 +10,35 @@ namespace Phi.Agent;
 /// Mirrors tau's <c>run_agent_loop()</c> in <c>tau_agent.loop</c> — including
 /// the steering-first / follow-up-second injection order, the
 /// tool-call-driven turn continuation, and the <c>max_turns</c> safety cap.
+/// <para>
+/// Per-event mapping vs tau's <c>_assistant_events</c>: providers yield raw
+/// granular events (<see cref="TextDeltaEvent"/>,
+/// <see cref="ThinkingDeltaEvent"/>, <see cref="ToolCallEvent"/>, etc.) plus
+/// terminal envelopes (<see cref="AssistantDoneEvent"/>,
+/// <see cref="AssistantErrorEvent"/>). The loop accumulates the running
+/// <see cref="AssistantMessage"/> partial by folding each granular event
+/// through <see cref="AssistantMessageBuilder.Apply"/> (mirroring tau's
+/// <c>canonicalize_provider_stream</c>), then yields a
+/// <see cref="MessageUpdateEvent"/> wrapping the partial plus the original
+/// raw event. Consumers (the projector) dispatch on the raw event type to
+/// decide what to render.
+/// </para>
+/// <para>
+/// <see cref="AssistantStartEvent"/> from the provider is a no-op here —
+/// the loop already emitted <c>MessageStartEvent</c> before driving the
+/// stream — but it's part of the protocol so providers / extensions can
+/// observe an explicit begin signal if they want to.
+/// </para>
+/// <para>
+/// At terminal the loop calls
+/// <see cref="AssistantMessageBuilder.AdoptFinal"/> on the provider's
+/// authoritative final <see cref="AssistantMessage"/> to fold in
+/// <c>StopReason</c> / <c>Usage</c> / <c>Model</c> / <c>Api</c> /
+/// <c>Provider</c>. <c>Content</c> stays as the streamed-order partial —
+/// the provider's terminal build would reorder blocks (Anthropic prepends
+/// thinking) and would clobber the projector state. Mirrors tau's
+/// <c>final.content = [block.model_copy(...) for block in partial.content]</c>.
+/// </para>
 /// </summary>
 public static class AgentLoop
 {
@@ -21,44 +49,14 @@ public static class AgentLoop
     /// session-level concerns (initial prompt, cancel handling,
     /// interrupted-tool placeholders).
     /// <para>
-    /// Named <see cref="RunAgentAsync"/> (not <c>RunTurnAsync</c>) because
-    /// the loop drives <i>multiple</i> turns per call — each iteration is
-    /// one model round-trip plus any tool executions.
+    /// Yields <see cref="AgentStartEvent"/> + a sequence of
+    /// <see cref="TurnStartEvent"/> / <see cref="MessageStartEvent"/> /
+    /// <see cref="MessageUpdateEvent"/>* / <see cref="MessageEndEvent"/> /
+    /// <see cref="ToolExecutionStartEvent"/> /
+    /// <see cref="ToolExecutionEndEvent"/>* / <see cref="TurnEndEvent"/>,
+    /// followed by <see cref="AgentEndEvent"/> on completion.
     /// </para>
-    /// Yields <see cref="AssistantTextDeltaEvent"/>,
-    /// <see cref="AssistantThinkingStartEvent"/> /
-    /// <see cref="AssistantThinkingDeltaEvent"/> /
-    /// <see cref="AssistantThinkingEndEvent"/>,
-    /// <see cref="AssistantToolCallEvent"/>,
-    /// <see cref="ToolExecutionStartEvent"/>,
-    /// <see cref="ToolExecutionEndEvent"/>,
-    /// <see cref="HarnessErrorEvent"/> (on <c>max_turns</c>),
-    /// and one terminating <see cref="TurnEndEvent"/> per successful turn.
     /// </summary>
-    /// <param name="provider">LLM provider that streams provider events.</param>
-    /// <param name="model">Model identifier sent to the provider.</param>
-    /// <param name="system">System prompt; an empty string omits the system message.</param>
-    /// <param name="messages">Conversation history. The loop mutates this list in place, appending assistant messages and tool results as it progresses.</param>
-    /// <param name="tools">Tool registry. Tool calls in the model output are matched against this list and executed via <see cref="Tool.ExecuteAsync"/>.</param>
-    /// <param name="getSteeringMessages">
-    /// Called at the <b>start of every iteration</b> to drain queued
-    /// "redirect" messages. If it returns a non-empty list, the messages
-    /// are appended to <paramref name="messages"/> and the next turn starts
-    /// immediately without yielding a <see cref="TurnStartEvent"/> for the
-    /// empty iteration. Steering does <i>not</i> consume a turn slot.
-    /// </param>
-    /// <param name="getFollowUpMessages">
-    /// Called when a turn ends naturally (model produced no tool calls) to
-    /// drain queued "additional task" messages. Non-empty results append
-    /// to <paramref name="messages"/> and start a new turn.
-    /// </param>
-    /// <param name="maxTurns">
-    /// Optional cap on the number of provider rounds inside one call.
-    /// Steering iterations don't count toward this cap; only actual turns
-    /// do. When exceeded, the loop synthesizes an error assistant message
-    /// and stops.
-    /// </param>
-    /// <param name="cancellationToken">Cancellation token propagated to the provider's <c>StreamResponseAsync</c> and to every <see cref="Tool.ExecuteAsync"/> call.</param>
     public static async IAsyncEnumerable<HarnessEvent> RunAgentAsync(
         IPhiProvider provider,
         string model,
@@ -72,6 +70,10 @@ public static class AgentLoop
     {
         var toolByName = tools.ToDictionary(t => t.Name);
         var turn = 0;
+        var newMessages = new List<IAgentMessage>();
+
+        yield return new AgentStartEvent();
+
         while (true)
         {
             // Steering is checked first, before incrementing the turn counter
@@ -82,7 +84,13 @@ public static class AgentLoop
                 var steering = getSteering();
                 if (steering.Count > 0)
                 {
-                    foreach (var m in steering) messages.Add(m);
+                    foreach (var m in steering)
+                    {
+                        messages.Add(m);
+                        newMessages.Add(m);
+                        yield return new MessageStartEvent(m);
+                        yield return new MessageEndEvent(m);
+                    }
                     continue;
                 }
             }
@@ -91,142 +99,140 @@ public static class AgentLoop
 
             if (maxTurns is not null && turn > maxTurns)
             {
+                // Mirrors tau's _error_message: model + stop_reason +
+                // message only; Api/Provider stay "unknown" (no provider
+                // produced this message).
                 var overrun = new AssistantMessage
                 {
-                    Api = provider.GetType().Name,
-                    Provider = "agent",
                     Model = model,
                     Content = [new TextBlock($"Agent stopped after max_turns={maxTurns}")],
                     StopReason = StopReasons.Error,
                 };
                 messages.Add(overrun);
-                yield return new HarnessErrorEvent(overrun.Text);
+                newMessages.Add(overrun);
+                yield return new MessageStartEvent(overrun);
+                yield return new MessageEndEvent(overrun);
                 yield return new TurnEndEvent(overrun);
+                yield return new AgentEndEvent(newMessages);
                 yield break;
             }
 
             yield return new TurnStartEvent(turn);
 
-            AssistantMessage? final = null;
-            ProviderErrorEvent? lastError = null;
-            Stopwatch? thinkingStopwatch = null;
-            double? thinkingDurationMs = null;
+            // The partial is the canonical running state of the assistant
+            // message during this turn. The provider yields granular events;
+            // we accumulate them via AssistantMessageBuilder.Apply — the same
+            // canonicalizer tau's canonicalize_provider_stream runs in its
+            // own layer.
+            //
+            // Identity metadata (Api / Provider) stays at the "unknown"
+            // default while streaming: the loop doesn't know the provider's
+            // identity (tau passes it into the canonicalizer from the
+            // provider layer). AdoptFinal adopts the real values from the
+            // provider's terminal message, which carries them from config.
+            var partial = new AssistantMessage { Model = model };
+            yield return new MessageStartEvent(partial);
+
+            AssistantErrorEvent? lastError = null;
+            bool terminal = false;
 
             await foreach (var ev in provider.StreamResponseAsync(
                 model, system, messages, tools, cancellationToken))
             {
                 switch (ev)
                 {
-                    case ProviderTextDeltaEvent t:
-                        yield return new AssistantTextDeltaEvent(t.Delta);
+                    case AssistantStartEvent:
+                        // No-op: loop already yielded MessageStartEvent(partial)
+                        // before driving the stream. Kept in the switch so we
+                        // don't emit a spurious MessageUpdateEvent with an
+                        // unchanged partial for the begin marker.
                         break;
-                    case ProviderThinkingStartEvent:
-                        thinkingStopwatch = Stopwatch.StartNew();
-                        thinkingDurationMs = null;
-                        yield return new AssistantThinkingStartEvent();
+                    case AssistantDoneEvent end:
+                        partial = AssistantMessageBuilder.AdoptFinal(partial, end.Message);
+                        terminal = true;
                         break;
-                    case ProviderThinkingDeltaEvent t:
-                        yield return new AssistantThinkingDeltaEvent(t.Delta);
-                        break;
-                    case ProviderThinkingEndEvent end:
-                        thinkingDurationMs = thinkingStopwatch?.ElapsedMilliseconds;
-                        thinkingStopwatch = null;
-                        var timedBlock = thinkingDurationMs is not null
-                            ? end.Block with { DurationMs = thinkingDurationMs }
-                            : end.Block;
-                        yield return new AssistantThinkingEndEvent(timedBlock);
-                        break;
-                    case ProviderToolCallEvent tc:
-                        yield return new AssistantToolCallEvent(tc.ToolCall);
-                        break;
-                    case ProviderResponseEndEvent end:
-                        // Replace thinking blocks in the final message with
-                        // timed variants so duration survives persistence.
-                        final = end.Message with
-                        {
-                            Content = [.. end.Message.Content
-                                .Select(c => c is ThinkingBlock tb && thinkingDurationMs is { } d
-                                    ? tb with { DurationMs = d }
-                                    : c)],
-                        };
-                        break;
-                    case ProviderErrorEvent err:
+                    case AssistantErrorEvent err:
                         lastError = err;
+                        break;
+                    default:
+                        // Every granular event folds into the running partial
+                        // via the canonicalizer. Yield a MessageUpdateEvent
+                        // carrying both the partial and the original raw
+                        // event so consumers (the projector) can dispatch on
+                        // the raw event type without the loop caring about
+                        // the distinction.
+                        partial = AssistantMessageBuilder.Apply(partial, ev);
+                        yield return new MessageUpdateEvent(partial, ev);
                         break;
                 }
             }
 
-            if (final is null)
+            if (!terminal)
             {
                 // The provider stream ended without a terminal response.
                 // Mirror tau's canonicalize_provider_stream: turn the failure
                 // into a terminal assistant message with StopReason=Error
                 // (persisted for diagnostics, excluded from future provider
                 // context by the providers' message conversion) instead of
-                // throwing — the turn ends gracefully via the Error branch
-                // below, and the session routes ErrorMessage to the UI.
+                // throwing.
                 var detail = lastError is not null
                     ? $" Last provider error: {lastError.Message}"
                     : " Stream ended without a final response.";
-                final = new AssistantMessage
+                partial = partial with
                 {
-                    Api = provider.GetType().Name,
-                    Provider = "agent",
-                    Model = model,
-                    Content = [],
                     StopReason = StopReasons.Error,
-                    ErrorMessage = $"Provider produced no ProviderResponseEndEvent.{detail}",
+                    ErrorMessage = $"Provider produced no AssistantDoneEvent.{detail}",
                 };
             }
 
-            messages.Add(final);
+            yield return new MessageEndEvent(partial);
+            messages.Add(partial);
+            newMessages.Add(partial);
 
             // If the provider signals an error or the request was aborted,
             // stop immediately — don't attempt tool execution.
-            if (final.StopReason is StopReasons.Error or StopReasons.Aborted)
+            if (partial.StopReason is StopReasons.Error or StopReasons.Aborted)
             {
-                yield return new TurnEndEvent(final);
+                yield return new TurnEndEvent(partial);
+                yield return new AgentEndEvent(newMessages);
                 yield break;
             }
 
-            if (final.ToolCalls.Count == 0)
+            if (partial.ToolCalls.Count == 0)
             {
-                yield return new TurnEndEvent(final);
+                yield return new TurnEndEvent(partial);
 
                 // Turn ended naturally — drain the queues one last time.
-                // Follow-up is checked first (it's the natural "more work"
-                // channel after a turn ends). If empty, steering gets one
-                // final check too, so a message enqueued after the turn
-                // ended is still picked up before we give up.
                 if (getFollowUpMessages is { } getFollowUp)
                 {
                     var followUp = getFollowUp();
                     if (followUp.Count > 0)
                     {
-                        foreach (var m in followUp) messages.Add(m);
+                        foreach (var m in followUp)
+                        {
+                            messages.Add(m);
+                            newMessages.Add(m);
+                            yield return new MessageStartEvent(m);
+                            yield return new MessageEndEvent(m);
+                        }
                         continue;
                     }
                 }
 
-                if (getSteeringMessages is { } getSteeringFinal)
-                {
-                    var steeringFinal = getSteeringFinal();
-                    if (steeringFinal.Count > 0)
-                    {
-                        foreach (var m in steeringFinal) messages.Add(m);
-                        continue;
-                    }
-                }
-
+                yield return new AgentEndEvent(newMessages);
                 yield break;
             }
 
-            foreach (var call in final.ToolCalls)
+            var toolResults = new List<ToolResultMessage>(partial.ToolCalls.Count);
+            foreach (var call in partial.ToolCalls)
             {
-                yield return new ToolExecutionStartEvent(call.Id, call.Name);
+                yield return new ToolExecutionStartEvent(call.Id, call.Name, call.Arguments);
 
                 var result = await ExecuteToolSafelyAsync(
                     toolByName, call.Name, call.Id, call.Arguments, cancellationToken);
+
+                yield return new ToolExecutionEndEvent(
+                    call.Id, call.Name, result, IsError: result.IsError);
 
                 var toolResultMessage = new ToolResultMessage
                 {
@@ -237,9 +243,14 @@ public static class AgentLoop
                     IsError = result.IsError,
                 };
                 messages.Add(toolResultMessage);
+                newMessages.Add(toolResultMessage);
+                toolResults.Add(toolResultMessage);
 
-                yield return new ToolExecutionEndEvent(call, result);
+                yield return new MessageStartEvent(toolResultMessage);
+                yield return new MessageEndEvent(toolResultMessage);
             }
+
+            yield return new TurnEndEvent(partial, toolResults);
         }
     }
 

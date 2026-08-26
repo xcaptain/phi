@@ -891,7 +891,7 @@ public sealed class Session : ISession
 
             if (ev is TurnEndEvent te)
             {
-                lastAssistant = te.FinalMessage;
+                lastAssistant = te.Message;
                 UpdateState(s => s with
                 {
                     Messages = [.. harness.Messages],
@@ -900,12 +900,12 @@ public sealed class Session : ISession
                         SessionStatsCalculator.Calculate(harness.Messages),
                         _accumulatedSummaryUsage),
                     ContextUsedTokens = EstimateContextUsage(harness.Messages),
-                    // Terminal provider failures arrive as a normal
-                    // TurnEndEvent carrying StopReason=Error (the loop no
-                    // longer throws) — surface ErrorMessage so the status
+                    // Terminal provider failures (and user-cancel aborts) arrive
+                    // as a normal TurnEndEvent carrying StopReason=Error /
+                    // StopReason=Aborted — surface ErrorMessage so the status
                     // router can classify and display it.
-                    LastError = te.FinalMessage.StopReason == StopReasons.Error
-                        ? te.FinalMessage.ErrorMessage ?? te.FinalMessage.Text
+                    LastError = te.Message.StopReason is StopReasons.Error or StopReasons.Aborted
+                        ? te.Message.ErrorMessage ?? te.Message.Text
                         : s.LastError,
                 });
             }
@@ -1006,7 +1006,7 @@ public sealed class Session : ISession
     private static Usage AddUsage(Usage a, Usage b)
     {
         // Defensive: a null Usage carries no usage; b may be null if the
-        // provider never emitted ProviderResponseEndEvent with usage.
+        // provider never emitted AssistantDoneEvent with usage.
         if (b is null) return a;
         return new Usage
         {
@@ -1035,7 +1035,7 @@ public sealed class Session : ISession
             await foreach (var ev in _provider!.StreamResponseAsync(
                 _runtimeModel, "You write concise session names.", msgs, [], default))
             {
-                if (ev is ProviderTextDeltaEvent t) name += t.Delta;
+                if (ev is TextDeltaEvent t) name += t.Delta;
             }
         }
         catch

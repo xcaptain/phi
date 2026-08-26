@@ -116,7 +116,7 @@ public class HarnessInterruptedToolTests
         // and end the session normally — never re-throwing to the caller.
         var fake = new FakePhiProvider(
         [
-            [new ProviderTextDeltaEvent("hel")],
+            [new TextDeltaEvent("hel")],
         ]);
         var harness = new Harness(fake, Array.Empty<Tool>(), "test");
 
@@ -129,9 +129,9 @@ public class HarnessInterruptedToolTests
             events.Add(ev);
         }
 
-        var errors = events.OfType<HarnessErrorEvent>().ToList();
-        await Assert.That(errors.Count).IsEqualTo(1);
-        await Assert.That(errors[0].Message).IsEqualTo("interrupted");
+        var turnEnd = events.OfType<TurnEndEvent>().Single();
+        await Assert.That(turnEnd.Message.StopReason).IsEqualTo(StopReasons.Aborted);
+        await Assert.That(turnEnd.Message.ErrorMessage).IsEqualTo("interrupted by user");
 
         // User prompt still landed in messages even though the turn aborted
         // at the provider boundary — the caller can resume by inspecting
@@ -179,7 +179,7 @@ public class HarnessInterruptedToolTests
         var toolCall = MakeToolCall("c1");
         var fake = new FakePhiProvider(
         [
-            [new ProviderTextDeltaEvent("x")],
+            [new TextDeltaEvent("x")],
         ]);
         var harness = new Harness(fake, Array.Empty<Tool>(), "test");
         harness.AppendMessage(new AssistantMessage
@@ -197,9 +197,9 @@ public class HarnessInterruptedToolTests
             events.Add(ev);
         }
 
-        var errors = events.OfType<HarnessErrorEvent>().ToList();
-        await Assert.That(errors.Count).IsEqualTo(1);
-        await Assert.That(errors[0].Message).Contains("1 tool call");
+        var turnEnd = events.OfType<TurnEndEvent>().Single();
+        await Assert.That(turnEnd.Message.StopReason).IsEqualTo(StopReasons.Aborted);
+        await Assert.That(turnEnd.Message.ErrorMessage).IsEqualTo("interrupted by user");
 
         var result = harness.Messages.OfType<ToolResultMessage>().Single();
         await Assert.That(result.ToolCallId).IsEqualTo("c1");
@@ -207,14 +207,14 @@ public class HarnessInterruptedToolTests
     }
 
     [Test]
-    public async Task RunAsync_CancellationWithNoInterruptedTools_YieldsGenericInterruptedMessage()
+    public async Task RunAsync_CancellationWithNoInterruptedTools_YieldsAbortedTurnEnd()
     {
         // Cancel during text streaming — no tool was in flight, so the
         // placeholders list is empty. We should still surface the cancel
-        // as a HarnessErrorEvent for the UI to render.
+        // as a StopReason=Aborted AssistantMessage via TurnEndEvent.
         var fake = new FakePhiProvider(
         [
-            new ProviderEvent[] { new ProviderTextDeltaEvent("hel") },
+            new ProviderEvent[] { new TextDeltaEvent("hel") },
         ]);
 
         var harness = new Harness(fake, Array.Empty<Tool>(), "test");
@@ -228,8 +228,8 @@ public class HarnessInterruptedToolTests
             events.Add(ev);
         }
 
-        await Assert.That(events.OfType<HarnessErrorEvent>().Count()).IsEqualTo(1);
-        await Assert.That(events.OfType<HarnessErrorEvent>().Single().Message)
-            .IsEqualTo("interrupted");
+        var turnEnd = events.OfType<TurnEndEvent>().Single();
+        await Assert.That(turnEnd.Message.StopReason).IsEqualTo(StopReasons.Aborted);
+        await Assert.That(turnEnd.Message.ErrorMessage).IsEqualTo("interrupted by user");
     }
 }

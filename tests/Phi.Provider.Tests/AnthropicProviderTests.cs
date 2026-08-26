@@ -30,11 +30,14 @@ public class AnthropicProviderTests
             events.Add(ev);
         }
 
-        var text = string.Concat(events.OfType<ProviderTextDeltaEvent>().Select(e => e.Delta));
+        var text = string.Concat(
+            events.OfType<TextDeltaEvent>()
+                .Select(t => t.Delta));
         await Assert.That(text).IsEqualTo("Hello! How can I help you today?");
 
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
-        await Assert.That(end.Message.Text).IsEqualTo("Hello! How can I help you today?");
+        var end = events.OfType<AssistantDoneEvent>().Single();
+        await Assert.That(string.Concat(events.OfType<TextDeltaEvent>().Select(t => t.Delta)))
+            .IsEqualTo("Hello! How can I help you today?");
         await Assert.That(end.Message.Model).IsEqualTo("claude-sonnet-4-5");
         await Assert.That(end.Message.Provider).IsEqualTo("anthropic");
         await Assert.That(end.Message.Api).IsEqualTo("anthropic-messages");
@@ -57,7 +60,7 @@ public class AnthropicProviderTests
             events.Add(ev);
         }
 
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
+        var end = events.OfType<AssistantDoneEvent>().Single();
         await Assert.That(end.Message.Usage.Input).IsEqualTo(15);
         await Assert.That(end.Message.Usage.Output).IsEqualTo(15);
     }
@@ -141,8 +144,8 @@ public class AnthropicProviderTests
             events.Add(ev);
         }
 
-        await Assert.That(events.OfType<ProviderTextDeltaEvent>().Count()).IsEqualTo(0);
-        var end = events.OfType<ProviderResponseEndEvent>().Single();
+        await Assert.That(events.OfType<TextDeltaEvent>()).IsEmpty();
+        var end = events.OfType<AssistantDoneEvent>().Single();
         await Assert.That(end.Message.Text).IsEqualTo("");
         await Assert.That(end.FinishReason).IsEqualTo(StopReasons.Stop);
     }

@@ -5,23 +5,23 @@ public class ProviderEventTests
     [Test]
     public async Task TextDelta_KindIsTextDelta()
     {
-        var ev = new ProviderTextDeltaEvent("hi");
+        var ev = new TextDeltaEvent("hi");
 
         await Assert.That(ev.Kind).IsEqualTo("TextDelta");
     }
 
     [Test]
-    public async Task ThinkingStart_KindIsThinkingStart()
+    public async Task AssistantStart_KindIsStart()
     {
-        var ev = new ProviderThinkingStartEvent();
+        var ev = new AssistantStartEvent();
 
-        await Assert.That(ev.Kind).IsEqualTo("ThinkingStart");
+        await Assert.That(ev.Kind).IsEqualTo("Start");
     }
 
     [Test]
     public async Task ThinkingDelta_KindIsThinkingDelta()
     {
-        var ev = new ProviderThinkingDeltaEvent("reasoning about...");
+        var ev = new ThinkingDeltaEvent("reasoning about...");
 
         await Assert.That(ev.Kind).IsEqualTo("ThinkingDelta");
         await Assert.That(ev.Delta).IsEqualTo("reasoning about...");
@@ -31,7 +31,7 @@ public class ProviderEventTests
     public async Task ThinkingEnd_KindIsThinkingEnd()
     {
         var block = new ThinkingBlock("done");
-        var ev = new ProviderThinkingEndEvent(block);
+        var ev = new ThinkingEndEvent(block);
 
         await Assert.That(ev.Kind).IsEqualTo("ThinkingEnd");
         await Assert.That(ev.Block.Thinking).IsEqualTo("done");
@@ -40,23 +40,23 @@ public class ProviderEventTests
     [Test]
     public async Task ToolCall_KindIsToolCall()
     {
-        var ev = new ProviderToolCallEvent(new ToolCall("c1", "bash"));
+        var ev = new ToolCallEvent(new ToolCall("c1", "bash"));
 
         await Assert.That(ev.Kind).IsEqualTo("ToolCall");
     }
 
     [Test]
-    public async Task ResponseEnd_KindIsResponseEnd()
+    public async Task Done_KindIsDone()
     {
-        var ev = new ProviderResponseEndEvent(new AssistantMessage());
+        var ev = new AssistantDoneEvent(new AssistantMessage());
 
-        await Assert.That(ev.Kind).IsEqualTo("ResponseEnd");
+        await Assert.That(ev.Kind).IsEqualTo("Done");
     }
 
     [Test]
     public async Task Error_KindIsError()
     {
-        var ev = new ProviderErrorEvent("boom");
+        var ev = new AssistantErrorEvent("boom");
 
         await Assert.That(ev.Kind).IsEqualTo("Error");
     }

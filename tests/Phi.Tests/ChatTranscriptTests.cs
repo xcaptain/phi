@@ -55,41 +55,6 @@ public class ChatTranscriptTests
     }
 
     [Test]
-    public async Task FormatThinkingDuration_SubSecond_AsMilliseconds()
-    {
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromMilliseconds(0)))
-            .IsEqualTo("0ms");
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromMilliseconds(500)))
-            .IsEqualTo("500ms");
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromMilliseconds(999)))
-            .IsEqualTo("999ms");
-    }
-
-    [Test]
-    public async Task FormatThinkingDuration_SubMinute_AsSecondsWithDecimal()
-    {
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromSeconds(1)))
-            .IsEqualTo("1.0s");
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromMilliseconds(1500)))
-            .IsEqualTo("1.5s");
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromSeconds(45)))
-            .IsEqualTo("45.0s");
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromSeconds(59.9)))
-            .IsEqualTo("59.9s");
-    }
-
-    [Test]
-    public async Task FormatThinkingDuration_OverMinute_AsMinutesAndSeconds()
-    {
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromSeconds(60)))
-            .IsEqualTo("1m0s");
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromSeconds(125)))
-            .IsEqualTo("2m5s");
-        await Assert.That(ChatTranscript.FormatThinkingDuration(TimeSpan.FromMinutes(3) + TimeSpan.FromSeconds(42)))
-            .IsEqualTo("3m42s");
-    }
-
-    [Test]
     public async Task ReadToolCall_RendersSingleLine_NoPendingGroup()
     {
         // read results render as ONE Markup line (invocation + summary),
@@ -105,7 +70,8 @@ public class ChatTranscriptTests
         };
         var call = new ToolCall("c1", "read") { Arguments = args };
 
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new AssistantMessage(), new ToolCallEvent(call)));
 
         // Flow must contain exactly one item.
         var flow = transcript.Flow;
@@ -135,15 +101,17 @@ public class ChatTranscriptTests
         };
         var call = new ToolCall("c1", "read") { Arguments = args };
 
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new AssistantMessage(), new ToolCallEvent(call)));
         session.EmitHarnessEvent(new ToolExecutionEndEvent(
-            call,
+            call.Id, call.Name,
             new ToolResult(
                 [new TextBlock("file body")],
                 Details: Phi.Extensions.CodingPack.Tools.Details.ToolDetails.Node(
                     new Phi.Extensions.CodingPack.Tools.Details.ReadDetails(
                         "a.cs", Offset: 30, Limit: 18,
-                        LineCount: 18, TotalLineCount: 82, ByteCount: 2048)))));
+                        LineCount: 18, TotalLineCount: 82, ByteCount: 2048))),
+            IsError: false));
 
         var toolCards = (System.Collections.IDictionary)
             typeof(ChatTranscript)
@@ -175,7 +143,8 @@ public class ChatTranscriptTests
             Arguments = new System.Text.Json.Nodes.JsonObject { ["path"] = "a.cs" },
         };
 
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new AssistantMessage(), new ToolCallEvent(call)));
 
         var toolCards = (System.Collections.IDictionary)
             typeof(ChatTranscript)
@@ -187,7 +156,7 @@ public class ChatTranscriptTests
 
         // Complete the edit with an EditDetails result.
         session.EmitHarnessEvent(new ToolExecutionEndEvent(
-            call,
+            call.Id, call.Name,
             new ToolResult(
                 [new TextBlock("ok")],
                 Details: Phi.Extensions.CodingPack.Tools.Details.ToolDetails.Node(
@@ -195,7 +164,8 @@ public class ChatTranscriptTests
                         "a.cs",
                         [new Phi.Extensions.CodingPack.Tools.Details.EditOpDetails("old line", "new line")],
                         Diff: "",
-                        Patch: "")))));
+                        Patch: ""))),
+            IsError: false));
 
         // Body state now holds the diff Grid.
         await Assert.That(card.BodyState.Value).IsTypeOf<XenoAtom.Terminal.UI.Controls.Grid>();

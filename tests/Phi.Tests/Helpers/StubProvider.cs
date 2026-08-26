@@ -24,8 +24,8 @@ public sealed class StubProvider(Func<int, CancellationToken, IAsyncEnumerable<P
     /// <summary>A complete single-response text turn.</summary>
     public static ProviderEvent[] TextTurn(string text) =>
     [
-        new ProviderTextDeltaEvent(text),
-        new ProviderResponseEndEvent(new AssistantMessage
+        new TextDeltaEvent(text),
+        new AssistantDoneEvent(new AssistantMessage
         {
             Content = [new TextBlock(text)],
             StopReason = StopReasons.Stop,
@@ -67,6 +67,9 @@ public sealed class StubProvider(Func<int, CancellationToken, IAsyncEnumerable<P
         IEnumerable<ProviderEvent> events,
         [EnumeratorCancellation] CancellationToken ct)
     {
+        // Yield events verbatim. The agent loop's canonicalizer
+        // (AssistantMessageBuilder.Apply) accumulates the running partial
+        // from each granular event — the test stub is just a wire source.
         foreach (var ev in events)
         {
             ct.ThrowIfCancellationRequested();

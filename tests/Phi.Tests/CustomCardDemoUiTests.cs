@@ -97,7 +97,8 @@ public class CustomCardDemoUiTests : IDisposable
         using var projector = new Phi.Chat.ChatTranscriptProjector(session, rt);
 
         var call = new ToolCall("d1", "demo") { Arguments = [] };
-        session.EmitHarnessEvent(new AssistantToolCallEvent(call));
+        session.EmitHarnessEvent(new MessageUpdateEvent(
+            new AssistantMessage(), new ToolCallEvent(call)));
 
         var line = projector.Current.OfType<Phi.Chat.ToolCallLine>().Single();
         await Assert.That(line.Descriptor.IconKey).IsEqualTo("🎨");

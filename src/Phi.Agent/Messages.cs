@@ -24,12 +24,6 @@ public sealed record ThinkingBlock(string Thinking) : ContentBlock
 {
     public string? ThinkingSignature { get; init; }
     public bool Redacted { get; init; }
-
-    /// <summary>Thinking wall-clock duration in milliseconds, set by the
-    /// agent loop when the provider streams thinking blocks.
-    /// Persisted and restored so the UI can display a consistent
-    /// <c>"Thought 2.3s"</c> label on resume.</summary>
-    public double? DurationMs { get; init; }
 }
 
 public sealed record ToolCall(string Id, string Name) : ContentBlock
@@ -98,8 +92,10 @@ public sealed class UserContentConverter : JsonConverter<UserContent>
 
 public record UserMessage : IAgentMessage
 {
+    // Fixed per type (tau's Literal["user"]); get-only so it can never be
+    // assigned a wrong value — STJ writes it, never sets it.
     [JsonPropertyName("role")]
-    public string Role { get; init; } = "user";
+    public string Role => "user";
 
     [Required]
     public UserContent Content { get; init; } = "";
@@ -162,7 +158,7 @@ public sealed record AssistantMessageDiagnostic
 public sealed record AssistantMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
-    public string Role { get; init; } = "assistant";
+    public string Role => "assistant";
 
     public IReadOnlyList<ContentBlock> Content { get; init; } = [];
 
@@ -170,6 +166,7 @@ public sealed record AssistantMessage : IAgentMessage
     public string Provider { get; init; } = "unknown";
     public string Model { get; init; } = "unknown";
     public string? ResponseModel { get; init; }
+    public string? ResponseProvider { get; init; }
     public string? ResponseId { get; init; }
     public IReadOnlyList<AssistantMessageDiagnostic>? Diagnostics { get; init; }
     public Usage Usage { get; init; } = new();
@@ -190,7 +187,7 @@ public sealed record AssistantMessage : IAgentMessage
 public sealed record ToolResultMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
-    public string Role { get; init; } = "toolResult";
+    public string Role => "toolResult";
 
     public string ToolCallId { get; init; } = "";
     public string ToolName { get; init; } = "";
@@ -212,7 +209,7 @@ public sealed record ToolResultMessage : IAgentMessage
 public sealed record BashExecutionMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
-    public string Role { get; init; } = "bashExecution";
+    public string Role => "bashExecution";
 
     public string Command { get; init; } = "";
     public string Output { get; init; } = "";
@@ -229,7 +226,7 @@ public sealed record BashExecutionMessage : IAgentMessage
 public sealed record CustomMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
-    public string Role { get; init; } = "custom";
+    public string Role => "custom";
 
     public string CustomType { get; init; } = "";
 
@@ -247,7 +244,7 @@ public sealed record CustomMessage : IAgentMessage
 public sealed record BranchSummaryMessage : IAgentMessage
 {
     [JsonPropertyName("role")]
-    public string Role { get; init; } = "branchSummary";
+    public string Role => "branchSummary";
 
     public string Summary { get; init; } = "";
     public string FromId { get; init; } = "";

@@ -152,9 +152,6 @@ public sealed class PhiStatusBar
                 // indicator still toggles here for in-flight feedback.
                 Running.Value = false;
                 break;
-            case HarnessErrorEvent:
-                Running.Value = false;
-                break;
         }
     }
 

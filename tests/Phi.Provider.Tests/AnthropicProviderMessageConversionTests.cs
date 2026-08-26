@@ -188,7 +188,7 @@ public class AnthropicProviderMessageConversionTests
                 new AssistantMessage
                 {
                     StopReason = StopReasons.Error,
-                    ErrorMessage = "Provider produced no ProviderResponseEndEvent.",
+                    ErrorMessage = "Provider produced no AssistantDoneEvent.",
                 },
                 new UserMessage { Content = "again" },
             ],
