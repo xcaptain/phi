@@ -19,6 +19,21 @@ namespace Phi.Tui.Components;
 /// Collapses to nothing when no provider matches. Same structure as the
 /// upstream <c>PromptEditorDemo</c> suggestion bar. Phase 1 assumes the caret
 /// sits at the end of the input.
+/// <para>
+/// Every keystroke re-runs the builder (XenoAtom's dependency tracking fires
+/// on any change to <see cref="Text"/>), so the builder's fast path skips the
+/// provider pipeline whenever the buffer doesn't start with <c>/</c> on
+/// the first line — the common case when the user types a normal prompt,
+/// a mid-sentence slash like <c>"please /exit"</c>, or a command typed on
+/// a continuation line like <c>"hello\n/exit"</c>. The check walks at
+/// most the first-line prefix of the buffer, <c>O(caret)</c>, vs. the
+/// per-provider work which allocates a candidate list and walks the
+/// full command catalog. Both built-in providers gate on the same
+/// "buffer starts with <c>/</c> on the first line" rule (see
+/// <see cref="SuggestionTrigger.StartsWithSlashOnFirstLine"/>), so the
+/// short-circuit is sound for the current provider set and for any
+/// provider that follows the same contract.
+/// </para>
 /// </summary>
 public sealed class SuggestionStrip
 {
@@ -63,6 +78,24 @@ public sealed class SuggestionStrip
     private VStack? Build()
     {
         var text = Text.Value ?? "";
+
+        // Fast path: the buffer doesn't start with '/' on the first line
+        // (e.g. the user is typing a normal prompt, a mid-sentence '/'
+        // like "please /exit", or has crossed onto a continuation line).
+        // Skip the provider pipeline entirely — no foreach over the
+        // command catalog, no candidate list allocation. The built-in
+        // providers (SlashCommandProvider, SkillSuggestionProvider) gate
+        // on the same first-line-slash rule, so any provider following
+        // that contract will also reject this input. The check walks at
+        // most the prefix up to the caret (bounded by the first newline,
+        // which is at most the editor's first line): O(caret), typically
+        // under a few dozen chars.
+        CurrentMatch = null;
+        if (!IsActiveSlashOnFirstLine(text))
+        {
+            return null;
+        }
+
         var match = ComputeMatch(text, text.Length);
         CurrentMatch = match;
         if (match is null || match.Items.Count == 0)
@@ -112,4 +145,18 @@ public sealed class SuggestionStrip
 
     private static string Escape(string text) =>
         text.Replace("[", "\\[").Replace("]", "\\]");
+
+    /// <summary>
+    /// Returns <c>true</c> when the buffer starts with <c>/</c> on the
+    /// first line — the strict trigger both built-in providers gate on.
+    /// A slash buried mid-sentence (<c>"please /exit"</c>), a leading
+    /// whitespace (<c>"  /exit"</c>), or a slash on a continuation line
+    /// (<c>"hello\n/exit"</c>) all fail to qualify; only a buffer whose
+    /// very first character is <c>/</c> <em>and</em> whose caret has not
+    /// yet crossed a newline triggers the provider pipeline. Delegates to
+    /// <see cref="SuggestionTrigger.StartsWithSlashOnFirstLine"/> so the
+    /// strip and the providers can never drift apart.
+    /// </summary>
+    internal static bool IsActiveSlashOnFirstLine(string text) =>
+        SuggestionTrigger.StartsWithSlashOnFirstLine(text, text.Length);
 }

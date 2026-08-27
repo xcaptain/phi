@@ -49,19 +49,46 @@ public class SkillSuggestionProviderTests
     }
 
     [Test]
-    public async Task GetSuggestion_ReplacementSpan_CoversOnlyTheToken()
+    public async Task GetSuggestion_ReplacementSpan_CoversOnlyTheCommandToken()
     {
         var provider = Provider();
 
-        // "ask /skill:dot then more" — caret inside the skill token
-        var text = "ask /skill:dot then more";
+        // Once the line starts with '/skill', typing arguments after the
+        // command token keeps suggestions flowing — the replace span covers
+        // only the leading command token, not the trailing args.
+        var text = "/skill:dot then more";
         var caret = text.IndexOf("/skill:dot", StringComparison.Ordinal) + "/skill:dot".Length;
 
         var match = provider.GetSuggestion(text, caret);
 
         await Assert.That(match).IsNotNull();
-        // replace start points at the '/', replace length is the token length
-        await Assert.That(text[match!.ReplaceStart..].StartsWith("/skill:dot", StringComparison.Ordinal)).IsTrue();
+        await Assert.That(match!.ReplaceStart).IsEqualTo(0);
+        await Assert.That(match.ReplaceLength).IsEqualTo("/skill:dot".Length);
+    }
+
+    [Test]
+    public async Task GetSuggestion_MidSentence_ReturnsNull()
+    {
+        // Strict first-line rule: a slash buried mid-sentence must not
+        // surface the /skill completion.
+        var provider = Provider();
+        var text = "ask /skill:dot then more";
+        var caret = text.IndexOf("/skill:dot", StringComparison.Ordinal) + "/skill:dot".Length;
+
+        await Assert.That(provider.GetSuggestion(text, caret)).IsNull();
+    }
+
+    [Test]
+    public async Task GetSuggestion_OnContinuationLine_ReturnsNull()
+    {
+        // The buffer may be multi-line (the editor is 3-10 lines tall),
+        // but slash commands only fire on the very first line. Typing
+        // /skill on a continuation line is ordinary text.
+        var provider = Provider();
+
+        await Assert.That(provider.GetSuggestion("hello\n/skill", 12)).IsNull();
+        await Assert.That(provider.GetSuggestion("hello\n/skill:dot", 16)).IsNull();
+        await Assert.That(provider.GetSuggestion("/skill:dot\nmore", 16)).IsNull();
     }
 
     [Test]
