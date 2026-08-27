@@ -9,6 +9,7 @@
     <Project Path="src/Phi.Tui/Phi.Tui.csproj" />
     <Project Path="src/Phi.Avalonia/Phi.Avalonia.csproj" />
     <Project Path="src/Phi.Avalonia.Desktop/Phi.Avalonia.Desktop.csproj" />
+    <Project Path="src/Phi.Avalonia.Desktop2/Phi.Avalonia.Desktop2.csproj" />
   </Folder>
   <Folder Name="/extensions/">
     <Project Path="extensions/CodingPack/CodingPack.csproj" />
