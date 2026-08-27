@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
@@ -53,6 +54,12 @@ internal sealed class ExtensionLoadContext : AssemblyLoadContext
     /// default resolution take over. Returns <c>null</c> when not found so
     /// the runtime falls through to the host's assemblies.
     /// </summary>
+    [UnconditionalSuppressMessage("Trimming", "IL2026:AssemblyLoadContext.LoadFromAssemblyPath",
+        Justification = "Extension deps are runtime-supplied; the whole extension loading " +
+        "graph is preserved via RequiresUnreferencedCode at the composition root extension " +
+        "runtime factory delegates (see Program.cs). Cannot mark this override " +
+        "[RequiresUnreferencedCode] because AssemblyLoadContext.Load(AssemblyName) has no such " +
+        "annotation on the base — IL2046 would force exact-match.")]
     protected override Assembly? Load(AssemblyName assemblyName)
     {
         var candidate = ResolveManagedBundleAssemblyPath(assemblyName);

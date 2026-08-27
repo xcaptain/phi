@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PublishAot>true</PublishAot>
+    <IsAotCompatible>true</IsAotCompatible>
     <!-- Explicit assembly name so the produced dll (phi-runtime) doesn't
          collide with Phi.Tui's AssemblyName="phi". The csproj filename is
          Phi.csproj to match the public Phi.* namespace (IDE0130 happy); the

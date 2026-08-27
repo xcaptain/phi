@@ -3,31 +3,25 @@ using System.Diagnostics.CodeAnalysis;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Phi.Avalonia.Desktop2.ViewModels;
+using Phi.Avalonia.Desktop2.Views;
 
 namespace Phi.Avalonia.Desktop2;
 
 /// <summary>
 /// Given a view model, returns the corresponding view if possible.
 /// </summary>
-[RequiresUnreferencedCode(
-    "Default implementation of ViewLocator involves reflection which may be trimmed away.",
-    Url = "https://docs.avaloniaui.net/docs/concepts/view-locator")]
 public class ViewLocator : IDataTemplate
 {
-    public Control? Build(object? param)
+    public Control? Build(object? data)
     {
-        if (param is null)
-            return null;
+        if (data is null) return null;
 
-        var name = param.GetType().FullName!.Replace("ViewModel", "View", StringComparison.Ordinal);
-        var type = Type.GetType(name);
-
-        if (type != null)
+        // Strongly-typed mapping avoids runtime reflection
+        return data switch
         {
-            return (Control)Activator.CreateInstance(type)!;
-        }
-
-        return new TextBlock { Text = "Not Found: " + name };
+            MainViewModel => new MainWindow(),
+            _ => new TextBlock { Text = $"Not Found: {data.GetType().Name}" }
+        };
     }
 
     public bool Match(object? data)
@@ -35,3 +29,4 @@ public class ViewLocator : IDataTemplate
         return data is ViewModelBase;
     }
 }
+

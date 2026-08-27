@@ -12,6 +12,7 @@
     <!-- CA1710 — ExtensionLoadDiagnostic ends in "Diagnostic" by design
          (it's a structured load failure, not a generic exception). -->
     <NoWarn>$(NoWarn);CA1710</NoWarn>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup>

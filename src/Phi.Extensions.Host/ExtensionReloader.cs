@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace Phi.Extensions.Host;
 
 /// <summary>
@@ -30,6 +32,9 @@ internal sealed class ExtensionReloader
     /// disposed inside (its ALCs unloaded); the new one replaces it. The
     /// session is unchanged — only the extension set is rebuilt.
     /// </summary>
+    [RequiresUnreferencedCode(
+        "Reloads extensions via ExtensionRuntime.DiscoverAndLoad (reflective). " +
+        "Caller is the /reload slash command on the session's input thread.")]
     public ExtensionRuntime Reload()
     {
         // 1. Invalidate every generation so old PhiApi references throw.

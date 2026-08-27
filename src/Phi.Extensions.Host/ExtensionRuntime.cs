@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Phi.Agent;
 using Phi.Chat;
@@ -143,6 +144,9 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers, ISlas
     /// Failures are recorded in <see cref="LoadResults"/> but do not stop
     /// other extensions from loading.
     /// </summary>
+    [RequiresUnreferencedCode(
+        "Loads extension assemblies via ExtensionLoader.Load (reflective). " +
+        "Composition root calls this when wired up to ExtensionRuntimeFactory.")]
     public void DiscoverAndLoad(IEnumerable<string> assemblyPaths)
     {
         foreach (var path in assemblyPaths)
@@ -168,6 +172,10 @@ internal sealed class ExtensionRuntime : IDisposable, IExtensionRenderers, ISlas
     /// composition root, <see cref="ExtensionReloader"/>) can reuse them
     /// for the next reload without re-scanning.
     /// </summary>
+    [RequiresUnreferencedCode(
+        "Project-extension scan: gates paths via ProjectTrustGate, then loads each gated assembly " +
+        "via ExtensionLoader.Load (reflective). Composition root calls this from the async factory " +
+        "delegate during Phi.Session.LoadAsync.")]
     public async Task<IReadOnlyList<string>> DiscoverAndTrustProjectExtensionsAsync(string cwd)
     {
         var paths = Phi.ProjectExtensions.DiscoverAssemblyPaths(cwd);

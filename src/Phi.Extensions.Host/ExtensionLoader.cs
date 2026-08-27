@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 
 namespace Phi.Extensions.Host;
@@ -23,6 +24,11 @@ internal static class ExtensionLoader
     /// throws. The diagnostics carry enough context to point the user at
     /// the bad dll + reason without leaking internal stack traces.
     /// </exception>
+    [RequiresUnreferencedCode(
+        "Loads extension assemblies via reflection (AssemblyLoadContext.LoadFromAssemblyPath + " +
+        "Activator.CreateInstance). Extension assemblies are runtime-supplied; types are not known at " +
+        "trim/AOT time. Callers must preserve the entire extension loading path. " +
+        "To run extensions under AOT, replace with a source-generated extension registry.")]
     public static LoadedExtension Load(string assemblyPath)
     {
         if (!File.Exists(assemblyPath))
@@ -77,6 +83,9 @@ internal static class ExtensionLoader
             DeclaredCapabilities: attribute.Capabilities);
     }
 
+    [RequiresUnreferencedCode(
+        "Enumerates [PhiExtension] types via Assembly.GetTypes(). Only called from Load, which is " +
+        "already marked RequiresUnreferencedCode.")]
     private static (Type type, PhiExtensionAttribute attr)? FindEntryType(
         Assembly assembly, string assemblyPath)
     {

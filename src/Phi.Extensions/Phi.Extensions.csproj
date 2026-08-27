@@ -17,6 +17,7 @@
          CA1716 — On(...) (doc name) vs VB.NET reserved keyword
        All three are stylistic; the doc is the source of truth. -->
     <NoWarn>$(NoWarn);CA1710;CA1715;CA1716</NoWarn>
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
 
   <ItemGroup>

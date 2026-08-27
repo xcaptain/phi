@@ -5,9 +5,14 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <RootNamespace>Phi.Avalonia.Desktop</RootNamespace>
-    <AssemblyName>phi-avalonia</AssemblyName>
+    <RootNamespace>Phi.Avalonia.Desktop2</RootNamespace>
+    <AssemblyName>phi-avalonia2</AssemblyName>
+    
+    <!-- Native AOT Deployment Settings -->
     <PublishAot>true</PublishAot>
+    <TrimMode>link</TrimMode>
+    <IsTrimmable>true</IsTrimmable>
+    
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
