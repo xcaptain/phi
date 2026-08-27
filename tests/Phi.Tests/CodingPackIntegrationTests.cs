@@ -14,21 +14,28 @@ namespace Phi.Tests;
 /// session's harness — proving the "default coding capability ships as an
 /// extension" architecture works without breaking the agent loop.
 /// </summary>
-[NotInParallel("coding-pack")]
+[NotInParallel("session-tests")]
 public class CodingPackIntegrationTests : IDisposable
 {
     private readonly string _cwd;
+    private readonly string _phiHome;
+    private readonly string _previousPhiHome;
 
     public CodingPackIntegrationTests()
     {
         _cwd = Path.Combine(Path.GetTempPath(), $"phi-codingpack-{Guid.NewGuid():N}");
+        _phiHome = Path.Combine(Path.GetTempPath(), $"phi-codingpack-home-{Guid.NewGuid():N}");
+        _previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = _phiHome;
         Directory.CreateDirectory(_cwd);
     }
 
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+        SessionPaths.PhiHome = _previousPhiHome;
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
+        if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
     }
 
     private static SessionEnvironment BuildEnv() => new()

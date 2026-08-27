@@ -1,5 +1,6 @@
 using Phi.Agent;
 using Phi.Chat;
+using Phi.Extensions.Host.Tests.Helpers;
 using Phi.Prompts;
 using Phi.Providers;
 using Phi.Provider;
@@ -19,6 +20,7 @@ namespace Phi.Extensions.Host.Tests;
 public class TranscriptLineSubmissionTests : IDisposable
 {
     private readonly string _cwd;
+    private readonly TestPhiHome.Scope _phiHome = new();
 
     public TranscriptLineSubmissionTests()
     {
@@ -29,6 +31,7 @@ public class TranscriptLineSubmissionTests : IDisposable
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+        _phiHome.Dispose();
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
     }
 

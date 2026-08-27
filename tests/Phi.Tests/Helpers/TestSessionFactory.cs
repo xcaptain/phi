@@ -18,6 +18,45 @@ namespace Phi.Tests.Helpers;
 internal static class TestSessionFactory
 {
     /// <summary>
+    /// Per-fixture sandbox for <see cref="SessionPaths.PhiHome"/> so unit
+    /// tests don't pollute the user's real <c>~/.phi</c> with
+    /// <c>t-phi-codingpack-*</c> etc. when they call
+    /// <c>Session.LoadAsync</c> against a temp cwd. Fixtures are expected
+    /// to seed this in their constructor (see
+    /// <c>SessionSwitchTests</c> / <c>SessionTests</c> for the canonical
+    /// pattern) and clear it in <c>Dispose</c>. Tests that forget to seed
+    /// get an auto-generated temp phi home instead of leaking into
+    /// <c>~/.phi</c> — a safety net, not a substitute for the fixture
+    /// owning the lifecycle.
+    /// </summary>
+    internal static readonly AsyncLocal<string?> SandboxPhiHome = new();
+
+    private static string ResolvePhiHomeFor(string? perCall)
+    {
+        var target = perCall ?? SandboxPhiHome.Value;
+        var current = SessionPaths.PhiHome;
+        var userHome = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".phi");
+        if (target is null)
+        {
+            if (current is not null && !PathEquals(current, userHome))
+            {
+                return current;
+            }
+            target = Path.Combine(Path.GetTempPath(), "phi-home-" + Guid.NewGuid().ToString("N"));
+        }
+        SessionPaths.PhiHome = target;
+        return target;
+    }
+
+    private static bool PathEquals(string a, string b) =>
+        string.Equals(
+            Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar),
+            Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar),
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+    /// <summary>
     /// Builds a fresh <see cref="Session"/> in <paramref name="cwd"/> with
     /// the given provider wired in. The session can submit prompts and
     /// run a turn immediately. Persistence is lazy: nothing is on disk
@@ -29,6 +68,7 @@ internal static class TestSessionFactory
         string model = "stub-model",
         string providerName = "test")
     {
+        ResolvePhiHomeFor(perCall: null);
         var env = BuildEnv(provider);
         return await Session.LoadAsync(cwd, env, providerName, model);
     }
@@ -47,6 +87,7 @@ internal static class TestSessionFactory
         string id,
         Func<IPhiProvider, SessionEnvironment>? envFactory = null)
     {
+        ResolvePhiHomeFor(perCall: null);
         var env = envFactory?.Invoke(provider) ?? BuildEnv(provider);
         return await Session.LoadAsync(cwd, env, providerName: "", model: "", resumeId: id);
     }

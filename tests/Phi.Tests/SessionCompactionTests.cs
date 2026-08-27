@@ -3,7 +3,7 @@ using Phi.Tests.Helpers;
 
 namespace Phi.Tests;
 
-[NotInParallel(["session-tests", TuiTestGroups.BindingManager])]
+[NotInParallel(new[] { "session-tests", TuiTestGroups.BindingManager })]
 public class SessionCompactionTests : IDisposable
 {
     private readonly string _cwd;

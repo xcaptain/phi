@@ -12,19 +12,29 @@ namespace Phi.Tests;
 /// <c>Phi.Extensions.Host.PhiApi</c> implementation in Sprint 1 has
 /// a stable source to forward from.
 /// </summary>
+[NotInParallel("session-tests")]
 public class SessionMetadataTests : IDisposable
 {
     private readonly string _cwd = Path.Combine(Path.GetTempPath(), $"phi-meta-{Guid.NewGuid():N}");
+    private readonly string _phiHome;
+    private readonly string _previousPhiHome;
 
     public SessionMetadataTests()
     {
+        _phiHome = Path.Combine(Path.GetTempPath(), $"phi-meta-home-{Guid.NewGuid():N}");
+        _previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = _phiHome;
+        TestSessionFactory.SandboxPhiHome.Value = _phiHome;
         Directory.CreateDirectory(_cwd);
     }
 
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+        TestSessionFactory.SandboxPhiHome.Value = null;
+        SessionPaths.PhiHome = _previousPhiHome;
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
+        if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
     }
 
     [Test]

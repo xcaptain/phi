@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Phi.Agent;
+using Phi.Extensions.Host.Tests.Helpers;
 using Phi.Prompts;
 using Phi.Providers;
 using Phi.Provider;
@@ -16,6 +17,7 @@ namespace Phi.Extensions.Host.Tests;
 public class PermissionGateIntegrationTests : IDisposable
 {
     private readonly string _cwd;
+    private readonly TestPhiHome.Scope _phiHome = new();
     private readonly string _gatePath;
 
     public PermissionGateIntegrationTests()
@@ -34,6 +36,7 @@ public class PermissionGateIntegrationTests : IDisposable
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+        _phiHome.Dispose();
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
     }
 

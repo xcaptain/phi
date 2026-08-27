@@ -12,11 +12,33 @@ namespace Phi.Avalonia.Tests;
 /// exposing navigation through the sessions list.
 /// </summary>
 [NotInParallel("Avalonia-UI")]
-public class ShellViewTests
+public class ShellViewTests : IDisposable
 {
-    private static (ActiveSession active, ShellView shell) CreateShell(string cwd)
+    private readonly string _phiHome;
+    private readonly string _previousPhiHome;
+
+    public ShellViewTests()
+    {
+        // Class-level sandbox so tests that don't override PhiHome (e.g.
+        // InitialState_ShowsChat, NavModel_Rebuild_AfterSessionPersists)
+        // don't pollute the user's real ~/.phi when they call
+        // CreateShell(Path.GetTempPath()).
+        _phiHome = Path.Combine(Path.GetTempPath(), $"phi-av-shell-{Guid.NewGuid():N}");
+        _previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = _phiHome;
+    }
+
+    public void Dispose()
+    {
+        GC.SuppressFinalize(this);
+        SessionPaths.PhiHome = _previousPhiHome;
+        if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
+    }
+
+    private (ActiveSession active, ShellView shell) CreateShell(string cwd)
     {
         AvaloniaTestHost.EnsureInitialized();
+        _ = _phiHome; // silence CA1822: class-level sandbox owns PhiHome
 
         var stub = new StubProvider((_, _) => Empty());
         var resolver = new MapResolver(stub);

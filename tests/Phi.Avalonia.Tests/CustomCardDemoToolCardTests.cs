@@ -17,12 +17,17 @@ namespace Phi.Avalonia.Tests;
 public class CustomCardDemoToolCardTests : IDisposable
 {
     private readonly string _cwd;
+    private readonly string _phiHome;
+    private readonly string _previousPhiHome;
     private readonly string _demoPath;
 
     public CustomCardDemoToolCardTests()
     {
         AvaloniaTestHost.EnsureInitialized();
         _cwd = Path.Combine(Path.GetTempPath(), $"phi-demo-avalonia-{Guid.NewGuid():N}");
+        _phiHome = Path.Combine(Path.GetTempPath(), $"phi-demo-avalonia-home-{Guid.NewGuid():N}");
+        _previousPhiHome = SessionPaths.PhiHome;
+        SessionPaths.PhiHome = _phiHome;
         Directory.CreateDirectory(_cwd);
 
         var candidates = new[]
@@ -37,7 +42,9 @@ public class CustomCardDemoToolCardTests : IDisposable
     public void Dispose()
     {
         GC.SuppressFinalize(this);
+        SessionPaths.PhiHome = _previousPhiHome;
         if (Directory.Exists(_cwd)) Directory.Delete(_cwd, recursive: true);
+        if (Directory.Exists(_phiHome)) Directory.Delete(_phiHome, recursive: true);
     }
 
     private static SessionEnvironment BuildEnv() => new()
