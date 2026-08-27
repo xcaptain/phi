@@ -2,14 +2,28 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="Phi.Avalonia.Desktop2.App"
              xmlns:local="using:Phi.Avalonia.Desktop2"
+             xmlns:materialIcons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
              RequestedThemeVariant="Default">
-             <!-- "Default" ThemeVariant follows system theme variant. "Dark" or "Light" are other available options. -->
+  <!-- "Light" ThemeVariant forces FluentTheme light variant for UI-1.
+       v2 polish: introduce a Theme.axaml with both Light/Dark ResourceDictionary
+       entries + bump back to "Default" so the app follows macOS system
+       preference. For now, light-everywhere while we're building chrome. -->
 
-    <Application.DataTemplates>
-        <local:ViewLocator />
-    </Application.DataTemplates>
+  <Application.DataTemplates>
+    <!-- Strong-typed VM → View (see ViewLocator.cs). The original Avalonia
+         template's DataTemplate uses reflection, which NativeAOT can't trim;
+         our ViewLocator is a closed switch on VM types. -->
+    <local:ViewLocator />
+  </Application.DataTemplates>
 
-    <Application.Styles>
-        <FluentTheme />
-    </Application.Styles>
+  <Application.Styles>
+    <FluentTheme />
+    <!-- Markdown rendering for transcript assistant text. Must load via XAML
+         (not AvaloniaXamlLoader.Load(stream)) for NativeAOT — AXML is the
+         precompiled binary form, loaded from !AvaloniaResources at runtime. -->
+    <StyleInclude Source="avares://MarkView.Avalonia/Themes/MarkdownTheme.axaml" />
+    <!-- MaterialIcon is a templated control; without these styles the icons
+         render as empty boxes (per the package README 2.0+). -->
+    <materialIcons:MaterialIconStyles />
+  </Application.Styles>
 </Application>

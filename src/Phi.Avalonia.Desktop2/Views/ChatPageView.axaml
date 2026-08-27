@@ -1,0 +1,86 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Phi.Avalonia.Desktop2.ViewModels"
+             x:Class="Phi.Avalonia.Desktop2.Views.ChatPageView"
+             x:DataType="vm:ChatPageViewModel">
+  <Grid RowDefinitions="Auto,*,Auto">
+
+    <!-- Header: session title + model chip row. UI-1 shows a static label.
+         Wiring binds HeaderText to active.Current.State.SessionTitle. -->
+    <Border Grid.Row="0"
+            Padding="20,12,20,12"
+            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+            BorderThickness="0,0,0,1">
+      <TextBlock Text="{Binding HeaderText}"
+                 FontSize="14"
+                 FontWeight="SemiBold" />
+    </Border>
+
+    <!-- Transcript area. UI-1 ships empty; UI-2 swaps this for an
+         ItemsControl / ItemsRepeater with per-ChatLine DataTemplate that
+         DIFFs by stable ChatLine.Id (DIFF loop lives in TranscriptView.cs). -->
+    <ScrollViewer Grid.Row="1"
+                  VerticalScrollBarVisibility="Auto">
+      <Grid Margin="20">
+        <TextBlock Text="No messages yet — type something below to start."
+                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   TextWrapping="Wrap" />
+      </Grid>
+    </ScrollViewer>
+
+    <!-- Prompt input panel: textarea on top, picker+send toolbar below.
+         Workspace picker / model picker / send button all live in a
+         single horizontal Grid that fills the input area's width — so
+         picker widths never exceed the input box width (Phase 2 asked
+         for this constraint explicitly). -->
+    <Border Grid.Row="2"
+            Padding="20,12,20,20"
+            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+            BorderThickness="0,1,0,0">
+      <StackPanel Spacing="8">
+
+        <!-- Editor. Multi-line TextBox takes full input-panel width. -->
+        <TextBox Text="{Binding PromptInput.Text}"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 MinHeight="80"
+                 MaxHeight="200"
+                 PlaceholderText="Type a message… (⌘⏎ to send, ⇧⏎ for newline)" />
+
+        <!-- Toolbar: workspace picker * model picker * send button.
+             Both pickers get * width (equal split) and share the parent
+             width with the textarea above, so they can never exceed it. -->
+        <Grid ColumnDefinitions="*,*,Auto">
+
+          <ComboBox Grid.Column="0"
+                    ItemsSource="{Binding PromptInput.AvailableWorkspaces}"
+                    SelectedItem="{Binding PromptInput.SelectedWorkspace, Mode=TwoWay}"
+                    PlaceholderText="Workspace"
+                    HorizontalAlignment="Stretch"
+                    MinWidth="120"
+                    Margin="0,0,4,0" />
+
+          <ComboBox Grid.Column="1"
+                    ItemsSource="{Binding PromptInput.AvailableModels}"
+                    SelectedItem="{Binding PromptInput.SelectedModel, Mode=TwoWay}"
+                    PlaceholderText="Model"
+                    HorizontalAlignment="Stretch"
+                    MinWidth="120"
+                    Margin="4,0,4,0" />
+
+          <Button Grid.Column="2"
+                  Content="Send"
+                  Padding="14,6"
+                  Margin="4,0,0,0"
+                  IsDefault="True"
+                  Command="{Binding PromptInput.SendCommand}" />
+
+        </Grid>
+
+      </StackPanel>
+    </Border>
+
+  </Grid>
+</UserControl>

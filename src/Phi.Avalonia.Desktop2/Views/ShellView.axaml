@@ -1,0 +1,24 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Phi.Avalonia.Desktop2.ViewModels"
+             xmlns:views="using:Phi.Avalonia.Desktop2.Views"
+             x:Class="Phi.Avalonia.Desktop2.Views.ShellView"
+             x:DataType="vm:ShellViewModel">
+  <!-- Three columns: sidebar (fixed 280) | 1-px splitter | chat (fills).
+       Splitting the splitter into its own column (instead of stacking on
+       top of the sidebar at Grid.Column="0") keeps the 1-px boundary line
+       off the sidebar's interior — without that, GridSplitter's
+       HorizontalAlignment=Stretch drags its 1-px line across the sidebar's
+       content area and you see buttons with a stroke through them. -->
+  <Grid ColumnDefinitions="280,1,*">
+    <views:SidebarView Grid.Column="0"
+                       DataContext="{Binding Sidebar}" />
+    <GridSplitter Grid.Column="1"
+                  Width="1"
+                  ResizeDirection="Columns"
+                  ResizeBehavior="PreviousAndNext"
+                  Background="{DynamicResource ControlStrokeColorDefaultBrush}" />
+    <views:ChatPageView Grid.Column="2"
+                        DataContext="{Binding ChatPage}" />
+  </Grid>
+</UserControl>
