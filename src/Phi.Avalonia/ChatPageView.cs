@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Phi.Avalonia.Components;
 using Phi.Chat;
+using Phi.Extensions;
+using Phi.Extensions.Host;
 using Phi.Providers;
 
 namespace Phi.Avalonia;
@@ -28,7 +30,9 @@ public sealed class ChatPageView : IDisposable
         Func<Task<string?>>? pickFolder = null,
         Action<Action>? postToUi = null,
         Action<Action>? dispatchToUi = null,
-        IExtensionRenderers? renderers = null)
+        IExtensionRenderers? renderers = null,
+        Func<ISlashCommandRegistry?>? commandRegistryAccessor = null,
+        Func<IPhiContext?>? contextAccessor = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
@@ -42,6 +46,8 @@ public sealed class ChatPageView : IDisposable
             active,
             providers,
             _projector,
+            commandRegistryAccessor: commandRegistryAccessor,
+            contextAccessor: contextAccessor,
             pickFolder: pickFolder,
             postToUi: postToUi,
             dispatchToUi: dispatchToUi);

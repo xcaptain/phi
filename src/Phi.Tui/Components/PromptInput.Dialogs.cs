@@ -45,7 +45,14 @@ public sealed partial class PromptInput
                 Editor.App?.Focus(Editor);
             }
         };
-        dialog.Show();
+        // Dialog.Show attaches the dialog to the TerminalApp's visual
+        // tree, which is bound to the dispatcher's thread. Even though
+        // the slash command dispatch arrives on the UI thread today, the
+        // extensions runtime (HookRegistry.GetAwaiter().GetResult) can
+        // re-enter dialog code from a worker thread — so we route through
+        // the marshaller to keep the access check happy. TuiUiThread.None
+        // (tests) drops straight through to Show().
+        _uiThread.Post(() => dialog.Show());
     }
 
     /// <summary>
@@ -123,7 +130,9 @@ public sealed partial class PromptInput
                 Editor.App?.Focus(Editor);
             }
         };
-        dialog.Show();
+        // Same rationale as ShowSessionsDialog: dialog construction +
+        // Show() must hit the UI thread.
+        _uiThread.Post(() => dialog.Show());
     }
 
     internal void ConnectProviderByName(string name)
@@ -205,8 +214,15 @@ public sealed partial class PromptInput
                 Editor.App?.Focus(Editor);
             }
         };
-        dialog.Show();
-        Editor.App?.Focus(textBox);
+        // Show() + Focus both mutate XenoAtom visuals bound to the
+        // dispatcher's thread. Marshal the whole show-and-focus pair so
+        // any worker-thread entry point (extension hook re-entry, future
+        // /connect-driven flows) stays safe.
+        _uiThread.Post(() =>
+        {
+            dialog.Show();
+            Editor.App?.Focus(textBox);
+        });
     }
 
     // ──────── /models dialog ────────
@@ -249,7 +265,8 @@ public sealed partial class PromptInput
                 Editor.App?.Focus(Editor);
             }
         };
-        dialog.Show();
+        // Same marshalling rationale as the other dialogs in this file.
+        _uiThread.Post(() => dialog.Show());
     }
 
     /// <summary>

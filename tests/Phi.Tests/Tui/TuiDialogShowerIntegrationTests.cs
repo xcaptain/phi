@@ -35,7 +35,7 @@ public class TuiDialogShowerIntegrationTests
     public async Task ConfirmAsync_FromWorkerThread_OnTimeout_ReturnsFalseWithoutThrowing()
     {
         await using var fx = new DialogFixture();
-        var shower = new TuiDialogShower(() => fx.App);
+        var shower = new TuiDialogShower(new TuiUiThread(fx.App));
 
         // Race: dispatch from a worker thread, await on the test thread.
         // The dialog plumbing must complete without throwing
@@ -57,7 +57,7 @@ public class TuiDialogShowerIntegrationTests
     public async Task ShowInputAsync_FromWorkerThread_OnTimeout_ReturnsNullWithoutThrowing()
     {
         await using var fx = new DialogFixture();
-        var shower = new TuiDialogShower(() => fx.App);
+        var shower = new TuiDialogShower(new TuiUiThread(fx.App));
 
         var task = Task.Run(async () =>
             await shower.ShowInputAsync(
@@ -73,7 +73,7 @@ public class TuiDialogShowerIntegrationTests
     public async Task ShowSelectAsync_FromWorkerThread_OnTimeout_ReturnsNullWithoutThrowing()
     {
         await using var fx = new DialogFixture();
-        var shower = new TuiDialogShower(() => fx.App);
+        var shower = new TuiDialogShower(new TuiUiThread(fx.App));
 
         var task = Task.Run(async () =>
             await shower.ShowSelectAsync(

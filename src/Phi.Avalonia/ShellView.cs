@@ -35,6 +35,8 @@ public sealed class ShellView : IDisposable
     private readonly Action<Action> _postToUi;
     private readonly Action<IUiSink>? _onSinkBuilt;
     private readonly Func<IExtensionRenderers?>? _renderersAccessor;
+    private readonly Func<ISlashCommandRegistry?>? _commandRegistryAccessor;
+    private readonly Func<IPhiContext?>? _contextAccessor;
     private readonly ShellLayout _layout;
 
     private ChatPageView? _chatPage;
@@ -65,7 +67,9 @@ public sealed class ShellView : IDisposable
         Action<Action>? dispatchToUi = null,
         Action<Action>? postToUi = null,
         Action<IUiSink>? onSinkBuilt = null,
-        Func<IExtensionRenderers?>? renderersAccessor = null)
+        Func<IExtensionRenderers?>? renderersAccessor = null,
+        Func<ISlashCommandRegistry?>? commandRegistryAccessor = null,
+        Func<IPhiContext?>? contextAccessor = null)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
@@ -75,6 +79,8 @@ public sealed class ShellView : IDisposable
         _postToUi = postToUi ?? Post;
         _onSinkBuilt = onSinkBuilt;
         _renderersAccessor = renderersAccessor;
+        _commandRegistryAccessor = commandRegistryAccessor;
+        _contextAccessor = contextAccessor;
 
         _layout = new ShellLayout();
 
@@ -574,7 +580,9 @@ public sealed class ShellView : IDisposable
             pickFolder: PickFolderAsync,
             postToUi: _postToUi,
             dispatchToUi: _dispatchToUi,
-            renderers: _renderersAccessor?.Invoke());
+            renderers: _renderersAccessor?.Invoke(),
+            commandRegistryAccessor: _commandRegistryAccessor,
+            contextAccessor: _contextAccessor);
         _layout.ViewHost.Content = _chatPage.Root;
         _showingChat = true;
         WatchSession(_active.Current);

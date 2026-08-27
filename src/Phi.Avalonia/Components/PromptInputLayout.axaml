@@ -35,14 +35,24 @@
 
     Pure layout. The PromptInputView controller wires behaviour on the
     named controls: the editor's Enter/Esc keys, the pickers'
-    ItemsSource/ItemTemplate/SelectionChanged, and the submit button's
-    idle/running glyph toggle.
+    ItemsSource/ItemTemplate/SelectionChanged, the submit button's
+    idle/running glyph toggle, and the floating slash-command
+    auto-complete popup that appears above the editor when the text
+    starts with '/'.
   -->
 
   <!-- The input sits in the same 1:8:1 reading column as the transcript so
        the box aligns with the conversation content at every window width. -->
   <Grid ColumnDefinitions="*,8*,*">
-    <Border Grid.Column="1" x:Name="Shell"
+    <!-- Two children stack in z-order: the input chrome at the bottom
+         (children[0]) with the slash-command auto-complete popup rendered
+         on top of it (children[1]) when the editor text starts with '/'.
+         Both Borders live in the center reading column so the popup lines
+         up with the shell horizontally; the popup's vertical offset is
+         set so it floats above the input rather than overlapping the
+         toolbar. -->
+    <Border x:Name="Shell"
+            Grid.Column="1"
             Margin="0,0,0,12"
             Padding="12,8,10,8"
             BorderThickness="1"
@@ -95,6 +105,24 @@
         </Button>
       </DockPanel>
     </StackPanel>
+    </Border>
+    <Border x:Name="AutoCompleteRoot"
+            Grid.Column="1"
+            IsVisible="False"
+            Margin="0,0,0,16"
+            Padding="6,4"
+            BorderThickness="1"
+            BorderBrush="{DynamicResource ControlBorder}"
+            Background="{DynamicResource ContainerBackground}"
+            CornerRadius="8"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Bottom">
+      <ListBox x:Name="AutoCompleteItems"
+               Background="Transparent"
+               BorderThickness="0"
+               MaxHeight="180"
+               Foreground="{DynamicResource TextPrimary}"
+               FontSize="13"/>
     </Border>
   </Grid>
 </UserControl>

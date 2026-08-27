@@ -1,5 +1,6 @@
 using Avalonia;
 using Phi.Chat;
+using Phi.Extensions;
 using Phi.Extensions.CodingPack;
 using Phi.Extensions.Host;
 using Phi.Providers;
@@ -134,16 +135,22 @@ internal static class Program
             return 1;
         }
 
+        // The runtime is rebuilt for every fresh / resumed session — the
+        // accessor always returns whichever runtime is current so the
+        // prompt input's auto-complete and slash-command dispatch see
+        // the latest registry + UI bridge, not a stale one captured at
+        // startup.
         using (session)
         {
-            session.HasUi = true;   // Avalonia hosts a real UI; surfaced via IPhiContext.Ui.HasUi
-
+            session.HasUi = true;
             var active = new ActiveSession(session);
             BuildAvaloniaApp(
                 active,
                 providerManager,
                 sink => currentSink = sink,
-                renderersAccessor: () => currentRuntime)
+                renderersAccessor: () => currentRuntime,
+                commandRegistryAccessor: () => currentRuntime,
+                contextAccessor: () => currentRuntime?.Context)
                 .StartWithClassicDesktopLifetime(args);
         }
         return 0;
@@ -153,8 +160,16 @@ internal static class Program
         ActiveSession active,
         ProviderManager providers,
         Action<IUiSink> onSinkBuilt,
-        Func<IExtensionRenderers?>? renderersAccessor = null) =>
-        AppBuilder.Configure(() => new PhiAvaloniaApp(active, providers, onSinkBuilt, renderersAccessor))
+        Func<IExtensionRenderers?>? renderersAccessor = null,
+        Func<ISlashCommandRegistry?>? commandRegistryAccessor = null,
+        Func<IPhiContext?>? contextAccessor = null) =>
+        AppBuilder.Configure(() => new PhiAvaloniaApp(
+            active,
+            providers,
+            onSinkBuilt,
+            renderersAccessor,
+            commandRegistryAccessor,
+            contextAccessor))
             .UsePlatformDetect()
             .LogToTrace();
 }

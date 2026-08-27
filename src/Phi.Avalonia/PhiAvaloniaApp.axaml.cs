@@ -9,6 +9,7 @@ using Avalonia.Platform;
 using Avalonia.Styling;
 using MarkView.Avalonia;
 using Phi.Chat;
+using Phi.Extensions;
 using Phi.Extensions.Host;
 using Material.Icons.Avalonia;
 using Phi.Providers;
@@ -37,6 +38,8 @@ public sealed partial class PhiAvaloniaApp : Application
     private readonly ProviderManager? _providers;
     private readonly Action<IUiSink>? _onSinkBuilt;
     private readonly Func<IExtensionRenderers?>? _renderersAccessor;
+    private readonly Func<ISlashCommandRegistry?>? _commandRegistryAccessor;
+    private readonly Func<IPhiContext?>? _contextAccessor;
 
     /// <summary>
     /// Parameterless ctor for the headless test host and design-time
@@ -52,12 +55,12 @@ public sealed partial class PhiAvaloniaApp : Application
     }
 
     public PhiAvaloniaApp(ActiveSession active, ProviderManager providers)
-        : this(active, providers, null, null)
+        : this(active, providers, null, null, null, null)
     {
     }
 
     public PhiAvaloniaApp(ActiveSession active, ProviderManager providers, Action<IUiSink>? onSinkBuilt)
-        : this(active, providers, onSinkBuilt, null)
+        : this(active, providers, onSinkBuilt, null, null, null)
     {
     }
 
@@ -66,6 +69,17 @@ public sealed partial class PhiAvaloniaApp : Application
         ProviderManager providers,
         Action<IUiSink>? onSinkBuilt,
         Func<IExtensionRenderers?>? renderersAccessor)
+        : this(active, providers, onSinkBuilt, renderersAccessor, null, null)
+    {
+    }
+
+    public PhiAvaloniaApp(
+        ActiveSession active,
+        ProviderManager providers,
+        Action<IUiSink>? onSinkBuilt,
+        Func<IExtensionRenderers?>? renderersAccessor,
+        Func<ISlashCommandRegistry?>? commandRegistryAccessor,
+        Func<IPhiContext?>? contextAccessor)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
@@ -77,6 +91,8 @@ public sealed partial class PhiAvaloniaApp : Application
         _providers = providers;
         _onSinkBuilt = onSinkBuilt;
         _renderersAccessor = renderersAccessor;
+        _commandRegistryAccessor = commandRegistryAccessor;
+        _contextAccessor = contextAccessor;
     }
 
     public override void Initialize()
@@ -159,10 +175,22 @@ public sealed partial class PhiAvaloniaApp : Application
         switch (ApplicationLifetime)
         {
             case IClassicDesktopStyleApplicationLifetime desktop:
-                desktop.MainWindow = new MainWindow(_active, _providers, _onSinkBuilt, _renderersAccessor);
+                desktop.MainWindow = new MainWindow(
+                    _active,
+                    _providers,
+                    _onSinkBuilt,
+                    _renderersAccessor,
+                    _commandRegistryAccessor,
+                    _contextAccessor);
                 break;
             case ISingleViewApplicationLifetime singleView:
-                singleView.MainView = new ShellView(_active, _providers).Root;
+                singleView.MainView = new ShellView(
+                    _active,
+                    _providers,
+                    onSinkBuilt: _onSinkBuilt,
+                    renderersAccessor: _renderersAccessor,
+                    commandRegistryAccessor: _commandRegistryAccessor,
+                    contextAccessor: _contextAccessor).Root;
                 break;
         }
 

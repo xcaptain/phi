@@ -11,15 +11,24 @@ namespace Phi.Tui.Components;
 public static class ChatHeader
 {
     /// <summary>Builds the header visual for the given session.</summary>
-    public static Visual Build(ISession session)
+    public static Visual Build(ISession session, TuiUiThread? uiThread = null)
     {
+        // Session.StateChanged can fire from the streaming provider's
+        // worker thread (after a /connect, /models, or run completion).
+        // Writing to Markup.Text without marshalling throws
+        // "Invalid thread access" — route the mutation through the UI
+        // dispatcher's Post so the visual update lands on the right
+        // thread. Tests pass TuiUiThread.None to keep synchronous
+        // behaviour.
+        var marshaller = uiThread ?? TuiUiThread.None;
         var modelMarkup = new Markup(
             $"[dim]{FormatModel(session.State.ProviderName, session.State.Model)}[/]")
         {
             Wrap = false,
         };
         session.StateChanged += s =>
-            modelMarkup.Text = $"[dim]{FormatModel(s.ProviderName, s.Model)}[/]";
+            marshaller.Post(() =>
+                modelMarkup.Text = $"[dim]{FormatModel(s.ProviderName, s.Model)}[/]");
 
         return new Header
         {

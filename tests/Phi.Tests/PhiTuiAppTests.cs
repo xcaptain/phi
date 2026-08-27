@@ -116,7 +116,8 @@ public class PhiTuiAppTests
     {
         // Direct PromptInput dispatch test — bypasses PhiTuiApp's reflection
         // path entirely and exercises the closure shape PhiTuiApp constructs
-        // (Func<string, string, string?> with the live IPhiContext captured
+        // (Func<string, string, bool, string?> with the live IPhiContext
+        // captured
         // by the runtime). The runtime-level dispatch is covered by
         // SlashCommandDispatcherTests; this test pins the wiring between
         // PromptInput and the dispatch closure.
@@ -136,7 +137,7 @@ public class PhiTuiAppTests
             // Mirror what PhiTuiApp.BuildCurrentPage does: build a closure
             // that ignores the per-call ctx and uses the runtime's cached one.
             Phi.Extensions.IPhiContext? ctx = runtime.Context;
-            Func<string, string, string?> dispatcher = (name, args) =>
+            Func<string, string, bool, string?> dispatcher = (name, args, _) =>
                 runtime.TryDispatch(name, args, ctx!, out var msg) ? msg : null;
 
             var input = new PromptInput(

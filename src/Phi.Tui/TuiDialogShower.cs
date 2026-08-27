@@ -14,8 +14,7 @@ namespace Phi.Tui;
 /// <para>
 /// All XenoAtom interactions (constructing the dialog, calling
 /// <c>Show()</c>, <c>Close()</c>, focus changes) are marshalled to the
-/// <see cref="TerminalApp"/>'s UI thread via
-/// <see cref="XenoAtom.Terminal.UI.Threading.Dispatcher.InvokeAsync{T}"/>.
+/// <see cref="TerminalApp"/>'s UI thread via <see cref="TuiUiThread"/>.
 /// Calling threads are typically background workers — for example the
 /// extension runtime's hook chain invokes <c>PermissionGate</c>'s
 /// <c>ConfirmAsync</c> from <see cref="HookRegistry"/>'s
@@ -33,13 +32,26 @@ namespace Phi.Tui;
 /// </summary>
 public sealed class TuiDialogShower
 {
-    /// <summary>The XenoAtom app hosting the dialogs.</summary>
-    private readonly Func<TerminalApp> _appAccessor;
+    /// <summary>The thread marshaller that routes every UI mutation through the TerminalApp's dispatcher.</summary>
+    private TuiUiThread _uiThread;
 
-    public TuiDialogShower(Func<TerminalApp> appAccessor)
+    public TuiDialogShower(TuiUiThread uiThread)
     {
-        ArgumentNullException.ThrowIfNull(appAccessor);
-        _appAccessor = appAccessor;
+        ArgumentNullException.ThrowIfNull(uiThread);
+        _uiThread = uiThread;
+    }
+
+    /// <summary>
+    /// Replaces the underlying marshaller. Used by <see cref="PhiTuiApp"/>
+    /// to swap the no-op placeholder wired at construction time (before
+    /// <see cref="TerminalApp"/> exists) for the real TerminalApp-bound
+    /// one once <see cref="PhiTuiApp.Run"/> constructs it. Safe to call
+    /// multiple times.
+    /// </summary>
+    public void SetUiThread(TuiUiThread uiThread)
+    {
+        ArgumentNullException.ThrowIfNull(uiThread);
+        _uiThread = uiThread;
     }
 
     public Task<string?> ShowSelectAsync(
@@ -49,7 +61,7 @@ public sealed class TuiDialogShower
     {
         if (options.Count == 0) return Task.FromResult<string?>(null);
 
-        return MarshalAsync(_appAccessor, async () =>
+        return MarshalAsync(async () =>
         {
             var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
             var list = new OptionList<OptionListItem>().ActivateOnClick(true);
@@ -88,7 +100,7 @@ public sealed class TuiDialogShower
 
     public Task<bool> ShowConfirmAsync(string title, string message, TimeSpan? timeout)
     {
-        return MarshalAsync(_appAccessor, async () =>
+        return MarshalAsync(async () =>
         {
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -124,7 +136,11 @@ public sealed class TuiDialogShower
                 }
             };
             dialog.Show();
-            _appAccessor().Focus(yesBtn);
+            // Focus is a UI-thread-only operation (it touches the
+            // visual tree), so it has to happen inside the marshalled
+            // closure — outside this scope we're on the calling thread
+            // which is often a worker.
+            _uiThread.Focus(yesBtn);
             StartTimeout(tcs, timeout);
             return await tcs.Task;
         });
@@ -132,7 +148,7 @@ public sealed class TuiDialogShower
 
     public Task<string?> ShowInputAsync(string title, string placeholder, TimeSpan? timeout)
     {
-        return MarshalAsync(_appAccessor, async () =>
+        return MarshalAsync(async () =>
         {
             var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -167,7 +183,7 @@ public sealed class TuiDialogShower
                 }
             };
             dialog.Show();
-            _appAccessor().Focus(textBox);
+            _uiThread.Focus(textBox);
             StartTimeout(tcs, timeout);
             return await tcs.Task;
         });
@@ -180,19 +196,22 @@ public sealed class TuiDialogShower
     /// bound to the app's dispatcher; any worker-thread access to
     /// <c>Show</c>, <c>Close</c>, <c>Focus</c>, or the visual tree throws
     /// <c>Invalid thread access. Use TerminalApp.Dispatcher to marshal to
-    /// the UI thread.</c>. <see cref="XenoAtom.Terminal.UI.Threading.Dispatcher.InvokeAsync{T}(Func{Task{T}})"/>
-    /// gives us the continuation-on-UI-thread semantic we need; calling
+    /// the UI thread.</c>. <see cref="TuiUiThread.InvokeAsync{T}"/> gives
+    /// us the continuation-on-UI-thread semantic we need; calling
     /// thread just awaits the returned <see cref="Task{TResult}"/>.
     /// </summary>
-    private static Task<T> MarshalAsync<T>(Func<TerminalApp> appAccessor, Func<Task<T>> func)
+    private Task<T> MarshalAsync<T>(Func<Task<T>> func)
     {
-        // Resolve the app once (the dispatcher is a property on the
-        // app) so the lambda doesn't have to. Fail fast if the app isn't
-        // available — the TUI host always provides one, so a null here
-        // means a wiring error rather than a recoverable condition.
-        var app = appAccessor() ?? throw new InvalidOperationException(
-            "TuiDialogShower: TerminalApp is null; UI dialogs cannot be shown.");
-        return app.Dispatcher.InvokeAsync(func);
+        // Fail fast if the marshaller is unbound — the TUI host always
+        // provides one before a dialog can be invoked, so an unbound
+        // marshaller here means a wiring error rather than a recoverable
+        // condition.
+        if (!_uiThread.IsActive)
+        {
+            throw new InvalidOperationException(
+                "TuiDialogShower: TuiUiThread is not bound to a TerminalApp; UI dialogs cannot be shown.");
+        }
+        return _uiThread.InvokeAsync(func);
     }
 
     /// <summary>

@@ -3,6 +3,7 @@ using Avalonia.Layout;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Phi.Chat;
+using Phi.Extensions;
 using Phi.Extensions.Host;
 using Phi.Providers;
 using SukiUI.Controls;
@@ -20,12 +21,12 @@ public sealed class MainWindow : SukiWindow
     private readonly ShellView _shell;
 
     public MainWindow(ActiveSession active, ProviderManager providers)
-        : this(active, providers, null, null)
+        : this(active, providers, null, null, null, null)
     {
     }
 
     public MainWindow(ActiveSession active, ProviderManager providers, Action<IUiSink>? onSinkBuilt)
-        : this(active, providers, onSinkBuilt, null)
+        : this(active, providers, onSinkBuilt, null, null, null)
     {
     }
 
@@ -34,6 +35,17 @@ public sealed class MainWindow : SukiWindow
         ProviderManager providers,
         Action<IUiSink>? onSinkBuilt,
         Func<IExtensionRenderers?>? renderersAccessor)
+        : this(active, providers, onSinkBuilt, renderersAccessor, null, null)
+    {
+    }
+
+    public MainWindow(
+        ActiveSession active,
+        ProviderManager providers,
+        Action<IUiSink>? onSinkBuilt,
+        Func<IExtensionRenderers?>? renderersAccessor,
+        Func<ISlashCommandRegistry?>? commandRegistryAccessor,
+        Func<IPhiContext?>? contextAccessor)
     {
         ArgumentNullException.ThrowIfNull(active);
         ArgumentNullException.ThrowIfNull(providers);
@@ -70,7 +82,13 @@ public sealed class MainWindow : SukiWindow
         IsMenuVisible = false;
         IsTitleBarVisible = true;
 
-        _shell = new ShellView(active, providers, onSinkBuilt: onSinkBuilt, renderersAccessor: renderersAccessor);
+        _shell = new ShellView(
+            active,
+            providers,
+            onSinkBuilt: onSinkBuilt,
+            renderersAccessor: renderersAccessor,
+            commandRegistryAccessor: commandRegistryAccessor,
+            contextAccessor: contextAccessor);
         Content = _shell.Root;
 
         Closed += (_, _) => _shell.Dispose();

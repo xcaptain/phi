@@ -70,6 +70,14 @@ public sealed class MockSession : ISession
     /// <summary>Steering messages enqueued while running.</summary>
     public List<string> SteeringMessages { get; } = [];
 
+    /// <summary>
+    /// Captured <see cref="LoadSkillAsync"/> calls as <c>(name, prompt)</c>.
+    /// </summary>
+    public List<(string Name, string? Prompt)> LoadedSkills { get; } = [];
+
+    /// <summary>Number of <see cref="ReloadExtensions"/> invocations.</summary>
+    public int ReloadExtensionsCalls { get; private set; }
+
     public void SubmitPrompt(string text)
     {
         LastSubmittedText = text;
@@ -103,7 +111,6 @@ public sealed class MockSession : ISession
 
     public void EnqueueFollowUp(UserMessage message) { }
     public void RenameSession(string? title) { }
-    public Task<string> LoadSkillAsync(string name, string? prompt = null) => Task.FromResult(name);
 
     public Task<ISession> NewSessionAsync(string? cwd = null)
     {
@@ -121,7 +128,13 @@ public sealed class MockSession : ISession
 
     public IReadOnlyList<SessionRecord> ListRecent(int days = 7) => RecentSessions;
 
-    public void ReloadExtensions() { /* mock: no-op */ }
+    public void ReloadExtensions() { ReloadExtensionsCalls++; }
+
+    public Task<string> LoadSkillAsync(string name, string? prompt = null)
+    {
+        LoadedSkills.Add((name, prompt));
+        return Task.FromResult($"{name}:{prompt}");
+    }
 
     public void Dispose()
     {

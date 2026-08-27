@@ -23,7 +23,20 @@ namespace Phi.Tui.Components;
 public sealed class ChatTranscript : IDisposable
 {
     private readonly DocumentFlow _flow;
-    private readonly Markup _transient = new("") { Wrap = true, Margin = new Thickness(2, 0, 2, 0), };
+    // _transient is initialized in the ctor body (not as a field
+    // initializer) because its Markup ctor touches a XenoAtom visual
+    // tree property setter, which VerifyAccess() guards. With a field
+    // initializer the assignment runs on whatever thread allocates the
+    // ChatTranscript — outside the dispatcher if the caller is on a
+    // worker thread (e.g. an integration test that constructs the
+    // transcript outside the UI thread). Initializing in the ctor body
+    // keeps the visual mutation on the same thread as the rest of the
+    // construction, which is the caller's responsibility (production
+    // always constructs on the UI thread; tests construct synchronously
+    // on the test thread without a TerminalApp bound, so VerifyAccess
+    // returns true).
+    private readonly Markup _transient;
+    private TuiUiThread _uiThread;
     private ChatTranscriptProjector? _projector;
 
     // Per-line visual handles, keyed by the projector-assigned stable Id.
@@ -36,8 +49,13 @@ public sealed class ChatTranscript : IDisposable
     // ReadToolCard instance lives in both dictionaries.
     private readonly Dictionary<string, IToolCard> _toolCards = new(StringComparer.Ordinal);
 
-    public ChatTranscript()
+    public ChatTranscript(TuiUiThread? uiThread = null)
     {
+        // Default to the no-op marshaller so unit tests stay synchronous;
+        // production paths call Bind() with the real TerminalApp-bound
+        // marshaller before any events flow.
+        _uiThread = uiThread ?? TuiUiThread.None;
+        _transient = new Markup("") { Wrap = true, Margin = new Thickness(2, 0, 2, 0), };
         _flow = new DocumentFlow
         {
             HorizontalAlignment = Align.Stretch,
@@ -84,14 +102,45 @@ public sealed class ChatTranscript : IDisposable
     /// synchronously; subsequent updates arrive through
     /// <see cref="ChatTranscriptProjector.Changed"/>.
     /// </summary>
-    public void Bind(ISession session, IExtensionRenderers? renderers = null)
+    public void Bind(
+        ISession session,
+        IExtensionRenderers? renderers = null,
+        TuiUiThread? uiThread = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         _projector?.Dispose();
+        // Allow the caller (StatusBarBinder) to upgrade the marshaller
+        // from the synchronous test default (TuiUiThread.None) to the
+        // real TerminalApp-bound one. We always read _uiThread inside
+        // the marshalled handler, so swapping the field post-construction
+        // is safe — the next projector event picks up the new dispatcher.
+        if (uiThread is not null) _uiThread = uiThread;
         _projector = new ChatTranscriptProjector(session, renderers);
-        _projector.Changed += OnProjectorChanged;
-        // Render the initial projection (resume edge).
+        // The projector fires Changed from whatever thread the harness
+        // emits HarnessEvent on (the streaming provider's IO completion
+        // thread for real LLMs, the calling thread for sync mocks).
+        // XenoAtom's DocumentFlow / MarkdownControl mutations must happen
+        // on the TerminalApp's UI thread, so we marshal the diff through
+        // the dispatcher before touching any visual. TuiUiThread.None (the
+        // default) keeps synchronous semantics for tests.
+        _projector.Changed += OnProjectorChangedMarshalled;
+        // Render the initial projection (resume edge) — this fires from
+        // the constructor's subscription path on the calling thread, which
+        // is always the UI thread in production (BuildCurrentPage runs on
+        // it) and the test thread in unit tests.
         OnProjectorChanged(_projector.Current);
+    }
+
+    private void OnProjectorChangedMarshalled(IReadOnlyList<ChatLine> lines)
+    {
+        // Capture lines into a closure that runs on the UI thread. The
+        // projector holds the same list reference between events, so the
+        // closure must read its contents synchronously when the action
+        // fires — that's why we pass `lines` by argument instead of
+        // reaching for `_projector.Current` from inside the marshalled
+        // lambda (which would risk a torn read if the projector mutated
+        // it again on the worker thread between Post and execution).
+        _uiThread.Post(() => OnProjectorChanged(lines));
     }
 
     /// <summary>

@@ -56,6 +56,8 @@ public sealed partial class PromptInput
 
     private readonly IReadOnlyList<Phi.Slash.SlashCommandDef>? _commands;
 
+    private readonly TuiUiThread _uiThread;
+
     /// <summary>
     /// Extension-registered slash command dispatcher. Called by
     /// <see cref="HandleInput"/> after the built-in switch misses;
@@ -66,14 +68,15 @@ public sealed partial class PromptInput
     /// through the closure, not the call site. Returns the transient
     /// message the handler wants shown, or <c>null</c> for silent success.
     /// </summary>
-    private readonly Func<string, string, string?>? _dispatcher;
+    private readonly Func<string, string, bool, string?>? _dispatcher;
 
     public PromptInput(
         ISession session,
         ProviderManager providers,
         ChatTranscript transcript,
         IReadOnlyList<Phi.Slash.SlashCommandDef>? commands = null,
-        Func<string, string, string?>? dispatcher = null)
+        Func<string, string, bool, string?>? dispatcher = null,
+        TuiUiThread? uiThread = null)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(providers);
@@ -83,6 +86,11 @@ public sealed partial class PromptInput
         _transcript = transcript;
         _commands = commands;
         _dispatcher = dispatcher;
+        // Default to the no-op marshaller for tests; production callers
+        // (PhiTuiApp.BuildCurrentPage) wire the real TerminalApp-bound one
+        // so the dialog Show / Focus / Close calls in PromptInput.Dialogs
+        // always land on the UI thread.
+        _uiThread = uiThread ?? TuiUiThread.None;
     }
 
     /// <summary>
@@ -129,85 +137,87 @@ public sealed partial class PromptInput
 
     private void HandleInput(string text)
     {
-        if (SlashCommands.Match(text) is { } command)
-        {
-            switch (command)
-            {
-                case "/new":
-                    _ = NavigateToNewAsync();
-                    break;
-                case "/sessions":
-                    ShowSessionsDialog();
-                    break;
-                case "/connect":
-                    ShowConnectDialog();
-                    break;
-                case "/models":
-                    ShowModelsDialog();
-                    break;
-                case "/reload":
-                    ReloadExtensions();
-                    break;
-                case "/exit":
-                    Editor.App?.Stop();
-                    break;
-            }
-            return;
-        }
+        // The TUI's dialog set (/sessions, /connect, /models) is unique to
+        // this shell — Avalonia surfaces the same actions through its
+        // sidebar / picker chrome via a "not available" transient. Every
+        // other command (including extensions) is delegated to the shared
+        // SlashInputDispatcher so the two shells stay in lockstep.
+        var sink = new TuiSlashActionSink(this);
+        var outcome = SlashInputDispatcher.Dispatch(
+            text,
+            _commands ?? SlashCommandCatalog.All,
+            _session.State.IsRunning,
+            _dispatcher,
+            sink);
 
-        // Built-in switch missed. Fall through to the extension registry.
-        // Extension commands aren't in SlashCommandCatalog (which is
-        // static), so we re-derive the (name, args) split here against the
-        // merged command list PhiTuiApp passed in. The dispatcher swallows
-        // its own handler exceptions and surfaces them as a transient
-        // (see ExtensionRuntime.TryDispatch), so we only need to handle the
-        // "unknown name" case by falling through to the regular prompt path.
-        if (_dispatcher is not null && _commands is not null
-            && TrySplitExtensionCommand(text, out var cmdName, out var cmdArgs)
-            && _commands.Any(c => c.Name.TrimStart('/').Equals(
-                cmdName, StringComparison.OrdinalIgnoreCase)))
+        switch (outcome.Kind)
         {
-            // The dispatcher closure already captured the live IPhiContext
-            // from the composition root; it returns null when the registry
-            // doesn't recognise the command (so the caller falls through to
-            // submitting-as-prompt). Handler failures are swallowed upstream
-            // and surface as a non-null error message.
-            var msg = _dispatcher(cmdName, cmdArgs);
-            if (msg is not null) _transcript.ShowTransient(msg);
-            return;
+            case SlashDispatchKind.None:
+            case SlashDispatchKind.SubmitPrompt:
+                return;
+            case SlashDispatchKind.Transient:
+                if (outcome.Message is { } msg) _transcript.ShowTransient(msg);
+                return;
+            case SlashDispatchKind.LoadSkill:
+                _ = LoadSkillAsync(outcome.SkillName!, outcome.SkillPrompt);
+                return;
         }
-
-        if (SlashCommands.MatchSkill(text) is { } skillMatch)
-        {
-            _ = LoadSkillAsync(skillMatch.SkillName, skillMatch.Prompt);
-            return;
-        }
-
-        if (SlashCommands.MatchWithArgs(text) is { } withArgs)
-        {
-            switch (withArgs.Command)
-            {
-                case "/connect":
-                    ConnectProviderByName(withArgs.Args);
-                    break;
-            }
-            return;
-        }
-
-        if (_session.State.IsRunning)
-        {
-            _session.EnqueueSteering(new UserMessage { Content = text });
-            _transcript.ShowTransient($"[queued · steering] {text}");
-            return;
-        }
-
-        SubmitPrompt(text);
     }
 
     private void SubmitPrompt(string text)
     {
         _transcript.AddUserMessage(text);
         _session.SubmitPrompt(text);
+    }
+
+    /// <summary>
+    /// Drives slash-command side-effects for the TUI shell. Dialog-based
+    /// commands (<c>/sessions</c>, <c>/connect</c>, <c>/models</c>) are
+    /// implemented here because they map onto XenoAtom's
+    /// <see cref="Dialog"/>; <c>SteeringPromptVisual</c> lines on the
+    /// transcript for enqueued steering messages so the queued text is
+    /// visible while a turn runs.
+    /// </summary>
+    private sealed class TuiSlashActionSink : ISlashActionSink
+    {
+        private readonly PromptInput _owner;
+
+        public TuiSlashActionSink(PromptInput owner) => _owner = owner;
+
+        public void SubmitPrompt(string text) => _owner.SubmitPrompt(text);
+
+        public void EnqueueSteering(string text)
+        {
+            _owner._session.EnqueueSteering(new UserMessage { Content = text });
+            _owner._transcript.ShowTransient($"[queued \u00b7 steering] {text}");
+        }
+
+        public void NavigateToNew() => _ = _owner.NavigateToNewAsync();
+
+        public void ReloadExtensions() => _owner.ReloadExtensions();
+
+        public void SwitchProvider(string providerName) =>
+            _owner.ConnectProviderByName(providerName);
+
+        public void Quit() => _owner.Editor.App?.Stop();
+
+        public string? OpenSessionsDialogIfSupported()
+        {
+            _owner.ShowSessionsDialog();
+            return null;
+        }
+
+        public string? OpenConnectDialogIfSupported()
+        {
+            _owner.ShowConnectDialog();
+            return null;
+        }
+
+        public string? OpenModelsDialogIfSupported()
+        {
+            _owner.ShowModelsDialog();
+            return null;
+        }
     }
 
     /// <summary>
@@ -321,33 +331,5 @@ public sealed partial class PromptInput
             ghost = candidates[0][prefixLength..];
 
         return new PromptEditorCompletion(true, candidates, match.ReplaceStart, prefixLength, 0, ghost);
-    }
-
-    /// <summary>
-    /// Splits a slash input into (canonicalName, trailingArgs). The name is
-    /// the first whitespace-separated token with any leading <c>/</c> stripped;
-    /// the args are everything after the first whitespace (trimmed). Returns
-    /// false for inputs that don't start with <c>/</c> or are empty after
-    /// the trim — those are user prompts, not commands, and the caller
-    /// should fall back to the regular submit path.
-    /// </summary>
-    private static bool TrySplitExtensionCommand(
-        string text, out string name, out string args)
-    {
-        name = "";
-        args = "";
-        var trimmed = text.Trim();
-        if (trimmed.Length == 0 || trimmed[0] != '/') return false;
-
-        var firstSpace = trimmed.IndexOf(' ');
-        if (firstSpace < 0)
-        {
-            name = trimmed.TrimStart('/');
-            return name.Length > 0;
-        }
-        name = trimmed[..firstSpace].TrimStart('/');
-        if (name.Length == 0) return false;
-        args = trimmed[(firstSpace + 1)..].Trim();
-        return true;
     }
 }

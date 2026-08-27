@@ -93,7 +93,11 @@ using (session)
     session.HasUi = true;   // TUI hosts a real UI; surfaced via IPhiContext.Ui.HasUi to extensions
 
     var app = new PhiTuiApp(session, providerManager,
-        new TuiDialogShower(() => null!),   // terminal app resolves late inside dialogs
+        // The dialog shower is constructed with the no-op marshaller;
+        // PhiTuiApp.Run() rebuilds it around the TerminalApp's
+        // dispatcher once that exists. This is the only way to satisfy
+        // the ctor's non-null TuiUiThread without racing the Run() loop.
+        new TuiDialogShower(TuiUiThread.None),
         onSinkBuilt: sink => currentSink = sink,
         renderersAccessor: () => currentRuntime,
         commandsAccessor: () => currentRuntime,

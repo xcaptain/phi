@@ -1,8 +1,12 @@
+using Phi.Agent;
 using Phi.Avalonia.Components;
 using Phi.Avalonia.Tests.Helpers;
 using Phi.Chat;
+using Phi.Extensions;
+using Phi.Extensions.Host;
 using Phi.Prompt;
 using Phi.Providers;
+using Phi.Slash;
 
 namespace Phi.Avalonia.Tests;
 
@@ -86,16 +90,93 @@ public class PromptInputViewTests
     }
 
     [Test]
-    public async Task Submit_SlashText_GoesToSessionAsMessage()
+    public async Task Submit_SlashNew_NavigatesToNewSession()
     {
-        // Slash dispatch is intentionally removed: typing "/new" sends the
-        // text straight to the session like any other message.
-        var (session, _, view, _) = Create();
+        // Sprint 5 parity with TUI: /new flows through the shared
+        // SlashInputDispatcher and triggers ISession.NewSessionAsync via the
+        // Avalonia sink (the chat page rebuilds against the replacement).
+        var (session, active, view, _) = Create();
+        session.OnNewSession = _ => new MockSession();
 
         view.Editor.Text = "/new";
         view.SubmitForTest();
 
-        await Assert.That(session.LastSubmittedText).IsEqualTo("/new");
+        await Assert.That(session.NewSessionCalls).IsEqualTo(1);
+        await Assert.That(!ReferenceEquals(active.Current, session)).IsTrue();
+    }
+
+    [Test]
+    public async Task Submit_SlashReload_CallsReloadExtensions()
+    {
+        var (session, _, view, _) = Create();
+
+        view.Editor.Text = "/reload";
+        view.SubmitForTest();
+
+        await Assert.That(session.ReloadExtensionsCalls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task Submit_SlashSkill_LoadsSkill()
+    {
+        var (session, _, view, _) = Create();
+        session.LoadedSkills.Add(("review", null));
+
+        view.Editor.Text = "/skill:review";
+        view.SubmitForTest();
+
+        await Assert.That(session.LoadedSkills).Contains(("review", null));
+    }
+
+    [Test]
+    public async Task Submit_SlashSkillWithTrailingPrompt_PassesPrompt()
+    {
+        var (session, _, view, _) = Create();
+
+        view.Editor.Text = "/skill:review  focus on tests";
+        view.SubmitForTest();
+
+        await Assert.That(session.LoadedSkills).Contains(("review", "focus on tests"));
+    }
+
+    [Test]
+    public async Task Submit_NonSlashText_StillSubmitsAsPrompt()
+    {
+        // Regression: ordinary prompts (no leading /) must keep working
+        // alongside the new slash dispatcher.
+        var (session, _, view, _) = Create();
+
+        view.Editor.Text = "hello world";
+        view.SubmitForTest();
+
+        await Assert.That(session.LastSubmittedText).IsEqualTo("hello world");
+    }
+
+    [Test]
+    public async Task Submit_ExtensionSlashCommand_GoesThroughDispatcher()
+    {
+        // Extension-registered commands aren't in SlashCommandCatalog;
+        // the dispatcher closure falls through to the registry.
+        // Install a registry that exposes "/hello" + a recording
+        // dispatcher closure the view wires onto the input.
+        var registry = new RecordingSlashRegistry();
+        var registryAccessor = () => (ISlashCommandRegistry?)registry;
+        var session = new MockSession();
+        var active = new ActiveSession(session);
+        var projector = new ChatTranscriptProjector(session);
+        var providers = new Phi.Providers.ProviderManager(
+            credentials: new AllKeysCredentialStore());
+        var view = new PromptInputView(
+            session, active, providers, projector,
+            commandRegistryAccessor: registryAccessor,
+            contextAccessor: () => new RecordingContext());
+
+        view.Editor.Text = "/hello world";
+        view.SubmitForTest();
+
+        await Assert.That(registry.Invocations).Contains("hello world");
+        await Assert.That(view.LastExtensionDispatch).IsEqualTo(("hello", "world"));
+        await Assert.That(session.LastSubmittedText).IsNull();
     }
 
     [Test]
@@ -431,5 +512,45 @@ public class PromptInputViewTests
         var nonSentinel = items.Where(i => !i.IsSentinel).ToList();
         await Assert.That(nonSentinel.Count).IsEqualTo(1);
         await Assert.That(nonSentinel[0].Cwd).IsEqualTo(Path.GetFullPath("/dup"));
+    }
+
+    // ──────── Test doubles for extension-slash dispatching ────────
+
+    /// <summary>
+    /// <see cref="ISlashCommandRegistry"/> fake that exposes one
+    /// <c>/hello</c> command and records every dispatch invocation.
+    /// </summary>
+    private sealed class RecordingSlashRegistry : ISlashCommandRegistry
+    {
+        public IEnumerable<SlashCommandDef> AllCommands { get; } =
+        [
+            new SlashCommandDef("/hello", "Test extension command."),
+        ];
+
+        public List<string> Invocations { get; } = [];
+
+        public bool TryDispatch(string commandName, string args, IPhiContext context, out string? result)
+        {
+            Invocations.Add($"{commandName} {args}".TrimEnd());
+            result = null;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Minimal <see cref="IPhiContext"/> for extension-dispatch tests —
+    /// the dispatcher only reads <see cref="IsRunning"/>.
+    /// </summary>
+    private sealed class RecordingContext : Phi.Extensions.IPhiContext
+    {
+        public bool IsRunning => false;
+        public string Cwd => "/cwd";
+        public string Model => "test-model";
+        public string ProviderName => "test";
+        public string SessionId => "test";
+        public string SystemPrompt => "";
+        public bool HasUi => true;
+        public IReadOnlyList<IAgentMessage> Transcript => [];
+        public IPhiUiBridge Ui => new NullPhiUiBridge();
     }
 }

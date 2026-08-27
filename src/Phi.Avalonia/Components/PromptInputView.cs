@@ -4,23 +4,38 @@ using Avalonia.Threading;
 using Material.Icons;
 using Phi.Agent;
 using Phi.Chat;
+using Phi.Extensions;
+using Phi.Extensions.Host;
 using Phi.Prompt;
 using Phi.Providers;
+using Phi.Slash;
 
 namespace Phi.Avalonia.Components;
 
 /// <summary>
+/// One row in the slash-command auto-complete popup. Carries the
+/// full command name (which replaces the current <c>/</c> token on
+/// accept) plus the description surfaced as a tooltip / secondary
+/// text in the list row.
+/// </summary>
+public sealed record SlashAutoCompleteItem(string Replacement, string Description);
+
+/// <summary>
 /// The prompt input controller. Owns the input's behaviour — dispatching
-/// editor text to the session (or as steering when a run is in flight),
-/// the model picker (every provider's models grouped by provider with the
-/// current one marked), the workspace picker (fresh sessions only), and
-/// the submit button's idle/running glyph — and wires it onto the named
-/// controls of <see cref="PromptInputLayout"/>.
+/// editor text via the shared <see cref="SlashInputDispatcher"/> (so
+/// <c>/new</c>, <c>/skill:NAME</c>, <c>/reload</c>, extension-registered
+/// commands, and ordinary submit / steering all behave identically to the
+/// TUI), the model picker (every provider's models grouped by provider
+/// with the current one marked), the workspace picker (fresh sessions
+/// only), and the submit button's idle/running glyph — and wires it onto
+/// the named controls of <see cref="PromptInputLayout"/>.
 /// <para>
-/// Enter submits, Shift+Enter inserts a newline, Esc cancels the running
-/// turn. Slash-command completion and dispatch are intentionally not
-/// exposed: navigation, connect, models, exit, etc. are reachable via the
-/// side bar; the input only knows about plain user messages.
+/// Dialog-only slash commands (<c>/sessions</c>, <c>/connect</c>,
+/// <c>/models</c>) are intentionally not dialogs here — the desk reaches
+/// the same actions via the sidebar's session list and the model picker
+/// footer combo. The dispatcher instead surfaces a transient hint via
+/// the projector (see <see cref="AvaloniaSlashActionSink"/>). <c>/exit</c>
+/// shuts the application lifetime down.
 /// </para>
 /// <para>
 /// Workspace switches (the picker) drive <see cref="ISession.NewSessionAsync"/>
@@ -40,6 +55,8 @@ public sealed class PromptInputView
     private readonly Action<Action> _postToUi;
     private readonly Action<Action> _dispatchToUi;
     private readonly PromptInputLayout _layout;
+    private readonly List<SlashCommandDef> _commands;
+    private readonly Func<string, string, bool, string?>? _extensionDispatcher;
 
     private bool _suppressModelSelection;
     private bool _pickingFolder;
@@ -47,11 +64,24 @@ public sealed class PromptInputView
     private IReadOnlyList<ModelPickerItem> _modelItems = Array.Empty<ModelPickerItem>();
     private IReadOnlyList<WorkspacePickerItem> _workspaceItems = Array.Empty<WorkspacePickerItem>();
 
+    /// <summary>Commands the controller was wired with (built-ins +
+    /// extension-registered). Empty when no runtime is attached.</summary>
+    internal IReadOnlyList<SlashCommandDef> Commands => _commands;
+
+    /// <summary>Closure invoked for extension-registered commands (tests).</summary>
+    internal Func<string, string, bool, string?>? ExtensionDispatcher => _extensionDispatcher;
+
+    /// <summary>Last extension command dispatched (tests).</summary>
+    internal (string Name, string Args)? LastExtensionDispatch { get; private set; }
+
     public PromptInputView(
         ISession session,
         ActiveSession active,
         ProviderManager providers,
         ChatTranscriptProjector projector,
+        IReadOnlyList<SlashCommandDef>? commands = null,
+        Func<ISlashCommandRegistry?>? commandRegistryAccessor = null,
+        Func<IPhiContext?>? contextAccessor = null,
         Func<Task<string?>>? pickFolder = null,
         Action<Action>? postToUi = null,
         Action<Action>? dispatchToUi = null)
@@ -69,12 +99,17 @@ public sealed class PromptInputView
         _postToUi = postToUi ?? Post;
         _dispatchToUi = dispatchToUi ?? Dispatch;
 
+        _commands = ResolveCommands(commandRegistryAccessor);
+        _extensionDispatcher = BuildExtensionDispatcher(
+            commandRegistryAccessor, contextAccessor);
+
         _layout = new PromptInputLayout();
 
         WireEditor();
         WireSubmitButton();
         ConfigureModelCombo();
         ConfigureWorkspaceCombo();
+        ConfigureAutoComplete();
     }
 
     /// <summary>The prompt input layout (the rounded input shell).</summary>
@@ -116,6 +151,64 @@ public sealed class PromptInputView
 
     /// <summary>Moves keyboard focus to the prompt editor.</summary>
     public void FocusEditor() => _layout.Editor.Focus();
+
+    // ──────── Slash command wiring ────────
+
+    /// <summary>
+    /// Merges the built-in catalog with whatever the supplied registry
+    /// exposes; returns the catalog unchanged when the accessor is null
+    /// (no extension runtime). The list is mutable so tests can append
+    /// extra commands through <see cref="RegisterExtensionCommand"/>.
+    /// </summary>
+    private static List<SlashCommandDef> ResolveCommands(
+        Func<ISlashCommandRegistry?>? commandRegistryAccessor)
+    {
+        var registry = commandRegistryAccessor?.Invoke();
+        var merged = new List<SlashCommandDef>(SlashCommandCatalog.All.Count + 16);
+        merged.AddRange(SlashCommandCatalog.All);
+        if (registry is not null)
+            merged.AddRange(registry.AllCommands);
+        return merged;
+    }
+
+    /// <summary>
+    /// Builds the extension dispatcher closure (null when no registry is
+    /// attached). The closure captures the live <see cref="IPhiContext"/>
+    /// so registry handlers see the session's metadata via
+    /// <c>ctx.Cwd / ctx.Model / etc.</c>; <paramref name="isRunning"/> is
+    /// passed through so an extension can choose to steer instead of
+    /// submit.
+    /// </summary>
+    private Func<string, string, bool, string?>? BuildExtensionDispatcher(
+        Func<ISlashCommandRegistry?>? commandRegistryAccessor,
+        Func<IPhiContext?>? contextAccessor)
+    {
+        if (commandRegistryAccessor is null || contextAccessor is null) return null;
+        return (name, args, isRunning) =>
+        {
+            LastExtensionDispatch = (name, args);
+            var registry = commandRegistryAccessor();
+            var context = contextAccessor();
+            if (registry is null || context is null) return null;
+            return registry.TryDispatch(name, args, context, out var msg) ? msg : null;
+        };
+    }
+
+    /// <summary>
+    /// Registers one extra slash command visible to the autocomplete and
+    /// the dispatcher (tests). Refreshes the auto-complete popup if the
+    /// editor has any text so the new command shows up without further
+    /// typing.
+    /// </summary>
+    internal void RegisterExtensionCommand(string name, string description = "Extension command.")
+    {
+        var canonical = name.StartsWith('/') ? name : "/" + name;
+        if (_commands.Any(c => c.Name.Equals(canonical, StringComparison.OrdinalIgnoreCase)))
+            return;
+        _commands.Add(new SlashCommandDef(canonical, description));
+        UpdateAutoComplete(_layout.Editor.Text ?? string.Empty,
+            _layout.Editor.CaretIndex);
+    }
 
     private void WireEditor()
     {
@@ -386,25 +479,68 @@ public sealed class PromptInputView
 
     private void HandleInput(string text)
     {
-        if (_session.State.IsRunning)
-        {
-            DeskLog.Write("HandleInput: steering (running)");
-            // Reflect the queued steering message in the transcript too, so
-            // the user sees their input even while a turn is in flight.
-            _projector.SubmitUserLine(text);
-            _session.EnqueueSteering(new UserMessage { Content = text });
-            return;
-        }
+        DeskLog.Write($"HandleInput: text='{text}' running={_session.State.IsRunning}");
 
-        DeskLog.Write("HandleInput: SubmitPrompt");
+        // Wrap the user's text in the shared SlashInputDispatcher so the
+        // Avalonia shell matches the TUI's behaviour for slash commands,
+        // skills, extensions, ordinary submits, and steering. The
+        // Avalonia-specific side-effects (ActiveSession.Replace,
+        // ApplicationLifetime.Shutdown, projector-backed feedback) live in
+        // AvaloniaSlashActionSink — the dispatcher itself stays
+        // UI-agnostic.
+        var sink = new AvaloniaSlashActionSink(
+            _session, _active, _providers, _postToUi, _projector);
+
+        var outcome = SlashInputDispatcher.Dispatch(
+            text,
+            _commands,
+            _session.State.IsRunning,
+            _extensionDispatcher,
+            sink);
+
+        switch (outcome.Kind)
+        {
+            case SlashDispatchKind.None:
+            case SlashDispatchKind.SubmitPrompt:
+                return;
+            case SlashDispatchKind.Transient:
+                if (outcome.Message is { } msg)
+                {
+                    DeskLog.Write($"HandleInput: transient '{msg}'");
+                    // No transient slot in Sprint 5 — surface as a
+                    // persistent transcript line so the user sees it.
+                    // Sprint 6 will introduce a real transient slot in
+                    // the chat page footer.
+                    _projector.SubmitPersistentError(msg);
+                }
+                return;
+            case SlashDispatchKind.LoadSkill:
+                _ = LoadSkillAsync(outcome.SkillName!, outcome.SkillPrompt);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Loads a skill and submits it as the prompt; the loaded content is
+    /// reflected as a user bubble so the submission is visible before the
+    /// model's response streams in. Mirrors the TUI's
+    /// <c>LoadSkillAsync</c> path.
+    /// </summary>
+    private async Task LoadSkillAsync(string name, string? prompt)
+    {
         try
         {
-            _projector.SubmitUserLine(text);
-            _session.SubmitPrompt(text);
+            var content = await _session.LoadSkillAsync(name, prompt);
+            _projector.SubmitUserLine(content);
+            // Reset rendered count so the new bubble is picked up by the
+            // transcript view's diff against the prior snapshot (TUI uses
+            // the same defensive reset).
+            _projector.ResetRenderedCount();
         }
         catch (Exception ex)
         {
-            DeskLog.Write($"HandleInput: SubmitPrompt threw: {ex}");
+            DeskLog.Write($"LoadSkillAsync({name}): {ex.Message}");
+            _projector.SubmitPersistentError(ex.Message);
         }
     }
 
@@ -430,6 +566,121 @@ public sealed class PromptInputView
             ToolTip.SetTip(button, "Submit (Enter)");
         }
     }
+
+    // ──────── Slash auto-complete ────────
+
+    /// <summary>
+    /// Hides/shows the auto-complete popup based on the editor's text. A
+    /// <c>/</c> token at the caret yields the merged command list; the
+    /// skill provider's tokens open the same surface for skills once
+    /// <c>/skill:</c> is recognised. Up/Down move the highlight; Tab
+    /// accepts the highlighted suggestion into the editor (replacing the
+    /// <c>/</c> token); Escape dismisses.
+    /// </summary>
+    private void ConfigureAutoComplete()
+    {
+        var list = _layout.AutoCompleteItems;
+        list.DoubleTapped += (_, _) => AcceptAutoComplete();
+        // The list is hidden initially; the controller flips IsVisible
+        // when there's something to show.
+        _layout.AutoCompleteRoot.IsVisible = false;
+
+        _layout.Editor.PropertyChanged += (_, e) =>
+        {
+            if (e.Property.Name is nameof(TextBox.Text) or nameof(TextBox.CaretIndex))
+                UpdateAutoComplete(_layout.Editor.Text ?? string.Empty,
+                    _layout.Editor.CaretIndex);
+        };
+        _layout.Editor.KeyDown += (_, e) =>
+        {
+            if (!_layout.AutoCompleteRoot.IsVisible) return;
+            switch (e.Key)
+            {
+                case Key.Up:
+                    MoveAutoComplete(-1);
+                    e.Handled = true;
+                    break;
+                case Key.Down:
+                    MoveAutoComplete(+1);
+                    e.Handled = true;
+                    break;
+                case Key.Tab:
+                    AcceptAutoComplete();
+                    e.Handled = true;
+                    break;
+                case Key.Escape:
+                    _layout.AutoCompleteRoot.IsVisible = false;
+                    e.Handled = true;
+                    break;
+            }
+        };
+
+        _session.StateChanged += _ => UpdateAutoComplete(
+            _layout.Editor.Text ?? string.Empty, _layout.Editor.CaretIndex);
+    }
+
+    private void UpdateAutoComplete(string text, int caret)
+    {
+        var provider = new SlashCommandProvider(_commands);
+        var match = provider.GetSuggestion(text.AsSpan(), caret);
+        if (match is null)
+        {
+            _layout.AutoCompleteRoot.IsVisible = false;
+            return;
+        }
+        var items = match.Items.Select(i => new SlashAutoCompleteItem(
+            i.Replacement, i.Description)).ToList();
+        if (items.Count == 0)
+        {
+            _layout.AutoCompleteRoot.IsVisible = false;
+            return;
+        }
+        _layout.AutoCompleteItems.ItemsSource = items;
+        _layout.AutoCompleteItems.SelectedIndex = 0;
+        _layout.AutoCompleteRoot.IsVisible = true;
+    }
+
+    private void MoveAutoComplete(int delta)
+    {
+        var list = _layout.AutoCompleteItems;
+        if (list.ItemCount == 0) return;
+        var next = list.SelectedIndex + delta;
+        if (next < 0) next = list.ItemCount - 1;
+        if (next >= list.ItemCount) next = 0;
+        list.SelectedIndex = next;
+    }
+
+    private void AcceptAutoComplete()
+    {
+        var list = _layout.AutoCompleteItems;
+        if (list.SelectedItem is not SlashAutoCompleteItem item) return;
+        var editor = _layout.Editor;
+        // The provider always exposes items whose Replacement is the
+        // full command name (e.g. "/new"), so accepting replaces the
+        // current slash-token with the full command and re-queries the
+        // autocomplete so a follow-up prompt ("/skill:review") can be
+        // typed without the popup re-opening on the next keystroke.
+        var current = editor.Text ?? string.Empty;
+        var caret = editor.CaretIndex;
+        var slashStart = caret;
+        while (slashStart > 0 && current[slashStart - 1] != '/')
+        {
+            slashStart--;
+        }
+        var before = current[..slashStart];
+        var after = current[caret..];
+        editor.Text = before + item.Replacement + after;
+        editor.CaretIndex = (before + item.Replacement).Length;
+        _layout.AutoCompleteRoot.IsVisible = false;
+    }
+
+    /// <summary>Exposed auto-complete items (tests).</summary>
+    internal IReadOnlyList<SlashAutoCompleteItem> AutoCompleteItems =>
+        _layout.AutoCompleteItems.ItemsSource as IReadOnlyList<SlashAutoCompleteItem>
+            ?? [];
+
+    /// <summary>True when the auto-complete popup is visible (tests).</summary>
+    internal bool AutoCompleteVisible => _layout.AutoCompleteRoot.IsVisible;
 
     // ──────── Dispatcher helpers ────────
 
