@@ -16,6 +16,31 @@
     <local:ViewLocator />
   </Application.DataTemplates>
 
+  <!-- Theme-aware resources. Avalonia's FluentTheme doesn't ship a shadow
+       color resource, so any elevated surface (the prompt input card, a
+       future popover, etc.) needs to reference a color from somewhere.
+       Centralising the choice here means views never hardcode a hex
+       value, and switching light/dark is a one-line change to the
+       per-theme dictionary rather than a sweep across views. The
+       `DynamicResource` lookup in PromptInputView follows the active
+       ThemeVariant, so a system dark-mode switch flows through. -->
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Light">
+          <!-- 6.25% black: subtle lift on the card surface. -->
+          <BoxShadows x:Key="CardShadow">0 2 8 0 #30000000</BoxShadows>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Dark">
+          <!-- 40% black: dark mode needs a denser shadow because the
+               card surface sits on an already-dark page — a light-mode
+               6.25% black disappears entirely. -->
+          <BoxShadows x:Key="CardShadow">0 2 8 0 #716c6c00</BoxShadows>
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+    </ResourceDictionary>
+  </Application.Resources>
+
   <Application.Styles>
     <FluentTheme />
     <!-- Markdown rendering for transcript assistant text. Must load via XAML

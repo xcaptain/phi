@@ -22,6 +22,7 @@
     <Project Path="tests/Phi.Extensions.Host.Tests/Phi.Extensions.Host.Tests.csproj" />
     <Project Path="tests/Phi.Provider.Tests/Phi.Provider.Tests.csproj" />
     <Project Path="tests/Phi.Tests/Phi.Tests.csproj" />
+    <Project Path="tests/Phi.Avalonia.Desktop2.Tests/Phi.Avalonia.Desktop2.Tests.csproj" />
     <Project Path="tests/Phi.Avalonia.Tests/Phi.Avalonia.Tests.csproj" />
   </Folder>
 </Solution>

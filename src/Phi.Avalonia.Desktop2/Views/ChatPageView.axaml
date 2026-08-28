@@ -1,7 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Phi.Avalonia.Desktop2.ViewModels"
-             xmlns:mi="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
+             xmlns:components="using:Phi.Avalonia.Desktop2.Components"
              x:Class="Phi.Avalonia.Desktop2.Views.ChatPageView"
              x:DataType="vm:ChatPageViewModel">
   <!-- 3-row / 3-column outer Grid. ColumnDefinitions 2*,6*,2* gives the
@@ -32,97 +32,13 @@
       <ItemsControl ItemsSource="{Binding Transcript}" />
     </ScrollViewer>
 
-    <!-- Prompt input. UI-3: textarea + toolbar live inside ONE outer
-         Border as a unified card (full 1-px frame, rounded corners,
-         drop shadow). No inner separator, no double frame. The
-         TextBox inside is borderless (BorderThickness=0 +
-         Background=Transparent) so the only visible frame is the
-         outer Border. FocusAdorner={x:Null} combined with the
-         App.axaml `:focus /template/ Border#PART_BorderElement`
-         override keeps the focused-state focus ring suppressed
-         entirely — only the caret blinks, no extra chrome. -->
-    <Border Grid.Row="2" Grid.Column="1"
-            Margin="0,8,0,12"
-            Padding="20,12,20,20"
-            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
-            BorderThickness="1"
-            CornerRadius="12"
-            BoxShadow="0 2 8 0 #10000000">
-      <StackPanel Spacing="8">
-
-        <!-- Borderless multi-line TextBox. Classes="borderless" pulls in
-             the App.axaml class-based style (TextBox.borderless +
-             TextBox.borderless:focus), which strips the default 1-px
-             border AND the FluentTheme focus-state accent border, so
-             the only visible chrome on focus is the blinking caret. The
-             outer card Border around the whole input panel provides the
-             1-px frame; this TextBox doesn't need its own. -->
-        <TextBox Classes="borderless"
-                 Text="{Binding PromptInput.Text}"
-                 AcceptsReturn="True"
-                 TextWrapping="Wrap"
-                 MinHeight="60"
-                 MaxHeight="200"
-                 PlaceholderText="Type a message… (⌘⏎ to send, ⇧⏎ for newline)" />
-
-        <!-- Toolbar: workspace picker · model picker · send button.
-             Workspace gets * (fills remaining) and a 280-px cap so
-             long folder paths can't drag the layout; model gets *
-             too with a 200-px cap. The send button is Auto (icon
-             width). Both pickers set ItemTemplate with TextTrimming
-             so the SELECTED display is ellipsized when the path
-             exceeds the cap — the dropdown itself still shows the
-             full string so the user can read the choice. -->
-        <Grid ColumnDefinitions="*,*,Auto">
-
-          <ComboBox Grid.Column="0"
-                    ItemsSource="{Binding PromptInput.AvailableWorkspaces}"
-                    SelectedItem="{Binding PromptInput.SelectedWorkspace, Mode=TwoWay}"
-                    PlaceholderText="Workspace"
-                    HorizontalAlignment="Stretch"
-                    MaxWidth="280"
-                    Margin="0,0,4,0">
-            <ComboBox.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding}"
-                           TextTrimming="CharacterEllipsis" />
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
-
-          <ComboBox Grid.Column="1"
-                    ItemsSource="{Binding PromptInput.AvailableModels}"
-                    SelectedItem="{Binding PromptInput.SelectedModel, Mode=TwoWay}"
-                    PlaceholderText="Model"
-                    HorizontalAlignment="Stretch"
-                    MaxWidth="200"
-                    Margin="4,0,4,0">
-            <ComboBox.ItemTemplate>
-              <DataTemplate>
-                <TextBlock Text="{Binding}"
-                           TextTrimming="CharacterEllipsis" />
-              </DataTemplate>
-            </ComboBox.ItemTemplate>
-          </ComboBox>
-
-          <!-- State-aware send button. Icon swaps between
-               ArrowUp (idle / send) and Stop filled-square (running /
-               cancel) via PromptInputViewModel.SendIconKind. Same
-               ToggleCommand for both — just flips IsRunning. -->
-          <Button Grid.Column="2"
-                  Padding="10,6"
-                  Margin="4,0,0,0"
-                  IsDefault="True"
-                  ToolTip.Tip="{Binding PromptInput.SendToolTip}"
-                  Command="{Binding PromptInput.SendCommand}">
-            <mi:MaterialIcon Kind="{Binding PromptInput.SendIconKind}"
-                              Width="18" Height="18" />
-          </Button>
-
-        </Grid>
-
-      </StackPanel>
-    </Border>
+    <!-- Prompt input. Extracted into Components/PromptInputView so the
+         shell can also host it directly without a chat page (the
+         pre-session state has no transcript above the input). The view's
+         DataContext is bound to ChatPageViewModel.PromptInput so the same
+         VM instance flows through. -->
+    <components:PromptInputView Grid.Row="2" Grid.Column="1"
+                                DataContext="{Binding PromptInput}" />
 
   </Grid>
 </UserControl>

@@ -27,8 +27,12 @@ public partial class SidebarViewModel(ShellViewModel shell) : ViewModelBase
     private void NewChat()
     {
         // Routed through ViewLocator → ChatPageView. Each click gets a
-        // fresh VM so any in-progress input is discarded.
-        _shell.CurrentPage = new ChatPageViewModel();
+        // fresh VM so any in-progress input is discarded. The Providers
+        // instance comes from the shell so both the chat and providers
+        // pages share one ProviderManager — saved keys are visible to
+        // PromptInputViewModel.AvailableModels on the chat page without
+        // an explicit refresh.
+        _shell.CurrentPage = new ChatPageViewModel(_shell.Providers);
     }
 
     [RelayCommand]

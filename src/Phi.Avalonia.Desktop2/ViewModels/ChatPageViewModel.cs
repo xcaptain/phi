@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Phi.Avalonia.Desktop2.Components.ChatLines;
+using Phi.Providers;
 
 namespace Phi.Avalonia.Desktop2.ViewModels;
 
@@ -119,8 +120,9 @@ public partial class ChatPageViewModel : ViewModelBase
 
     public PromptInputViewModel PromptInput { get; }
 
-    public ChatPageViewModel()
+    public ChatPageViewModel(ProviderManager providers)
     {
-        PromptInput = new PromptInputViewModel();
+        ArgumentNullException.ThrowIfNull(providers);
+        PromptInput = new PromptInputViewModel(providers);
     }
 }

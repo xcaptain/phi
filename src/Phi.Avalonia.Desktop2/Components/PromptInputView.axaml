@@ -1,0 +1,186 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Phi.Avalonia.Desktop2.ViewModels"
+             xmlns:mi="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
+             x:Class="Phi.Avalonia.Desktop2.Components.PromptInputView"
+             x:DataType="vm:PromptInputViewModel">
+  <!--
+    Prompt input shell. Layout mirrors Phi.Avalonia.Components.PromptInputLayout
+    (the old code-only file we are explicitly NOT copying behaviour from):
+      • No outer 2:6:2 reading-column wrapper — ChatPageView already
+        hosts PromptInputView inside its own 6* reading column, so the
+        card occupies the full reading-column width. Adding another
+        2*,6*,2* Grid inside PromptInputView would compress the card to
+        60% of its container, which is what the screenshot showed
+        (prompt input much narrower than the transcript content above);
+      • Single-column Grid holds the Shell Border and the
+        AutoCompleteRoot overlay so the latter can float above the
+        former in z-order without constraining either's width;
+      • Border shell with CornerRadius=12 + a 1-px control border, plus
+        the CardBackgroundFillColorDefaultBrush surface fill and the
+        theme's CardShadow (see App.axaml ResourceDictionary for the
+        light/dark values) so the card visually lifts above the chat
+        page;
+      • StackPanel (Spacing=0) hosting Editor on top + DockPanel footer
+        underneath;
+      • Footer: ModelCombo (LEFT) + WorkspaceCombo (LEFT) + SubmitButton
+        (RIGHT) — both combos are transparent with no border so the shell
+        Border is the only visible frame;
+      • SubmitButton is a 34×34 circular button with the accent fill,
+        icon foreground is the on-accent text colour;
+      • AutoCompleteRoot is a separate Border that overlays the shell at
+        the bottom edge — IsVisible=False in this prototype (the slash
+        auto-complete popup is wired in a follow-up sprint).
+
+    Pure layout. PromptInputViewModel owns the picker data and the send
+    command; the only code-behind touch is WorkspaceButton_Click for the
+    folder picker (the old sentinel-row picker UX stays pending).
+  -->
+
+  <!-- Single-column host: PromptInputView is already placed inside
+       ChatPageView's 6* reading column, so its width is the
+       transcript's width. A Grid with no ColumnDefinitions defaults to
+       one column that fills the parent; the Shell Border is the only
+       visible element, AutoCompleteRoot overlays it for the slash popup
+       in a follow-up sprint. -->
+  <Grid>
+
+    <!-- Shell: rounded input frame. Horizontal padding (4,8,4,8) matches
+         AssistantTextLineView's Border padding so the TextBox content
+         starts at the same x-offset as the transcript text. The card
+         surface fill (CardBackgroundFillColorDefaultBrush) + the
+         theme's CardShadow (App.axaml) lift the input visually above
+         the chat page; the 1-px control border is kept as the rounded
+         outline. -->
+    <Border Margin="0,0,0,12"
+            Padding="4,8,4,8"
+            BorderThickness="1"
+            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+            Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+            CornerRadius="12"
+            BoxShadow="{DynamicResource CardShadow}">
+      <StackPanel Spacing="0">
+
+        <!-- Borderless multi-line TextBox. Classes="borderless" pulls in
+             the App.axaml class-based style that strips both the default
+             1-px border AND the FluentTheme focus accent border — only
+             the caret blinks on focus. The shell Border provides the
+             visible frame so this TextBox doesn't need its own. -->
+        <TextBox x:Name="Editor"
+                 Classes="borderless"
+                 Text="{Binding Text, Mode=TwoWay}"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 MinHeight="48"
+                 MaxHeight="200"
+                 PlaceholderText="Ask Phi anything…" />
+
+        <!-- Toolbar: ModelCombo · WorkspaceCombo · SubmitButton.
+             DockPanel with LastChildFill=true keeps the Send button
+             pinned to the right; the two pickers share the LEFT slot so
+             the long workspace path can wrap to a second visual row when
+             the window narrows. HorizontalSpacing=8 mirrors the old
+             layout's spacing between footer controls. -->
+        <DockPanel Margin="0,6,0,0"
+                   LastChildFill="True"
+                   HorizontalSpacing="8">
+
+          <!-- Model picker. ComboBox over the VM's AvailableModels
+               (a list of ModelPickerItem records carrying Label +
+               IsCurrent). The ItemTemplate renders the label and lets
+               the data template decide current-row styling via the
+               IsCurrent property. The placeholder is "Select model"
+               (same wording as the old layout). Background transparent
+               + no border so the shell Border is the only visible frame. -->
+          <ComboBox DockPanel.Dock="Left"
+                    x:Name="ModelCombo"
+                    MinWidth="180" MaxWidth="320"
+                    PlaceholderText="Select model"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    CornerRadius="6"
+                    ItemsSource="{Binding AvailableModels}"
+                    SelectedItem="{Binding SelectedModelItem, Mode=TwoWay}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:ModelPickerItem">
+                <TextBlock Text="{Binding Label}"
+                           FontWeight="{Binding IsCurrent, Converter={x:Static vm:ModelPickerItemStyles.WeightConverter}}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+
+          <!-- Workspace picker. ComboBox over AvailableWorkspaces
+               (WorkspacePickerItem list — current cwd + sentinel at end).
+               Same visual treatment as the ModelCombo. The sentinel row
+               ("📁 Choose folder…") is dimmed via FontWeight=Normal
+               while current-cwd rows get SemiBold. Click behaviour on
+               the sentinel is pending (the old PromptInputView opens the
+               folder picker; this prototype intentionally does not). -->
+          <ComboBox DockPanel.Dock="Left"
+                    x:Name="WorkspaceCombo"
+                    MinWidth="180" MaxWidth="320"
+                    PlaceholderText="Select workspace"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    CornerRadius="6"
+                    ItemsSource="{Binding AvailableWorkspaces}"
+                    SelectedItem="{Binding SelectedWorkspaceItem, Mode=TwoWay}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:WorkspacePickerItem">
+                <TextBlock Text="{Binding Label}"
+                           FontWeight="{Binding IsCurrent, Converter={x:Static vm:WorkspacePickerItemStyles.WeightConverter}}" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+
+          <!-- Submit button. Fixed 34×34 circle (CornerRadius=17) with
+               the accent fill and on-accent foreground on the icon —
+               matches the old layout's visually anchored send action.
+               The icon (MaterialIconKind.ArrowUp vs .Stop) and tooltip
+               are driven by the VM's SendIconKind / SendToolTip
+               properties so the button stays a single visual element
+               across idle / running states. -->
+          <Button DockPanel.Dock="Right"
+                  x:Name="SubmitButton"
+                  Width="34" Height="34"
+                  Padding="0"
+                  CornerRadius="17"
+                  HorizontalAlignment="Right"
+                  VerticalAlignment="Center"
+                  Background="{DynamicResource AccentFillColorDefaultBrush}"
+                  ToolTip.Tip="{Binding SendToolTip}"
+                  Command="{Binding SendCommand}">
+            <mi:MaterialIcon Kind="{Binding SendIconKind}"
+                             Width="18" Height="18"
+                             Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+          </Button>
+
+        </DockPanel>
+      </StackPanel>
+    </Border>
+
+    <!-- Auto-complete popup (slash commands). Layout-only stub: IsVisible
+         stays false in this prototype. Sits in the same single-column
+         Grid as the Shell so z-order (document order) puts the popup
+         on top of the shell when it shows. Same dimensions as the old
+         layout so a follow-up sprint that wires the popup can re-use
+         this slot without touching the surrounding geometry. -->
+    <Border x:Name="AutoCompleteRoot"
+            IsVisible="False"
+            Margin="0,0,0,16"
+            Padding="6,4"
+            BorderThickness="1"
+            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+            Background="{DynamicResource LayerFillColorDefaultBrush}"
+            CornerRadius="8"
+            HorizontalAlignment="Stretch"
+            VerticalAlignment="Bottom">
+      <ListBox x:Name="AutoCompleteItems"
+               Background="Transparent"
+               BorderThickness="0"
+               MaxHeight="180"
+               FontSize="13" />
+    </Border>
+
+  </Grid>
+</UserControl>
