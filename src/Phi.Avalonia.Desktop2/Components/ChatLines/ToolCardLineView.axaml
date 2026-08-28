@@ -1,0 +1,62 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Phi.Avalonia.Desktop2.Components.ChatLines"
+             xmlns:md="using:MarkView.Avalonia"
+             xmlns:mi="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
+             x:Class="Phi.Avalonia.Desktop2.Components.ChatLines.ToolCardLineView"
+             x:DataType="vm:ToolCardLineViewModel">
+  <!-- Manual collapsible card. We deliberately don't use Avalonia's Expander
+       here because its default FluentTheme styling reserves ~30 px on the
+       LEFT side for the chevron indicator, which makes the card appear
+       indented from where assistant messages start. With Button + IsVisible
+       the whole card aligns flush with the chat transcript's left edge,
+       matching UserTextLine / AssistantTextLine views. -->
+  <Border BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+          BorderThickness="1"
+          CornerRadius="6"
+          Margin="4,0,4,12">
+    <DockPanel LastChildFill="True">
+
+      <!-- Header strip — click anywhere to toggle. Whole-strip Button so
+           the user doesn't have to land precisely on the icon or chevron. -->
+      <Button DockPanel.Dock="Top"
+              HorizontalAlignment="Stretch"
+              HorizontalContentAlignment="Stretch"
+              Background="Transparent"
+              Padding="12,8"
+              Command="{Binding ToggleCommand}">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <mi:MaterialIcon Grid.Column="0"
+                            Kind="{Binding IconKind}"
+                            Width="14" Height="14"
+                            Margin="0,0,8,0" />
+          <TextBlock Grid.Column="1"
+                     Text="{Binding Summary}"
+                     FontFamily="Consolas,Menlo,Monospace"
+                     VerticalAlignment="Center"
+                     TextTrimming="CharacterEllipsis" />
+          <mi:MaterialIcon Grid.Column="2"
+                            Kind="ChevronDown"
+                            Width="14" Height="14" />
+        </Grid>
+      </Button>
+
+      <!-- Body. MarkdownViewer renders the fenced code block; TextMate
+           (registered once in App.axaml.cs:Initialize via
+           MarkdownViewerDefaults.Extensions.AddTextMateHighlighting())
+           applies the language grammar's per-token coloring. MarkdownViewer's
+           code block is SelectableTextBlock under the hood, so ⌘C /
+           right-click copy work out of the box without us having to
+           manage selection ourselves. -->
+      <Border IsVisible="{Binding IsOpen}">
+        <md:MarkdownViewer Markdown="{Binding BodyMarkdown}" />
+      </Border>
+
+    </DockPanel>
+  </Border>
+</UserControl>

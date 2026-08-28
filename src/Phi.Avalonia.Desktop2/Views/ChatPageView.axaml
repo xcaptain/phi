@@ -16,17 +16,20 @@
                  FontWeight="SemiBold" />
     </Border>
 
-    <!-- Transcript area. UI-1 ships empty; UI-2 swaps this for an
-         ItemsControl / ItemsRepeater with per-ChatLine DataTemplate that
-         DIFFs by stable ChatLine.Id (DIFF loop lives in TranscriptView.cs). -->
+    <!-- Transcript area. 2:6:2 column grid puts the actual content in the
+         middle 60% of the chat panel width so user / assistant / tool
+         lines have a 20%-width margin on each side — matches the user's
+         "留白" expectation. Per-line rendering is routed via the
+         app-level <local:ViewLocator />: each item in
+         ChatPageViewModel.Transcript is a VM whose concrete type decides
+         which view (UserText / Assistant / ToolCard) wraps it. No inline
+         DataTemplates needed. -->
     <ScrollViewer Grid.Row="1"
-                  VerticalScrollBarVisibility="Auto">
-      <Grid Margin="20">
-        <TextBlock Text="No messages yet — type something below to start."
-                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                   HorizontalAlignment="Center"
-                   VerticalAlignment="Center"
-                   TextWrapping="Wrap" />
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled">
+      <Grid ColumnDefinitions="2*,6*,2*">
+        <ItemsControl Grid.Column="1"
+                      ItemsSource="{Binding Transcript}" />
       </Grid>
     </ScrollViewer>
 
