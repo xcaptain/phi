@@ -124,6 +124,64 @@ public partial class SidebarViewModel : ViewModelBase
         RebuildNav();
     }
 
+    /// <summary>Delete a session row's underlying record. Removes the
+    /// <c>index.jsonl</c> entry + the transcript file via
+    /// <see cref="Phi.WorkspaceSessionStore.DeleteSession"/>. If the
+    /// deleted session was the active one, navigates to a fresh
+    /// session so the chat page keeps a valid ISession bound
+    /// (otherwise the active session would still reference a record
+    /// that's been wiped). Else just rebuilds the nav list so the
+    /// row disappears.</summary>
+    [RelayCommand]
+    private async Task DeleteSessionAsync(string? sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return;
+
+        var wasActive = _shell.Active.Current?.Id == sessionId;
+        try
+        {
+            Phi.WorkspaceSessionStore.DeleteSession(sessionId);
+        }
+        catch (Exception ex)
+        {
+            // WorkspaceSessionStore is silent on unknown id (treats as
+            // no-op); any other failure (file permissions, disk)
+            // surfaces via the same console.Error sink the other nav
+            // commands use until the status bar lands.
+            System.Console.Error.WriteLine($"DeleteSession({sessionId}): {ex.Message}");
+            return;
+        }
+
+        if (wasActive)
+        {
+            // The active session in memory still references the deleted
+            // record. Replace it with a fresh session in the same cwd
+            // (mirrors what happens when you delete the active chat in
+            // most chat apps). We pick a cwd from the active session
+            // before we dispose the new one for any side effects; in
+            // this prototype cwd comes from the previous session.
+            var cwd = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (string.IsNullOrEmpty(cwd)) cwd = Environment.CurrentDirectory;
+
+            var firstConnected = Phi.Providers.ProviderCatalog.All
+                .Where(_shell.Providers.HasApiKey)
+                .Cast<Phi.Providers.ProviderCatalogEntry?>()
+                .FirstOrDefault();
+
+            if (firstConnected is null) return; // No provider — leave nav as-is.
+            await Composition.NewSessionAsync(
+                cwd, firstConnected.Name, firstConnected.DefaultModel);
+        }
+        // For non-active deletes the Active.Changed → RebuildNav path
+        // is unnecessary; the on-disk removal is reflected in the next
+        // RebuildNav call. We trigger one explicitly so the row goes
+        // away immediately rather than waiting for the next nav trigger.
+        // Active.Changed already fired for active-deletes (via
+        // NewSessionAsync → Replace) so RebuildNav has run there.
+        if (!wasActive)
+            RebuildNav();
+    }
+
     /// <summary>Select a session row: resume it via the active session's
     /// <see cref="Phi.ISession.ResumeAsync"/>. The swap fires
     /// <see cref="Active.Changed"/> which the sidebar subscribes to so

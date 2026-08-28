@@ -61,14 +61,22 @@
                IsCurrent). The ItemTemplate renders the label and lets
                the data template decide current-row styling via the
                IsCurrent property. The placeholder is "Select model"
-               (same wording as the old layout). Background transparent
-               + no border so the shell Border is the only visible frame. -->
+               (same wording as the old layout).
+               The picker sits INSIDE the card, so we give it a subtle
+               distinct surface (SystemControlBackgroundBaseLowBrush)
+               and a hairline border so the picker reads as a separate
+               interactive control instead of a flat label. The base
+               brush + subtle border are FluentTheme's standard picker
+               chrome — they sit above the card surface but below the
+               accent focus outline. -->
           <ComboBox DockPanel.Dock="Left"
                     x:Name="ModelCombo"
                     MinWidth="180" MaxWidth="320"
+                    Padding="10,6"
                     PlaceholderText="Select model"
-                    Background="Transparent"
-                    BorderThickness="0"
+                    Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                    BorderBrush="{DynamicResource SystemControlHighlightBaseMediumLowBrush}"
+                    BorderThickness="1"
                     CornerRadius="6"
                     ItemsSource="{Binding AvailableModels}"
                     SelectedItem="{Binding SelectedModelItem, Mode=TwoWay}">
@@ -90,9 +98,11 @@
           <ComboBox DockPanel.Dock="Left"
                     x:Name="WorkspaceCombo"
                     MinWidth="180" MaxWidth="320"
+                    Padding="10,6"
                     PlaceholderText="Select workspace"
-                    Background="Transparent"
-                    BorderThickness="0"
+                    Background="{DynamicResource SystemControlBackgroundBaseLowBrush}"
+                    BorderBrush="{DynamicResource SystemControlHighlightBaseMediumLowBrush}"
+                    BorderThickness="1"
                     CornerRadius="6"
                     ItemsSource="{Binding AvailableWorkspaces}"
                     SelectedItem="{Binding SelectedWorkspaceItem, Mode=TwoWay}">
