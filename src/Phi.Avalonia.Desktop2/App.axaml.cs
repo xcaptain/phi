@@ -24,15 +24,18 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            // UI prototype composition root: a fresh ProviderManager
-            // (reads ~/.phi/credentials.json on first call) shared by
-            // the shell so Providers page saves + chat picker reads
-            // stay in sync. The wiring phase introduces Composition.cs
-            // which owns the manager + ActiveSession + cwd defaults.
-            var providers = new ProviderManager();
+            // Composition.InitializeAsync was awaited in Program.Main
+            // before the UI loop started, so Composition.ActiveSession
+            // / Composition.Providers are guaranteed non-null here. The
+            // shell takes both directly — the providers are shared with
+            // the prompt input picker so saved keys show up as models
+            // without an explicit refresh; the active session is the
+            // chat page's data source and gets rebuilt on swap.
             desktop.MainWindow = new MainWindow
             {
-                DataContext = new ShellViewModel(providers),
+                DataContext = new ShellViewModel(
+                    Composition.ActiveSession,
+                    Composition.Providers),
             };
         }
 

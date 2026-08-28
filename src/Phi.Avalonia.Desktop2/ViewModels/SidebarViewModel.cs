@@ -1,59 +1,277 @@
+using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Data.Converters;
+using Avalonia.Media;
+using Phi.Avalonia.Desktop2.Components;
 
 namespace Phi.Avalonia.Desktop2.ViewModels;
 
 /// <summary>
-/// Sidebar region of the shell. Holds the two navigation commands
-/// (<see cref="NewChatCommand"/> / <see cref="ShowProvidersCommand"/>)
-/// the sidebar buttons bind to. Each command sets
-/// <see cref="ShellViewModel.CurrentPage"/> on the parent shell, so
-/// the shell hosts whichever view <c>ViewLocator</c> resolves from the
-/// new VM.
+/// Sidebar region of the shell. Owns the navigation commands (New
+/// Chat / Show Providers), the group-mode toggle (ByDate /
+/// ByWorkspace), and the live entries list the sidebar renders.
 /// <para>
-/// SidebarViewModel holds a back-reference to its parent shell because
-/// navigation is shell-owned state — the alternative is a callback /
-/// event indirection that adds plumbing without buying us anything in
-/// this single-shell prototype.
+/// The entries list is rebuilt from <c>WorkspaceSessionStore</c> on:
+/// <list type="bullet">
+/// <item><see cref="Active.Changed"/> (new session created / session
+/// resumed — list re-reads, IsActive flag flips).</item>
+/// <item>Group-mode toggle — list re-orders.</item>
+/// <item>Watched current session's <see cref="Phi.ISession.StateChanged"/>:
+/// when <c>IsPersisted</c> flips false→true (the first message
+/// persists the session record) or <c>SessionTitle</c> changes (LLM
+/// auto-namer fills in the real title), the list rebuilds so the new
+/// entry replaces the id-prefix placeholder.</item>
+/// </list>
+/// </para>
+/// <para>
+/// Click on a session row fires <see cref="SelectSessionCommand"/> which
+/// calls <c>ISession.ResumeAsync(id)</c> on the active session; that
+/// in turn fires <see cref="Active.Changed"/> and we rebuild again.
 /// </para>
 /// </summary>
-public partial class SidebarViewModel(ShellViewModel shell) : ViewModelBase
+public partial class SidebarViewModel : ViewModelBase
 {
-    private readonly ShellViewModel _shell = shell;
+    private readonly ShellViewModel _shell;
 
-    public IReadOnlyList<SessionEntryViewModel> Sessions { get; } =
-        [];
+    /// <summary>The flat list rendered by the sidebar. Mix of
+    /// <see cref="WorkspaceNavEntryViewModel"/> + <see cref="SessionNavEntryViewModel"/>;
+    /// the XAML's per-kind DataTemplate handles visual dispatch.</summary>
+    public ObservableCollection<NavEntryViewModel> Entries { get; } = new();
+
+    /// <summary>Current group mode. Default
+    /// <see cref="NavModel.GroupMode.ByWorkspace"/>; the older shell
+    /// opened in workspace mode too.</summary>
+    [ObservableProperty]
+    private NavModel.GroupMode _groupMode = NavModel.GroupMode.ByWorkspace;
+
+    /// <summary>Mirrors <see cref="GroupMode"/> for the ByDate toggle
+    /// button's visual binding. Computed once at property-set time so
+    /// the converter doesn't need to read the VM.</summary>
+    public bool ByDateActive => GroupMode == NavModel.GroupMode.ByDate;
+
+    /// <summary>Mirror of <see cref="GroupMode"/> for the ByWorkspace
+    /// toggle button's visual binding.</summary>
+    public bool ByWorkspaceActive => GroupMode == NavModel.GroupMode.ByWorkspace;
+
+    private Phi.ISession? _watchedSession;
+    private bool _wasPersisted;
+    private string? _lastTitle;
+
+    public SidebarViewModel(ShellViewModel shell)
+    {
+        _shell = shell;
+        _shell.Active.Changed += OnActiveChanged;
+
+        // Watch the initial session's StateChanged so persisted/title
+        // flips rebuild the nav. The handler swaps cleanly when the
+        // active session changes (see WatchSession).
+        WatchSession(_shell.Active.Current);
+
+        RebuildNav();
+    }
 
     [RelayCommand]
-    private void NewChat()
+    private async Task NewChatAsync()
     {
-        // Routed through ViewLocator → ChatPageView. Each click gets a
-        // fresh VM so any in-progress input is discarded. The Providers
-        // instance comes from the shell so both the chat and providers
-        // pages share one ProviderManager — saved keys are visible to
-        // PromptInputViewModel.AvailableModels on the chat page without
-        // an explicit refresh.
-        _shell.CurrentPage = new ChatPageViewModel(_shell.Providers);
+        // Cwd + model come from the live prompt input on the chat
+        // page; today they're not wired (the page always reuses the
+        // home cwd + first connected provider model). The shell owns
+        // the picker state via the live ChatPageViewModel — when
+        // prompt-input wiring lands in UI-3, read them off there
+        // instead of these placeholders.
+        var cwd = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(cwd)) cwd = Environment.CurrentDirectory;
+
+        var firstConnected = Phi.Providers.ProviderCatalog.All
+            .Where(_shell.Providers.HasApiKey)
+            .Cast<Phi.Providers.ProviderCatalogEntry?>()
+            .FirstOrDefault();
+
+        if (firstConnected is null)
+        {
+            // No provider connected — leave the current page alone; the
+            // chat page VM already surfaces this in the picker
+            // placeholder ("no providers connected — go to Providers").
+            // A future UX shows a transient toast instead.
+            return;
+        }
+
+        // Composition.NewSessionAsync creates the new session and
+        // swaps it into Active; the Changed handler rebuilds the nav
+        // with the new entry highlighted.
+        await Composition.NewSessionAsync(
+            cwd, firstConnected.Name, firstConnected.DefaultModel);
     }
 
     [RelayCommand]
     private void ShowProviders()
     {
         // Routed through ViewLocator → ProvidersPageView. Each click
-        // gets a fresh VM so any in-progress key edits are discarded;
-        // Phase: backend wiring will inject the composition-root
-        // ProviderManager so saved keys persist across navigation.
+        // gets a fresh VM so any in-progress key edits are discarded.
         _shell.CurrentPage = new ProvidersPageViewModel();
     }
-}
 
-/// <summary>
-/// One session row in the sidebar list. UI-1 ships an empty list; the
-/// shape (Title / Cwd / IsActive) lines up with future
-/// <c>WorkspaceSessionStore</c> records so the data binding doesn't
-/// change when wiring happens.
-/// </summary>
-public sealed record SessionEntryViewModel(
-    string SessionId,
-    string Title,
-    string? Cwd,
-    bool IsActive);
+    [RelayCommand]
+    private void SetGroupMode(NavModel.GroupMode mode)
+    {
+        if (GroupMode == mode) return;
+        GroupMode = mode;
+        OnPropertyChanged(nameof(ByDateActive));
+        OnPropertyChanged(nameof(ByWorkspaceActive));
+        RebuildNav();
+    }
+
+    /// <summary>Select a session row: resume it via the active session's
+    /// <see cref="Phi.ISession.ResumeAsync"/>. The swap fires
+    /// <see cref="Active.Changed"/> which the sidebar subscribes to so
+    /// the highlight + chat page rebuild.</summary>
+    [RelayCommand]
+    private async Task SelectSessionAsync(string? sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId)) return;
+        var active = _shell.Active.Current;
+        if (active is null) return;
+        try
+        {
+            var next = await active.ResumeAsync(sessionId);
+            _shell.Active.Replace(next);
+        }
+        catch (Exception ex)
+        {
+            // NavModel.BuildNavEntries ignores missing sessions; a
+            // failed resume leaves the nav as-is. The exception is
+            // swallowed here because UI prototype scope doesn't ship
+            // a toast slot yet — surface via DeskLog once the status
+            // bar lands.
+            System.Console.Error.WriteLine($"SelectSessionAsync: {ex.Message}");
+        }
+    }
+
+    private void OnActiveChanged()
+    {
+        // The active session was replaced (sidebar New Chat, or
+        // ResumeAsync swap). Swap the watcher and rebuild the nav so
+        // the new active entry's row carries IsActive=true.
+        WatchSession(_shell.Active.Current);
+        RebuildNav();
+    }
+
+    /// <summary>Subscribe the new active session's
+    /// <see cref="Phi.ISession.StateChanged"/> so persisted / title
+    /// transitions rebuild the nav. Unsubscribes the previous watcher
+    /// first so we don't leak handlers across session swaps.</summary>
+    private void WatchSession(Phi.ISession? session)
+    {
+        if (ReferenceEquals(_watchedSession, session)) return;
+        if (_watchedSession is not null)
+            _watchedSession.StateChanged -= OnSessionStateForNav;
+        _watchedSession = session;
+        if (session is null) return;
+        _wasPersisted = session.State.IsPersisted;
+        _lastTitle = session.State.SessionTitle;
+        session.StateChanged += OnSessionStateForNav;
+    }
+
+    private void OnSessionStateForNav(Phi.SessionState state)
+    {
+        if (!_wasPersisted && state.IsPersisted)
+        {
+            _wasPersisted = true;
+            RebuildNav();
+            return;
+        }
+        if (!string.Equals(_lastTitle, state.SessionTitle, StringComparison.Ordinal))
+        {
+            _lastTitle = state.SessionTitle;
+            RebuildNav();
+        }
+    }
+
+    /// <summary>Re-read <c>WorkspaceSessionStore</c> and rebuild the
+    /// entries list. Cheap — the store scans a few
+    /// <c>index.jsonl</c> files under <c>~/.phi/sessions</c> and the
+    /// list is bounded by the recent-N filter (default 7 days).</summary>
+    private void RebuildNav()
+    {
+        var sessions = Phi.WorkspaceSessionStore.ListAllSessions();
+        var entries = NavModel.BuildNavEntries(sessions, GroupMode);
+        var activeId = _shell.Active.Current?.Id;
+
+        Entries.Clear();
+        foreach (var entry in entries)
+        {
+            Entries.Add(entry.Kind switch
+            {
+                NavModel.Kind.Workspace => new WorkspaceNavEntryViewModel(entry.Title, entry.Cwd!),
+                NavModel.Kind.Session => new SessionNavEntryViewModel(
+                    entry.Title, entry.SessionId!, isActive: entry.SessionId == activeId),
+                _ => throw new InvalidOperationException($"Unknown NavModel.Kind: {entry.Kind}"),
+            });
+        }
+    }
+
+    // ──────── Converter for the XAML session-row visuals ────────
+
+    /// <summary>Boolean→IBrush + FontWeight converters for the session
+    /// row's visual state when <c>IsActive</c> flips. The selected row
+    /// uses FluentTheme's <c>SystemControlHighlightListMediumBrush</c> —
+    /// the same brush FluentTheme paints on selected list items
+    /// everywhere else (SidebarItem, MenuItem, etc.). On top of the
+    /// dark sidebar (~#1F1F1F) this reads as the Fluent "elevated list
+    /// row" cue; on the light sidebar it reads as a soft tint.
+    /// <para>
+    /// Lives at namespace scope (not nested under SidebarViewModel)
+    /// because the Avalonia XAML compiler doesn't support the
+    /// <c>OuterClass+NestedClass</c> lookup in <c>x:Static</c>.
+    /// </para>
+    /// <para>
+    /// The previous ToggleBrushes converter (active → accent fill,
+    /// inactive → transparent) is gone: the ByDate / ByWorkspace
+    /// buttons in SidebarView use <see cref="ToggleButton"/> with
+    /// <c>IsChecked</c> TwoWay binding, which gets the accent fill
+    /// from FluentTheme's built-in ToggleButton styles. We don't have
+    /// to ship a converter for a state FluentTheme already styles.
+    /// </para>
+    /// </summary>
+    public static class SessionRowBrushes
+    {
+        // Active row → SystemControlHighlightListMediumBrush (Fluent's
+        // selected-list-item fill). Inactive row → transparent so the
+        // button's built-in pointerover tint shows through.
+        public static readonly IValueConverter Background =
+            new FuncValueConverter<bool, IBrush>(active =>
+                active
+                    ? LookupBrush("SystemControlHighlightListMediumBrush")
+                    : Brushes.Transparent);
+
+        // Selected row carries Medium weight per Fluent's "selected
+        // list item" pattern; inactive rows stay Normal. No bold;
+        // the selection reads through the background fill alone.
+        public static readonly IValueConverter FontWeight =
+            new FuncValueConverter<bool, global::Avalonia.Media.FontWeight>(active =>
+                active ? global::Avalonia.Media.FontWeight.Medium : global::Avalonia.Media.FontWeight.Normal);
+    }
+
+    /// <summary>Resolve a brush by resource key through
+    /// <see cref="Application.Current"/>'s resource dictionary. FluentTheme
+    /// already populates the dictionary with every system brush under
+    /// both Light and Dark ThemeDictionaries, so the lookup walks the
+    /// active ThemeVariant and returns the right value. Falls back to
+    /// <see cref="Brushes.Transparent"/> when the key is missing (e.g.
+    /// unit tests where no Avalonia app is constructed); the conversion
+    /// is silent rather than throwing so XAML load doesn't blow up on a
+    /// misconfigured key.</summary>
+    private static IBrush LookupBrush(string key)
+    {
+        if (Application.Current is { } app
+            && ResourceNodeExtensions.TryFindResource(app, key, out var resource)
+            && resource is IBrush brush)
+        {
+            return brush;
+        }
+        return Brushes.Transparent;
+    }
+}

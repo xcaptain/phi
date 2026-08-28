@@ -26,16 +26,20 @@ namespace Phi.Avalonia.Desktop2.ViewModels;
 /// cwd + a trailing sentinel row (<see cref="WorkspacePickerItem.IsSentinel"/>)
 /// that the old layout uses to open the OS folder picker. The sentinel
 /// click behaviour is intentionally not wired in this prototype.</item>
-/// <item><see cref="SendCommand"/>: today a no-op toggle for
-/// <see cref="IsRunning"/> so the UI prototype shows the icon flip; the
-/// wiring phase replaces the body with
-/// <c>session.SubmitPrompt(text)</c> / <c>session.Cancel()</c>.</item>
+/// <item><see cref="SendCommand"/>: invokes <see cref="SubmitCallback"/>
+/// with <c>(text, cwd, model)</c>. The parent VM wires the callback to
+/// forward the submission to <see cref="Phi.ISession.SubmitPrompt"/>;
+/// when idle and the callback is null (pre-session state) the command
+/// is a no-op.</item>
 /// </list>
 /// <para>
 /// <see cref="IsWorkspaceLocked"/> flips to true once a session exists
-/// (the wiring phase sets it). The view binds <c>!IsWorkspaceLocked</c>
-/// to the workspace picker's <c>IsEnabled</c> so the user can't pick a
-/// different cwd mid-session.
+/// (the chat page VM sets it from the bound <c>ISession</c>). The view
+/// binds <c>!IsWorkspaceLocked</c> to the workspace picker's
+/// <c>IsEnabled</c> so the user can't pick a different cwd mid-session.
+/// <see cref="IsRunning"/> is similarly driven by
+/// <c>session.State.IsRunning</c> via the parent's
+/// <c>OnSessionStateChanged</c> handler.
 /// </para>
 /// </summary>
 public partial class PromptInputViewModel : ViewModelBase
@@ -70,13 +74,21 @@ public partial class PromptInputViewModel : ViewModelBase
     [ObservableProperty]
     private WorkspacePickerItem? _selectedWorkspaceItem;
 
+/// <summary>
+    /// True while a turn is in flight. Driven by the chat page VM from
+    /// <c>session.State.IsRunning</c> (the parent's
+    /// <c>OnSessionStateChanged</c> handler assigns this on every
+    /// state change). The send button icon (ArrowUp vs Stop) and
+    /// tooltip swap on this flag.
+    /// </summary>
     [ObservableProperty]
     private bool _isRunning;
 
     /// <summary>
-    /// True while a turn is in flight. Toggled by <see cref="SendCommand"/>
-    /// in the UI prototype; the wiring phase will mirror
-    /// <c>session.State.IsRunning</c> instead.
+    /// True once a session is bound to the chat page; the view uses it
+    /// to disable the workspace picker — once a session exists, the
+    /// cwd is fixed (NewSessionAsync picked it) and the picker can no
+    /// longer switch workspaces mid-session.
     /// </summary>
     [ObservableProperty]
     private bool _isWorkspaceLocked;
@@ -120,6 +132,17 @@ public partial class PromptInputViewModel : ViewModelBase
 
     public IRelayCommand SendCommand { get; }
 
+    /// <summary>
+    /// Callback invoked when <see cref="SendCommand"/> runs. Set by the
+    /// parent VM (typically <see cref="ChatPageViewModel"/>) to forward
+    /// the (text, cwd, model) triple to <see cref="Phi.ISession.SubmitPrompt"/>.
+    /// The VM itself is UI-agnostic; it just fires the callback. Null
+    /// until the parent wires it — when null, the Send button is a
+    /// no-op (used in tests and during the pre-session prompt-input
+    /// state where there's no session to submit to).
+    /// </summary>
+    public Action<string, string, string>? SubmitCallback { get; set; }
+
     public PromptInputViewModel(ProviderManager providers)
     {
         ArgumentNullException.ThrowIfNull(providers);
@@ -151,9 +174,28 @@ public partial class PromptInputViewModel : ViewModelBase
         _selectedWorkspaceItem = AvailableWorkspaces.FirstOrDefault(w => w.IsCurrent);
 
         SendCommand = new RelayCommand(
-            execute: () => IsRunning = !IsRunning,
-            canExecute: () => !string.IsNullOrWhiteSpace(Text) || IsRunning);
+            execute: () =>
+            {
+                // Mirror canExecute in the body — IRelayCommand.Execute
+                // doesn't enforce CanExecute itself, so an empty-text
+                // submit would still fire the callback if the button
+                // is wired directly (e.g. keyboard ⏎ via IsDefault on
+                // the Button). Only submit when there's something to
+                // send, or when the user is mid-turn and the button is
+                // the cancel glyph.
+                if (!CanSubmit()) return;
+                SubmitCallback?.Invoke(Text, SelectedWorkspace, SelectedModel ?? string.Empty);
+            },
+            canExecute: CanSubmit);
+
+        // Single source of truth for "the button should be live".
+        // Re-evaluated when Text or IsRunning flips because both are
+        // [NotifyCanExecuteChangedFor(SendCommand)] or the property
+        // generator picks them up via the SendCommand setter.
     }
+
+    private bool CanSubmit() =>
+        !string.IsNullOrWhiteSpace(Text) || IsRunning;
 
     /// <summary>
     /// Distinct model names from every catalog entry whose API key is

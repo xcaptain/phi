@@ -4,10 +4,17 @@
              xmlns:local="using:Phi.Avalonia.Desktop2"
              xmlns:materialIcons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
              RequestedThemeVariant="Default">
-  <!-- "Light" ThemeVariant forces FluentTheme light variant for UI-1.
-       v2 polish: introduce a Theme.axaml with both Light/Dark ResourceDictionary
-       entries + bump back to "Default" so the app follows macOS system
-       preference. For now, light-everywhere while we're building chrome. -->
+  <!--
+    Default follows the macOS / Windows / Linux system preference.
+    FluentTheme picks up RequestedThemeVariant automatically and ships
+    its own ThemeDictionaries (Light + Dark variants of every system
+    brush — SystemControlBackground*, SystemControlForeground*,
+    SystemControlHighlight*, SystemChrome*, SystemList*). We don't
+    define a custom palette; views reference FluentTheme's brushes by
+    name (e.g. {DynamicResource SystemControlBackgroundChromeMediumBrush})
+    and Avalonia resolves the right Light/Dark variant for the active
+    ThemeVariant.
+  -->
 
   <Application.DataTemplates>
     <!-- Strong-typed VM → View (see ViewLocator.cs). The original Avalonia
@@ -16,37 +23,14 @@
     <local:ViewLocator />
   </Application.DataTemplates>
 
-  <!-- Theme-aware resources. Avalonia's FluentTheme doesn't ship a shadow
-       color resource, so any elevated surface (the prompt input card, a
-       future popover, etc.) needs to reference a color from somewhere.
-       Centralising the choice here means views never hardcode a hex
-       value, and switching light/dark is a one-line change to the
-       per-theme dictionary rather than a sweep across views. The
-       `DynamicResource` lookup in PromptInputView follows the active
-       ThemeVariant, so a system dark-mode switch flows through. -->
-  <Application.Resources>
-    <ResourceDictionary>
-      <ResourceDictionary.ThemeDictionaries>
-        <ResourceDictionary x:Key="Light">
-          <!-- 6.25% black: subtle lift on the card surface. -->
-          <BoxShadows x:Key="CardShadow">0 2 8 0 #30000000</BoxShadows>
-        </ResourceDictionary>
-        <ResourceDictionary x:Key="Dark">
-          <!-- 40% black: dark mode needs a denser shadow because the
-               card surface sits on an already-dark page — a light-mode
-               6.25% black disappears entirely. -->
-          <BoxShadows x:Key="CardShadow">0 2 8 0 #716c6c00</BoxShadows>
-        </ResourceDictionary>
-      </ResourceDictionary.ThemeDictionaries>
-    </ResourceDictionary>
-  </Application.Resources>
-
   <Application.Styles>
     <FluentTheme />
+
     <!-- Markdown rendering for transcript assistant text. Must load via XAML
          (not AvaloniaXamlLoader.Load(stream)) for NativeAOT — AXML is the
          precompiled binary form, loaded from !AvaloniaResources at runtime. -->
     <StyleInclude Source="avares://MarkView.Avalonia/Themes/MarkdownTheme.axaml" />
+
     <!-- MaterialIcon is a templated control; without these styles the icons
          render as empty boxes (per the package README 2.0+). -->
     <materialIcons:MaterialIconStyles />

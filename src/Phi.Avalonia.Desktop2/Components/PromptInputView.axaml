@@ -4,61 +4,32 @@
              xmlns:mi="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
              x:Class="Phi.Avalonia.Desktop2.Components.PromptInputView"
              x:DataType="vm:PromptInputViewModel">
-  <!--
-    Prompt input shell. Layout mirrors Phi.Avalonia.Components.PromptInputLayout
-    (the old code-only file we are explicitly NOT copying behaviour from):
-      • No outer 2:6:2 reading-column wrapper — ChatPageView already
-        hosts PromptInputView inside its own 6* reading column, so the
-        card occupies the full reading-column width. Adding another
-        2*,6*,2* Grid inside PromptInputView would compress the card to
-        60% of its container, which is what the screenshot showed
-        (prompt input much narrower than the transcript content above);
-      • Single-column Grid holds the Shell Border and the
-        AutoCompleteRoot overlay so the latter can float above the
-        former in z-order without constraining either's width;
-      • Border shell with CornerRadius=12 + a 1-px control border, plus
-        the CardBackgroundFillColorDefaultBrush surface fill and the
-        theme's CardShadow (see App.axaml ResourceDictionary for the
-        light/dark values) so the card visually lifts above the chat
-        page;
-      • StackPanel (Spacing=0) hosting Editor on top + DockPanel footer
-        underneath;
-      • Footer: ModelCombo (LEFT) + WorkspaceCombo (LEFT) + SubmitButton
-        (RIGHT) — both combos are transparent with no border so the shell
-        Border is the only visible frame;
-      • SubmitButton is a 34×34 circular button with the accent fill,
-        icon foreground is the on-accent text colour;
-      • AutoCompleteRoot is a separate Border that overlays the shell at
-        the bottom edge — IsVisible=False in this prototype (the slash
-        auto-complete popup is wired in a follow-up sprint).
-
-    Pure layout. PromptInputViewModel owns the picker data and the send
-    command; the only code-behind touch is WorkspaceButton_Click for the
-    folder picker (the old sentinel-row picker UX stays pending).
+<!--
+    Prompt input shell. All chrome (card surface, border, accent
+    send button, text brushes) comes from FluentTheme's system
+    brushes via {DynamicResource ...} — no custom palette, no
+    MergedDictionary, no manual shadow. The card's elevation reads
+    from the surface colour difference between FluentTheme's
+    SystemControlBackgroundChromeMediumBrush (card) and the page's
+    chrome-medium-low background; we don't add a synthetic shadow
+    on top, Fluent's native focus visual (system accent outline) is
+    enough.
   -->
 
-  <!-- Single-column host: PromptInputView is already placed inside
-       ChatPageView's 6* reading column, so its width is the
-       transcript's width. A Grid with no ColumnDefinitions defaults to
-       one column that fills the parent; the Shell Border is the only
-       visible element, AutoCompleteRoot overlays it for the slash popup
-       in a follow-up sprint. -->
   <Grid>
 
     <!-- Shell: rounded input frame. Horizontal padding (4,8,4,8) matches
          AssistantTextLineView's Border padding so the TextBox content
          starts at the same x-offset as the transcript text. The card
-         surface fill (CardBackgroundFillColorDefaultBrush) + the
-         theme's CardShadow (App.axaml) lift the input visually above
-         the chat page; the 1-px control border is kept as the rounded
-         outline. -->
+         surface fill comes from CardBackgroundFillColorDefaultBrush
+         (FluentTheme card surface); the 1-px border is the subtle
+         rounded outline. -->
     <Border Margin="0,0,0,12"
             Padding="4,8,4,8"
             BorderThickness="1"
-            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+            BorderBrush="{DynamicResource SystemControlHighlightBaseMediumLowBrush}"
             Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
-            CornerRadius="12"
-            BoxShadow="{DynamicResource CardShadow}">
+            CornerRadius="12">
       <StackPanel Spacing="0">
 
         <!-- Borderless multi-line TextBox. Classes="borderless" pulls in
@@ -170,8 +141,8 @@
             Margin="0,0,0,16"
             Padding="6,4"
             BorderThickness="1"
-            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
-            Background="{DynamicResource LayerFillColorDefaultBrush}"
+            BorderBrush="{DynamicResource SystemControlHighlightBaseMediumLowBrush}"
+            Background="{DynamicResource SystemControlBackgroundChromeMediumLowBrush}"
             CornerRadius="8"
             HorizontalAlignment="Stretch"
             VerticalAlignment="Bottom">
