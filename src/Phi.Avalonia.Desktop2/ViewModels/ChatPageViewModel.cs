@@ -5,8 +5,11 @@ namespace Phi.Avalonia.Desktop2.ViewModels;
 
 /// <summary>
 /// Right-column chat region: header (session title / cwd / model chip),
-/// transcript (empty placeholder in UI-1; per-line rendering lands in
-/// UI-2), prompt input, status bar.
+/// transcript (per-line rendering in UI-2), prompt input (workspace /
+/// model / send in UI-3). Status-bar info (idle/running, context usage,
+/// model label) used to live as a separate row but UI-3 folded it into
+/// the prompt input panel — idle/running is now a button-icon swap,
+/// context usage and model name move to the header in a later polish.
 /// </summary>
 public partial class ChatPageViewModel : ViewModelBase
 {
@@ -115,11 +118,9 @@ public partial class ChatPageViewModel : ViewModelBase
     ];
 
     public PromptInputViewModel PromptInput { get; }
-    public StatusBarViewModel StatusBar { get; }
 
     public ChatPageViewModel()
     {
         PromptInput = new PromptInputViewModel();
-        StatusBar = new StatusBarViewModel();
     }
 }
