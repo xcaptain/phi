@@ -23,6 +23,13 @@ public sealed class ViewLocator : IDataTemplate
         {
             ShellViewModel => new ShellView(),
 
+            // Top-level page switched by the sidebar (UI-A / Phase: page
+            // routing). ShellView.xaml binds a ContentControl to
+            // ShellViewModel.CurrentPage; this switch resolves it to the
+            // right view.
+            ChatPageViewModel => new ChatPageView(),
+            ProvidersPageViewModel => new ProvidersPageView(),
+
             // Transcript chat-line types (UI-2). ItemsControl over
             // ChatPageViewModel.Transcript routes each item through this
             // switch without inline DataTemplates.

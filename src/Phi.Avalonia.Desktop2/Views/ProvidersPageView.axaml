@@ -1,0 +1,57 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Phi.Avalonia.Desktop2.ViewModels"
+             x:Class="Phi.Avalonia.Desktop2.Views.ProvidersPageView"
+             x:DataType="vm:ProvidersPageViewModel">
+  <!--
+    Providers settings chrome + per-row card. Pure MVVM: the page VM
+    owns an ObservableCollection<ProviderRowState>; this XAML just
+    renders the chrome (title + description) and lets an ItemsControl
+    lay out one card per row using an inline DataTemplate bound to
+    ProviderRowState. No separate row component — the page is the only
+    place this layout appears.
+  -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto">
+    <StackPanel Spacing="12" Margin="24">
+      <TextBlock Text="Providers"
+                 FontSize="22"
+                 FontWeight="Bold" />
+      <TextBlock Text="Save API keys to unlock each provider's models in the input box."
+                 Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                 TextWrapping="Wrap" />
+      <ItemsControl ItemsSource="{Binding Rows}">
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:ProviderRowState">
+            <Border Padding="12"
+                    CornerRadius="6"
+                    Background="{DynamicResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+              <StackPanel Spacing="4">
+                <TextBlock Text="{Binding DisplayName}"
+                           FontWeight="SemiBold" />
+                <TextBlock Text="{Binding StateText}"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                <Grid ColumnDefinitions="*,Auto,Auto"
+                      ColumnSpacing="6"
+                      Margin="0,6,0,0">
+                  <TextBox Grid.Column="0"
+                           Text="{Binding Key, Mode=TwoWay}"
+                           PasswordChar="{Binding PasswordChar}"
+                           PlaceholderText="Paste API key…" />
+                  <ToggleButton Grid.Column="1"
+                                Content="Reveal"
+                                IsChecked="{Binding IsRevealed, Mode=TwoWay}" />
+                  <Button Grid.Column="2"
+                          Content="Save"
+                          Width="80"
+                          Command="{Binding SaveCommand}" />
+                </Grid>
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
+  </ScrollViewer>
+</UserControl>

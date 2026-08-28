@@ -1,32 +1,44 @@
-using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 namespace Phi.Avalonia.Desktop2.ViewModels;
 
 /// <summary>
-/// Sidebar region of the shell. UI-1 ships with empty sessions list
-/// and stub commands (no navigation target wired yet). The
-/// <see cref="NewChatCommand"/> / <see cref="ShowProvidersCommand"/>
-/// slots are deliberate plumbing seams for the wiring phase — the
-/// composition root wires them to <c>ISession.NewSessionAsync</c>
-/// and the in-shell view-host switch, but they look like normal
-/// IRelayCommands on this side.
+/// Sidebar region of the shell. Holds the two navigation commands
+/// (<see cref="NewChatCommand"/> / <see cref="ShowProvidersCommand"/>)
+/// the sidebar buttons bind to. Each command sets
+/// <see cref="ShellViewModel.CurrentPage"/> on the parent shell, so
+/// the shell hosts whichever view <c>ViewLocator</c> resolves from the
+/// new VM.
+/// <para>
+/// SidebarViewModel holds a back-reference to its parent shell because
+/// navigation is shell-owned state — the alternative is a callback /
+/// event indirection that adds plumbing without buying us anything in
+/// this single-shell prototype.
+/// </para>
 /// </summary>
-public partial class SidebarViewModel : ViewModelBase
+public partial class SidebarViewModel(ShellViewModel shell) : ViewModelBase
 {
+    private readonly ShellViewModel _shell = shell;
+
     public IReadOnlyList<SessionEntryViewModel> Sessions { get; } =
-        Array.Empty<SessionEntryViewModel>();
+        [];
 
-    public IRelayCommand NewChatCommand { get; }
-    public IRelayCommand ShowProvidersCommand { get; }
-
-    public SidebarViewModel()
+    [RelayCommand]
+    private void NewChat()
     {
-        // No-op commands in UI-1; the wiring phase replaces the lambda
-        // body with `active.Replace(await active.Current.NewSessionAsync())`
-        // and a ShellView page switch respectively.
-        NewChatCommand = new RelayCommand(() => { });
-        ShowProvidersCommand = new RelayCommand(() => { });
+        // Routed through ViewLocator → ChatPageView. Each click gets a
+        // fresh VM so any in-progress input is discarded.
+        _shell.CurrentPage = new ChatPageViewModel();
+    }
+
+    [RelayCommand]
+    private void ShowProviders()
+    {
+        // Routed through ViewLocator → ProvidersPageView. Each click
+        // gets a fresh VM so any in-progress key edits are discarded;
+        // Phase: backend wiring will inject the composition-root
+        // ProviderManager so saved keys persist across navigation.
+        _shell.CurrentPage = new ProvidersPageViewModel();
     }
 }
 
