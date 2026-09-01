@@ -1,44 +1,51 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:Phi.Avalonia.Desktop2.ViewModels"
-             xmlns:components="using:Phi.Avalonia.Desktop2.Components"
              x:Class="Phi.Avalonia.Desktop2.Views.ChatPageView"
              x:DataType="vm:ChatPageViewModel">
-  <!-- 3-row / 3-column outer Grid. ColumnDefinitions 2*,6*,2* gives the
-       transcript and the prompt input the same 20%/60%/20% left-to-right
-       margins so they line up flush — the 2:6:2 applies to both, not just
-       the transcript. The header is the only thing that spans all three
-       columns (ColumnSpan=3) because its 1-px bottom border line should
-       run the full chat width. -->
-  <Grid RowDefinitions="Auto,*,Auto"
-        ColumnDefinitions="2*,6*,2*">
+  <!--
+    Chat transcript only. The header (top) and prompt input (bottom)
+    were moved to ShellView.axaml so the ScrollViewer can wrap the
+    whole right column at the window level — pinning them inside
+    ChatPageView kept the ScrollViewer inside the 6* reading column
+    so its scrollbar appeared mid-window, not at the window's right
+    edge.
 
-    <!-- Header: session title + model chip row. UI-1 shows a static label.
-         Wiring binds HeaderText to active.Current.State.SessionTitle. -->
-    <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
-            Padding="20,12,20,12"
-            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
-            BorderThickness="0,0,0,1">
-      <TextBlock Text="{Binding HeaderText}"
-                 FontSize="14"
-                 FontWeight="SemiBold" />
-    </Border>
+    ChatPageView is now just the centred transcript items control
+    (the 2*,6*,2* column structure stays here so the transcript
+    content itself stays aligned with the reading column, but the
+    ScrollViewer that scrolls it lives one level up in ShellView).
+  -->
 
-    <!-- Transcript. ScrollViewer fills the * row; ItemsControl inside
-         renders each chat-line VM through the app-level ViewLocator. -->
-    <ScrollViewer Grid.Row="1" Grid.Column="1"
-                  VerticalScrollBarVisibility="Auto"
-                  HorizontalScrollBarVisibility="Disabled">
-      <ItemsControl ItemsSource="{Binding Transcript}" />
-    </ScrollViewer>
+  <!--
+    Performance note: a plain StackPanel is used (not VirtualizingStackPanel)
+    because the transcript is non-uniform (user bubble ~40 px, assistant
+    markdown ~100-1000 px, tool card ~200 px). A virtualizing panel only
+    realises items in/near the viewport, so on a session switch it can't
+    know the total DesiredSize without measuring every item — its Extent
+    is computed from the average size of the *realised* items, which for a
+    200-item session where only the first ~40 are realised gives an
+    estimate ~25-40% of the real extent. ScrollViewer.Offset then clamps
+    to that bogus extent and the user lands in the middle of the transcript
+    instead of at the bottom.
 
-    <!-- Prompt input. Extracted into Components/PromptInputView so the
-         shell can also host it directly without a chat page (the
-         pre-session state has no transcript above the input). The view's
-         DataContext is bound to ChatPageViewModel.PromptInput so the same
-         VM instance flows through. -->
-    <components:PromptInputView Grid.Row="2" Grid.Column="1"
-                                DataContext="{Binding PromptInput}" />
+    The StackPanel measures every item once on the first layout pass, so
+    the ScrollViewer's Extent is exact from the first frame and ScrollToEnd
+    lands precisely on the last message.
 
+    Cost: 200 chat-line UserControls are instantiated + measured on session
+    swap. UserTextLineView is essentially free (one SelectableTextBlock);
+    ToolCardLineView's body markdown only renders when the user expands
+    the card. AssistantTextLineView is the expensive one (MarkdownViewer
+    parses + lays out markdown) — that's the one session-switch latency
+    pays for. A follow-up can add lazy markdown expansion (render plain
+    text in Measure, swap to MarkdownViewer on first visibility) to bring
+    session-switch latency back to virtualizing-panel levels without
+    giving up scroll-to-end correctness.
+  -->
+  <Grid ColumnDefinitions="2*,6*,2*">
+    <ItemsControl Grid.Column="1"
+                  x:Name="TranscriptItems"
+                  ItemsSource="{Binding Transcript}" />
   </Grid>
 </UserControl>

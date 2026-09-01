@@ -31,7 +31,27 @@ public partial class ShellViewModel : ViewModelBase
     public ProviderManager Providers { get; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsChatPage))]
+    [NotifyPropertyChangedFor(nameof(ChatPage))]
     private ViewModelBase? _currentPage;
+
+    /// <summary>True when <see cref="CurrentPage"/> is a
+    /// <see cref="ChatPageViewModel"/> — used by the shell to show
+    /// the pinned chat chrome (header + prompt input). The Providers
+    /// page hides both. Returns false when <see cref="CurrentPage"/>
+    /// is null (initial pre-session state).</summary>
+    public bool IsChatPage => CurrentPage is ChatPageViewModel;
+
+    /// <summary>The active page cast to <see cref="ChatPageViewModel"/>,
+    /// or null when the current page is a different VM type (e.g.
+    /// ProvidersPageViewModel) or when no page is bound yet. Used by
+    /// the shell XAML to bind the header / prompt input slots — the
+    /// cast gives the XAML compiler a concrete type to resolve
+    /// <c>HeaderText</c> and <c>PromptInput</c> against (a direct
+    /// <c>CurrentPage.X</c> binding won't compile because
+    /// <c>CurrentPage</c>'s declared type is
+    /// <see cref="ViewModelBase"/>).</summary>
+    public ChatPageViewModel? ChatPage => CurrentPage as ChatPageViewModel;
 
     public ShellViewModel(ActiveSession active, ProviderManager providers)
     {

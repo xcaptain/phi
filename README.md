@@ -24,3 +24,8 @@ Phi.Avalonia.Desktop (exe) ──┘
 
 Phi.Agent 是最底层的 package，依赖最少，可以注入不同的 provider 使用，可以随意分发。
 
+
+## 扩展参考
+
+- 电子书阅读器，在AI辅助下快速理解这本书的结构，知识点
+- 苏格拉底启发式教练

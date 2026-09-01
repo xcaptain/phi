@@ -102,7 +102,25 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
             if (line is not null)
                 Transcript.Add(line);
         }
+        // Fire ReadyForDisplay AFTER the ItemsControl has the new
+        // collection. The shell's code-behind listens and calls
+        // ScrollViewer.ScrollToEnd so the user lands on the latest
+        // message rather than the top of a long session. Listeners
+        // should defer to the dispatcher thread before actually
+        // scrolling — the ItemsControl needs a layout pass to know
+        // the new content's extent before ScrollToEnd can land on
+        // the bottom.
+        ReadyForDisplay?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>
+    /// Raised after every <see cref="ProjectMessages"/> pass (initial
+    /// attach + every <see cref="ISession.StateChanged"/>). The shell
+    /// subscribes so it can scroll the transcript ScrollViewer to the
+    /// bottom — without this hook a long session would open at the top
+    /// and the user would have to scroll to find the latest exchange.
+    /// </summary>
+    public event EventHandler? ReadyForDisplay;
 
     /// <summary>
     /// Project one <see cref="IAgentMessage"/> onto a chat-line VM.
