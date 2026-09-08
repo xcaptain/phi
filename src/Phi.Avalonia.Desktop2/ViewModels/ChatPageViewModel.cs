@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Phi.Agent;
 using Phi.Avalonia.Desktop2.Components.ChatLines;
@@ -6,7 +7,7 @@ using Phi.Providers;
 
 namespace Phi.Avalonia.Desktop2.ViewModels;
 
-/// <summary>
+ /// <summary>
 /// Right-column chat region: header (session title), transcript, prompt
 /// input. UI-2 + UI-3 prototype replaced by real
 /// <see cref="ISession"/> projection: every
@@ -94,8 +95,19 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
 
         // Workspace is now fixed (NewSessionAsync picked the cwd).
         PromptInput.IsWorkspaceLocked = true;
-
         session.StateChanged += OnSessionStateChanged;
+        // HarnessEvent is the streaming source — MessageStart /
+        // MessageUpdate / MessageEnd fire per token before the surrounding
+        // TurnEndEvent triggers a full StateChanged. Subscribe (via
+        // Dispatcher.UIThread.Post because harness events fire from the
+        // provider's async stream continuation, which may run on a
+        // thread-pool thread) and handle in OnHarnessEvent to patch
+        // AssistantTextLineViewModel.Markdown in place — the
+        // [ObservableProperty] setter fires PropertyChanged and the
+        // MarkView MarkdownViewer re-renders the new chunk without
+        // rebuilding the line container.
+        session.HarnessEvent += ev => Dispatcher.UIThread.Post(
+            () => OnHarnessEvent(ev), DispatcherPriority.Input);
     }
 
     private void OnSessionStateChanged(SessionState state)
@@ -108,8 +120,88 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
         // IsRunning on the prompt input mirrors the session's running
         // flag so the send button icon (ArrowUp / Stop) and tooltip
         // flip accordingly. Partial OnIsRunningChanged re-evaluates
-        // SendIconKind / SendToolTip.
         PromptInput.IsRunning = state.IsRunning;
+    }
+
+    /// <summary>Streaming-event handler. Routes per-token
+    /// <see cref="MessageUpdateEvent"/>s to in-place patches on the
+    /// trailing <see cref="AssistantTextLineViewModel"/> (the
+    /// [ObservableProperty] setter on <c>Markdown</c> re-renders the
+    /// MarkView without rebuilding the container); creates a fresh
+    /// line on <see cref="MessageStartEvent"/>; commits the canonical
+    /// final text on <see cref="MessageEndEvent"/>. Fires
+    /// <see cref="ReadyForDisplay"/> on every event so the shell's
+    /// scroll-to-end binding follows the streaming tail. Other event
+    /// types (<c>TurnStart</c>, <c>TurnEnd</c>, <c>AgentStart</c>,
+    /// <c>AgentEnd</c>, <c>ToolExecutionStart</c>,
+    /// <c>ToolExecutionEnd</c>) are not consumed here — tool result
+    /// cards still arrive via <see cref="OnSessionStateChanged"/>
+    /// when the surrounding <c>TurnEndEvent</c> pushes a new
+    /// <c>SessionState.Messages</c>.</summary>
+    private void OnHarnessEvent(HarnessEvent ev)
+    {
+        switch (ev)
+        {
+            case MessageStartEvent mse:
+                AppendLineForNewMessage(mse.Message);
+                break;
+            case MessageUpdateEvent mue:
+                if (Transcript.Count > 0
+                    && Transcript[^1] is AssistantTextLineViewModel line)
+                {
+                    line.Markdown = mue.Message.Text;
+                }
+                break;
+            case MessageEndEvent mee:
+                // Idempotency: MessageStartEvent ALWAYS precedes
+                // MessageEndEvent for the same message (harness emits
+                // Start envelope first). So when MessageEnd fires,
+                // Transcript[^1] should already be the line VM for
+                // mee.Message — either:
+                //  • AssistantTextLineViewModel for AssistantMessage
+                //    (we commit the canonical final text), OR
+                //  • UserTextLineViewModel / ToolCardLineViewModel
+                //    (already complete, nothing to do).
+                // Without this check, every MessageEnd of a user
+                // prompt or tool result appends a duplicate line on
+                // top of the one already added by MessageStart — the
+                // user sees two identical messages until the next
+                // TurnEndEvent triggers ProjectMessages.Clear+Add.
+                var lastLine = Transcript.Count > 0 ? Transcript[^1] : null;
+                var sameType = lastLine is not null
+                    && ProjectMessage(mee.Message) is { } projected
+                    && lastLine.GetType() == projected.GetType();
+                if (lastLine is AssistantTextLineViewModel al
+                    && mee.Message is AssistantMessage am)
+                {
+                    // Streamed path — commit the canonical final text.
+                    al.Markdown = am.Text;
+                }
+                else if (sameType)
+                {
+                    // Non-streamed message whose line was already
+                    // created by MessageStart — nothing to do.
+                }
+                else
+                {
+                    // MessageEnd arrived without a preceding
+                    // MessageStart (rare safety net).
+                    AppendLineForNewMessage(mee.Message);
+                }
+                break;
+        }
+        ReadyForDisplay?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Append a fresh line VM for an incoming message
+    /// (<see cref="MessageStartEvent"/> on streamed assistant turns,
+    /// or any non-streamed message where MessageStart and
+    /// MessageEnd arrive back-to-back). ProjectMessage routes the
+    /// concrete type to the matching line view model.</summary>
+    private void AppendLineForNewMessage(IAgentMessage msg)
+    {
+        var line = ProjectMessage(msg);
+        if (line is not null) Transcript.Add(line);
     }
 
     private void ProjectMessages(IReadOnlyList<IAgentMessage> messages)
@@ -216,10 +308,13 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
     public void Dispose()
     {
         if (_session is not null)
+        {
             _session.StateChanged -= OnSessionStateChanged;
+            _session.HarnessEvent -= ev => Dispatcher.UIThread.Post(
+                () => OnHarnessEvent(ev), DispatcherPriority.Input);
+        }
     }
 
-    /// <summary>Reverse-lookup a model name to the provider that offers
     /// it. The prompt input exposes model names from every connected
     /// provider's catalog (see <see cref="PromptInputViewModel.AvailableModels"/>),
     /// but <c>Composition.NewSessionAsync</c> needs the provider name,
