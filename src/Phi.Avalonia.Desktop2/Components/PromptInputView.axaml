@@ -97,6 +97,7 @@
                folder picker; this prototype intentionally does not). -->
           <ComboBox DockPanel.Dock="Left"
                     x:Name="WorkspaceCombo"
+                    IsVisible="{Binding ShowWorkspacePicker}"
                     MinWidth="180" MaxWidth="320"
                     Padding="10,6"
                     PlaceholderText="Select workspace"

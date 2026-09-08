@@ -60,14 +60,22 @@ public sealed class ActiveSession
         Changed?.Invoke();
     }
 
-    /// <summary>Clear the active session reference without disposing it
-    /// (caller already disposed via NewSessionAsync). Used when the
-    /// shell wants to drop into pre-session state for a fresh
-    /// navigation.</summary>
+    /// <summary>
+    /// Drops the active session reference and disposes the outgoing
+    /// session so its <see cref="System.Threading.CancellationTokenSource"/>,
+    /// provider HTTP transport, and extension runtime are released
+    /// promptly. Used when the shell wants to enter pre-session state
+    /// for a fresh navigation (sidebar <c>New Chat</c> from an existing
+    /// chat) — the holder owns the lifecycle so callers don't have to
+    /// pair a Dispose call with every navigation. No-op when the
+    /// holder is already empty.
+    /// </summary>
     public void Clear()
     {
         if (_current is null) return;
+        var outgoing = _current;
         _current = null;
+        outgoing.Dispose();
         Changed?.Invoke();
     }
 }

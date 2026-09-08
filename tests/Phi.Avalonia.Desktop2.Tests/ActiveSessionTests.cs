@@ -71,6 +71,22 @@ public class ActiveSessionTests
     }
 
     [Test]
+    public async Task Clear_DisposesOutgoingSession()
+    {
+        // Sidebar New Chat on an existing chat must release the
+        // outgoing ISession's CTS, provider transport, and extension
+        // runtime. Clear owns the lifecycle so the caller (which only
+        // sees the holder, not the session) doesn't have to pair a
+        // Dispose call with every navigation.
+        var session = new FakeSession { Id = "s-1" };
+        var holder = new ActiveSession(session);
+
+        holder.Clear();
+
+        await Assert.That(session.DisposeCount).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task Clear_WhenAlreadyEmpty_DoesNotFire()
     {
         var holder = new ActiveSession();

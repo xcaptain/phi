@@ -72,38 +72,24 @@ public partial class SidebarViewModel : ViewModelBase
 
         RebuildNav();
     }
-
     [RelayCommand]
-    private async Task NewChatAsync()
+    private void NewChat()
     {
-        // Cwd + model come from the live prompt input on the chat
-        // page; today they're not wired (the page always reuses the
-        // home cwd + first connected provider model). The shell owns
-        // the picker state via the live ChatPageViewModel — when
-        // prompt-input wiring lands in UI-3, read them off there
-        // instead of these placeholders.
-        var cwd = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (string.IsNullOrEmpty(cwd)) cwd = Environment.CurrentDirectory;
+        // page with session=null, the workspace picker + model picker
+        // become visible (PromptInput.IsWorkspaceLocked stays false),
+        // and the user picks cwd + model + writes their first prompt.
+        // The session is materialised on submit, not here — this
+        // avoids creating a session the user might never use and lets
+        // the picker choices actually drive the new session.
+        //
+        // Guard: if no provider is connected, leave the current page
+        // alone; the chat page VM already surfaces this in the picker
+        // placeholder ("no providers connected — go to Providers"). A
+        // future UX shows a transient toast instead.
+        var hasAnyConnected = Phi.Providers.ProviderCatalog.All.Any(_shell.Providers.HasApiKey);
+        if (!hasAnyConnected) return;
 
-        var firstConnected = Phi.Providers.ProviderCatalog.All
-            .Where(_shell.Providers.HasApiKey)
-            .Cast<Phi.Providers.ProviderCatalogEntry?>()
-            .FirstOrDefault();
-
-        if (firstConnected is null)
-        {
-            // No provider connected — leave the current page alone; the
-            // chat page VM already surfaces this in the picker
-            // placeholder ("no providers connected — go to Providers").
-            // A future UX shows a transient toast instead.
-            return;
-        }
-
-        // Composition.NewSessionAsync creates the new session and
-        // swaps it into Active; the Changed handler rebuilds the nav
-        // with the new entry highlighted.
-        await Composition.NewSessionAsync(
-            cwd, firstConnected.Name, firstConnected.DefaultModel);
+        _shell.Active.Clear();
     }
 
     [RelayCommand]
@@ -190,11 +176,22 @@ public partial class SidebarViewModel : ViewModelBase
     private async Task SelectSessionAsync(string? sessionId)
     {
         if (string.IsNullOrEmpty(sessionId)) return;
-        var active = _shell.Active.Current;
-        if (active is null) return;
         try
         {
-            var next = await active.ResumeAsync(sessionId);
+            // Pre-session path (shell started fresh with no live
+            // session — picker UI showing) has no active session to
+            // chain ISession.ResumeAsync off. Composition.ResumeSessionAsync
+            // does the load + Active.Replace directly so the
+            // pre-session chat page picks up the resumed session via
+            // ShellViewModel.OnActiveSessionChanged (which routes
+            // pre-session chats to AttachSession).
+            if (_shell.Active.Current is null)
+            {
+                await Composition.ResumeSessionAsync(sessionId);
+                return;
+            }
+
+            var next = await _shell.Active.Current.ResumeAsync(sessionId);
             _shell.Active.Replace(next);
         }
         catch (Exception ex)

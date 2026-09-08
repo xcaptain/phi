@@ -31,8 +31,7 @@ namespace Phi.Avalonia.Desktop2.ViewModels;
 /// </summary>
 public partial class ChatPageViewModel : ViewModelBase, IDisposable
 {
-    private readonly ISession? _session;
-
+    private ISession? _session;
     /// <summary>Header text — the session's title, or "New Chat" in
     /// pre-session state.</summary>
     [ObservableProperty]
@@ -50,7 +49,9 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
         Providers = providers;
         _session = session;
 
-        PromptInput = new PromptInputViewModel(providers);
+        PromptInput = new PromptInputViewModel(
+            providers,
+            WorkspaceSessionStore.ListWorkspaces());
         PromptInput.SubmitCallback = HandleSubmit;
 
         if (session is not null)
@@ -60,9 +61,27 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
     /// <summary>Provider manager (kept so future phase-wiring can
     /// surface the active model on the header).</summary>
     public ProviderManager Providers { get; }
+    /// <summary>True when no <see cref="ISession"/> is bound. The shell
+    /// uses this to decide whether to rebuild the chat page when
+    /// <see cref="ActiveSession.Changed"/> fires after
+    /// <c>Composition.NewSessionAsync</c> in pre-session mode — if the
+    /// current chat page is pre-session, the shell hands the new
+    /// session to it via <see cref="AttachSession"/> instead of
+    /// building a fresh VM (which would discard the pending prompt
+    /// input the user just submitted).</summary>
+    public bool IsPreSession => _session is null;
 
-    private void AttachSession(ISession session)
+    /// <summary>Bind the chat page to a live session. Called from the
+    /// constructor when the shell already has a session, and from
+    /// <see cref="Phi.Avalonia.Desktop2.Composition.NewSessionAsync"/>
+    /// path via the shell's <c>OnActiveSessionChanged</c> handler in
+    /// pre-session mode. Idempotent for the same session instance —
+    /// the StateChanged subscription is only added once.</summary>
+    public void AttachSession(ISession session)
     {
+        ArgumentNullException.ThrowIfNull(session);
+        _session = session;
+
         // Initial projection + subscribe for subsequent changes. The
         // handler clears and re-projects every StateChanged — the live
         // session message count is bounded (turns + tool results) so a
@@ -152,21 +171,42 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
                 body: t.Text,
                 sourcePath: null),
 
-            _ => null,
         };
     }
 
     /// <summary>Wire from <see cref="PromptInputViewModel.SubmitCallback"/>:
-    /// always SubmitPrompt on the live session. Today the live session
-    /// exists from app start (Composition.InitializeAsync preloads it);
-    /// a UI-3 follow-up handles the pre-session state by calling
-    /// <c>Composition.NewSessionAsync</c> first and then submitting.</summary>
-    private void HandleSubmit(string text, string cwd, string model)
+    /// forwards the (text, cwd, model) to the live session. In
+    /// pre-session state (no session bound yet — user just hit New
+    /// Chat and is in the picker UI) we resolve model → provider and
+    /// call <c>Composition.NewSessionAsync</c> to materialise one,
+    /// then attach it to ourselves and submit. That
+    /// <c>NewSessionAsync</c> internally calls <c>Active.Replace</c>
+    /// which fires <see cref="ActiveSession.Changed"/>; the shell's
+    /// <c>OnActiveSessionChanged</c> sees the current chat page is
+    /// pre-session and routes the new session to our existing
+    /// <see cref="AttachSession"/> instead of rebuilding a new VM
+    /// (rebuilding would drop the pending text + workspace / model
+    /// selection the user just made).</summary>
+    private async void HandleSubmit(string text, string cwd, string model)
     {
-        if (_session is null) return;
         if (string.IsNullOrWhiteSpace(text)) return;
-        _session.SubmitPrompt(text);
-        // Optimistic UI clear — the new user bubble arrives in the next
+
+        if (_session is null)
+        {
+            // Pre-session: materialise a session from the picker state.
+            var provider = ResolveProviderForModel(model);
+            if (string.IsNullOrEmpty(provider)) return;
+            var next = await Composition.NewSessionAsync(cwd, provider, model);
+            // next == Active.Current now (NewSessionAsync did the swap).
+            // The shell's OnActiveSessionChanged has already called
+            // AttachSession(next) on us because we were pre-session;
+            // just submit.
+            next.SubmitPrompt(text);
+        }
+        else
+        {
+            _session.SubmitPrompt(text);
+        }
         // StateChanged once the harness appends it. If it doesn't (e.g.
         // the harness pre-emptively rejected the submit), the text
         // stays in the editor and the user can retry.
@@ -177,5 +217,24 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
     {
         if (_session is not null)
             _session.StateChanged -= OnSessionStateChanged;
+    }
+
+    /// <summary>Reverse-lookup a model name to the provider that offers
+    /// it. The prompt input exposes model names from every connected
+    /// provider's catalog (see <see cref="PromptInputViewModel.AvailableModels"/>),
+    /// but <c>Composition.NewSessionAsync</c> needs the provider name,
+    /// not the model. Returns the first provider whose
+    /// <see cref="ProviderCatalogEntry.Models"/> contains
+    /// <paramref name="model"/>; empty string if none (the picker
+    /// placeholder already covers the no-providers case).</summary>
+    private static string ResolveProviderForModel(string model)
+    {
+        if (string.IsNullOrEmpty(model)) return string.Empty;
+        foreach (var entry in ProviderCatalog.All)
+        {
+            if (entry.Models.Contains(model))
+                return entry.Name;
+        }
+        return string.Empty;
     }
 }

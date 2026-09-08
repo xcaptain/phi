@@ -77,11 +77,27 @@ public partial class ShellViewModel : ViewModelBase
 
     private void OnActiveSessionChanged()
     {
-        // Rebuild the chat page against the new session. Each rebuild
-        // subscribes to the new session's StateChanged in its ctor and
-        // unsubscribes on dispose (the chat page VM is no longer
-        // referenced once CurrentPage flips to a new instance).
         var next = Active.Current;
+
+        // Pre-session path: the user is in the picker UI (New Chat
+        // just hit) and a fresh session was just created by
+        // Composition.NewSessionAsync called from ChatPageViewModel.
+        // Rebuilding the chat page here would discard the pending
+        // prompt text and the picker state. Hand the new session to
+        // the existing pre-session chat page instead.
+        if (next is not null
+            && CurrentPage is ChatPageViewModel chat
+            && chat.IsPreSession)
+        {
+            chat.AttachSession(next);
+            return;
+        }
+
+        // Default: rebuild the chat page against the new session.
+        // Each rebuild subscribes to the new session's StateChanged in
+        // its ctor and unsubscribes on dispose (the chat page VM is
+        // no longer referenced once CurrentPage flips to a new
+        // instance).
         CurrentPage = next is null
             ? new ChatPageViewModel(Providers, session: null)
             : new ChatPageViewModel(Providers, next);

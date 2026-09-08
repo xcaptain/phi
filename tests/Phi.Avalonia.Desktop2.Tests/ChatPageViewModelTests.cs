@@ -47,7 +47,8 @@ internal sealed class FakeSession : ISession
     public void ReloadExtensions() { }
     public Task<ISession> ResumeAsync(string sessionId) => Task.FromResult<ISession>(this);
     public IReadOnlyList<Phi.SessionRecord> ListRecent(int days = 7) => [];
-    public void Dispose() { }
+    public int DisposeCount { get; private set; }
+    public void Dispose() => DisposeCount++;
 }
 
 /// <summary>

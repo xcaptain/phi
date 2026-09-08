@@ -1,3 +1,4 @@
+using Phi;
 using Phi.Agent;
 using Phi.Providers;
 
@@ -14,24 +15,30 @@ namespace Phi.Avalonia.Desktop2;
 /// <item><see cref="InitializeAsync"/> is awaited from <c>Program.Main</c>
 /// before <c>StartWithClassicDesktopLifetimeAsync</c> starts the UI loop.
 /// It constructs the <see cref="ProviderManager"/>, builds a default
-/// <see cref="SessionEnvironment"/>, and creates an initial session in
-/// the user's home directory using the first connected provider's
-/// default model.</item>
+/// <see cref="SessionEnvironment"/>, and constructs an empty
+/// <see cref="ActiveSession"/> (no live session yet — the chat page
+/// renders in pre-session state with the workspace + model pickers
+/// visible).</item>
 /// <item>Frontends (<c>ShellViewModel</c>, sidebar, prompt input) read
 /// <see cref="ActiveSession"/> and <see cref="Providers"/> to subscribe
 /// to session swaps and to enumerate available models.</item>
 /// <item><see cref="NewSessionAsync"/> creates a fresh session via
 /// <see cref="Session.LoadAsync"/>, swaps it into
-/// <see cref="ActiveSession"/>, and returns the new instance. Sidebar
-/// <c>New Chat</c> calls into here so the shell sees the swap.</item>
+/// <see cref="ActiveSession"/>, and returns the new instance. The
+/// prompt input's <c>HandleSubmit</c> calls into here on first submit.</item>
+/// <item><see cref="ResumeSessionAsync"/> loads an existing session by
+/// id and swaps it into <see cref="ActiveSession"/>. Sidebar session-row
+/// selection calls into here when the shell is in pre-session state
+/// (no live session to chain <c>ISession.ResumeAsync</c> off).</item>
 /// </list>
 /// </para>
 /// <para>
-/// UI prototype scope: the initial session is created at startup so the
-/// user lands on a usable chat page without clicking through a "start"
-/// step. The pre-session state (no <see cref="ISession"/> at all, just
-/// a prompt input) is a Sprint-3 follow-up — today's flow is
-/// <c>start with default session → user types → submit</c>.
+/// UI: the shell starts in pre-session state (the prompt input picker
+/// UI is visible). The user picks cwd + model + types their first
+/// prompt, and submit materialises the session. Previously InitializeAsync
+/// eagerly created an initial session so the chat page rendered content
+/// on first paint, but that meant the picker was hidden until the user
+/// clicked "New Chat" — the wrong default.
 /// </para>
 /// </summary>
 public static class Composition
@@ -57,10 +64,11 @@ public static class Composition
     /// <summary>
     /// Boots the composition: constructs <see cref="ProviderManager"/>
     /// (reads <c>~/.phi/credentials.json</c>), builds the default
-    /// <see cref="SessionEnvironment"/>, and loads an initial session
-    /// in the user's home directory using the first connected
-    /// provider's default model. Idempotent — calling twice returns
-    /// without rebuilding.
+    /// <see cref="SessionEnvironment"/>, and creates an empty
+    /// <see cref="ActiveSession"/>. The shell starts in pre-session
+    /// state — the picker UI is visible until the user submits a
+    /// prompt or selects an existing session from the sidebar.
+    /// Idempotent — calling twice returns without rebuilding.
     /// <para>
     /// Throws <see cref="InvalidOperationException"/> when no provider
     /// has an API key configured. The caller (Program.Main) surfaces the
@@ -75,10 +83,10 @@ public static class Composition
 
         _providers = new ProviderManager();
 
-        // Find the first connected provider to use for the initial
-        // session. If none are connected, the call below will throw
-        // InvalidOperationException via ProviderResolver — the UI
-        // prototype surfaces this as a startup error.
+        // Validate at least one provider is connected. The shell
+        // surfaces the no-provider case in the prompt input picker
+        // placeholder, but we want a clean bootstrap-time failure
+        // when the install is misconfigured (no saved keys).
         var firstConnected = ProviderCatalog.All
             .Where(_providers.HasApiKey)
             .Cast<ProviderCatalogEntry?>()
@@ -89,30 +97,28 @@ public static class Composition
 
         _environment = SessionEnvironment.Default(_providers);
 
-        var cwd = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (string.IsNullOrEmpty(cwd)) cwd = Environment.CurrentDirectory;
-
-        var initial = await Session.LoadAsync(
-            cwd,
-            _environment,
-            firstConnected.Name,
-            firstConnected.DefaultModel);
-
-        _activeSession = new ActiveSession(initial);
+        // Pre-session start: ActiveSession is created with no live
+        // session. The user lands on the picker UI and the actual
+        // session is materialised on first submit
+        // (ChatPageViewModel.HandleSubmit → Composition.NewSessionAsync)
+        // or on sidebar selection of an existing session
+        // (Composition.ResumeSessionAsync).
+        _activeSession = new ActiveSession();
     }
 
     /// <summary>
     /// Creates a fresh session in <paramref name="cwd"/> using
     /// <paramref name="provider"/> + <paramref name="model"/>, swaps it
     /// into <see cref="ActiveSession"/>, disposes the outgoing session,
-    /// and returns the new instance. Sidebar <c>New Chat</c> calls into
-    /// here.
+    /// and returns the new instance. The prompt input's
+    /// <c>HandleSubmit</c> calls into here on first submit (when the
+    /// shell is in pre-session state).
     /// <para>
     /// Always uses <see cref="Session.LoadAsync"/> directly (rather than
     /// <see cref="ISession.NewSessionAsync"/>) so the new session takes
     /// the chosen provider/model — <c>NewSessionAsync</c> on the live
     /// session inherits the outgoing session's provider/model which is
-    /// the opposite of what <c>New Chat</c> wants.
+    /// the opposite of what the picker wants.
     /// </para>
     /// </summary>
     public static async Task<ISession> NewSessionAsync(
@@ -129,6 +135,39 @@ public static class Composition
                 "Composition.NewSessionAsync called before InitializeAsync");
 
         var next = await Session.LoadAsync(cwd, _environment, provider, model);
+        var outgoing = _activeSession.Current;
+        _activeSession.Replace(next);
+        outgoing?.Dispose();
+        return next;
+    }
+
+    /// <summary>
+    /// Resumes an existing session by id, swaps it into
+    /// <see cref="ActiveSession"/>, and returns it. Used by sidebar
+    /// session-row selection when the shell is in pre-session state
+    /// (no live <see cref="ISession"/> to call <c>ISession.ResumeAsync</c>
+    /// on). The session is loaded from the
+    /// <see cref="WorkspaceSessionStore"/> record's stored cwd /
+    /// provider / model and the shared <see cref="SessionEnvironment"/>.
+    /// Throws <see cref="InvalidOperationException"/> when the id is
+    /// unknown.
+    /// </summary>
+    public static async Task<ISession> ResumeSessionAsync(string sessionId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+
+        if (_environment is null || _activeSession is null)
+            throw new InvalidOperationException(
+                "Composition.ResumeSessionAsync called before InitializeAsync");
+
+        var record = WorkspaceSessionStore.FindSession(sessionId)
+            ?? throw new InvalidOperationException(
+                $"Session '{sessionId}' not found");
+
+        var next = await Session.LoadAsync(
+            record.Cwd, _environment, record.ProviderName, record.Model,
+            resumeId: sessionId);
+
         var outgoing = _activeSession.Current;
         _activeSession.Replace(next);
         outgoing?.Dispose();

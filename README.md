@@ -29,3 +29,7 @@ Phi.Agent 是最底层的 package，依赖最少，可以注入不同的 provide
 
 - 电子书阅读器，在AI辅助下快速理解这本书的结构，知识点
 - 苏格拉底启发式教练
+
+## 已知的问题
+
+- [ ] avalonia virtual list 对 scroll-to-end 支持不好，要想办法优化

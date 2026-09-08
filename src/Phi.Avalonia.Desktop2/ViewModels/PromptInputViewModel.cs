@@ -1,14 +1,16 @@
+using System.Collections.ObjectModel;
 using Avalonia.Controls;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Material.Icons;
+using Phi.Avalonia.Desktop2.Components;
 using Phi.Providers;
 
 namespace Phi.Avalonia.Desktop2.ViewModels;
 
-/// <summary>
+ /// <summary>
 /// Bottom-row input editor for the chat. Holds:
 /// <list type="bullet">
 /// <item><see cref="Text"/>: the editor's current draft.</item>
@@ -101,15 +103,24 @@ public partial class PromptInputViewModel : ViewModelBase
     public IReadOnlyList<ModelPickerItem> AvailableModels { get; }
 
     /// <summary>
-    /// Workspace picker rows: the current cwd plus a trailing sentinel
-    /// ("📁 Choose folder…"). The sentinel click handler is pending —
-    /// it intentionally does nothing in this prototype so we can wire
-    /// the folder picker alongside the session-creation follow-up.
+    /// Workspace picker rows: distinct workspaces the user has
+    /// previously chatted in (passed in as <c>knownWorkspaces</c> by
+    /// the chat page VM from <c>WorkspaceSessionStore</c>), then the
+    /// user's <c>$HOME</c> appended if not already present, then a
+    /// trailing sentinel ("📁 Choose folder…") that opens the OS
+    /// folder picker. The sentinel click handler is pending — it
+    /// intentionally does nothing in this prototype so we can wire the
+    /// folder picker alongside the session-creation follow-up.
+    /// <para>
+    /// All cwds in the picker rows are stored as
+    /// <see cref="Path.GetFullPath"/>-normalized paths so comparison
+    /// against <see cref="SelectedWorkspace"/> (also normalized via
+    /// <see cref="DefaultWorkspace"/>) is a straight string equality
+    /// no matter how the user typed the original cwd.
+    /// </para>
     /// </summary>
-    public IReadOnlyList<WorkspacePickerItem> AvailableWorkspaces { get; }
 
-    /// <summary>
-    /// Placeholder text for the model picker. "Select model" when at
+    public ObservableCollection<WorkspacePickerItem> AvailableWorkspaces { get; }
     /// least one provider is connected; otherwise a hint that says the
     /// user should save an API key in the Providers page.
     /// </summary>
@@ -126,9 +137,17 @@ public partial class PromptInputViewModel : ViewModelBase
     public MaterialIconKind SendIconKind =>
         IsRunning ? MaterialIconKind.Stop : MaterialIconKind.ArrowUpward;
 
-    /// <summary>Tooltip + accessibility label for the send button.</summary>
     public string SendToolTip =>
         IsRunning ? "Stop" : "Send";
+
+    /// <summary>
+    /// Inverted <see cref="IsWorkspaceLocked"/> for the view's
+    /// <c>IsVisible</c> binding. Avalonia XAML's <c>Binding</c> can't
+    /// express logical NOT, so the VM exposes the negated value
+    /// directly. The workspace picker is hidden entirely once a
+    /// session is bound — there's nothing to choose, the cwd is fixed.
+    /// </summary>
+    public bool ShowWorkspacePicker => !IsWorkspaceLocked;
 
     public IRelayCommand SendCommand { get; }
 
@@ -143,7 +162,20 @@ public partial class PromptInputViewModel : ViewModelBase
     /// </summary>
     public Action<string, string, string>? SubmitCallback { get; set; }
 
-    public PromptInputViewModel(ProviderManager providers)
+    /// <summary>
+    /// Optional async factory the view wires up to open the OS folder
+    /// picker. Called when the user picks the trailing
+    /// "📁 Choose folder…" sentinel row in the workspace picker.
+    /// Returns the absolute path the user chose, or null when they
+    /// cancelled. The VM is UI-agnostic so it goes through this seam
+    /// instead of touching Avalonia's StorageProvider directly; tests
+    /// substitute a stub that returns a fixed path.
+    /// </summary>
+    public Func<Task<string?>>? ChooseFolderProvider { get; set; }
+
+    public PromptInputViewModel(
+        ProviderManager providers,
+        IReadOnlyList<string>? knownWorkspaces = null)
     {
         ArgumentNullException.ThrowIfNull(providers);
         _providers = providers;
@@ -158,10 +190,13 @@ public partial class PromptInputViewModel : ViewModelBase
         if (firstConnected is { } defaultEntry)
             _selectedModel = defaultEntry.DefaultModel;
 
-        // Workspace picker rows: the current cwd + a trailing sentinel.
-        // The current-cwd row is marked IsCurrent so the data template
-        // can bold it; the sentinel is the last row and is dimmed.
-        AvailableWorkspaces = BuildAvailableWorkspaces(_selectedWorkspace);
+        // Workspace picker rows: distinct known workspaces from the
+        // store + $HOME (deduped) + the Choose-folder sentinel. The
+        // chat page VM reads the list from WorkspaceSessionStore and
+        // passes it in; null here means "no prior workspaces" (tests
+        // the sentinel so the picker is never just two rows.
+        AvailableWorkspaces = new ObservableCollection<WorkspacePickerItem>(
+            BuildAvailableWorkspaces(_selectedWorkspace, knownWorkspaces));
 
         // Resolve the ComboBox-bound *Item properties to the matching
         // picker row so the ComboBox highlights the right entry on
@@ -226,40 +261,86 @@ public partial class PromptInputViewModel : ViewModelBase
     }
 
     /// <summary>
-    /// Two-row workspace picker: the current cwd, then a trailing sentinel
-    /// ("📁 Choose folder…") that the old layout uses to open the OS
-    /// folder picker. The sentinel click handler is intentionally not
-    /// wired in this prototype; the workspace picker therefore can't
-    /// change <see cref="SelectedWorkspace"/> through the ComboBox yet.
-    /// The user can still edit the cwd via a follow-up that replaces
-    /// this picker with the old code's folder-picker sentinel flow.
+    /// Three-segment workspace picker:
+    /// <list type="number">
+    /// <item>Distinct workspaces from <paramref name="knownWorkspaces"/>
+    /// (the chat page VM passes <c>WorkspaceSessionStore.ListWorkspaces()</c>),
+    /// in the order the caller supplied — typically newest activity
+    /// first.</item>
+    /// <item>The user's <c>$HOME</c>, appended if not already covered
+    /// by a known workspace (case-insensitive dedupe so
+    /// <c>/Users/me</c> and <c>/Users/Me</c> collapse).</item>
+    /// <item>The trailing sentinel ("📁 Choose folder…") that opens
+    /// the OS folder picker — sentinel click handler pending.</item>
+    /// </list>
+    /// Each row's <see cref="WorkspacePickerItem.Cwd"/> is
+    /// <see cref="Path.GetFullPath"/>-normalized so equality with
+    /// <see cref="SelectedWorkspace"/> (also normalized via
+    /// <see cref="DefaultWorkspace"/>) is a plain string compare.
+    /// <see cref="WorkspacePickerItem.Label"/> uses the existing
+    /// <see cref="Phi.Avalonia.Desktop2.Components.NavModel.WorkspaceLabel"/>
+    /// helper so paths inside <c>$HOME</c> render as
+    /// <c>~/foo/bar</c> instead of the full path.
     /// </summary>
-    private static IReadOnlyList<WorkspacePickerItem> BuildAvailableWorkspaces(string cwd)
+    private static List<WorkspacePickerItem> BuildAvailableWorkspaces(
+        string cwd,
+        IReadOnlyList<string>? knownWorkspaces)
     {
-        return
-        [
-            new WorkspacePickerItem(
-                Label: cwd,
-                Cwd: cwd,
-                IsCurrent: true,
-                IsSentinel: false),
-            new WorkspacePickerItem(
-                Label: "📁 Choose folder…",
-                Cwd: string.Empty,
-                IsCurrent: false,
-                IsSentinel: true),
-        ];
+        var list = new List<WorkspacePickerItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var currentFull = Path.GetFullPath(cwd);
+
+        if (knownWorkspaces is not null)
+        {
+            foreach (var w in knownWorkspaces)
+            {
+                if (string.IsNullOrEmpty(w)) continue;
+                var full = Path.GetFullPath(w);
+                if (!seen.Add(full)) continue;
+                list.Add(new WorkspacePickerItem(
+                    Label: NavModel.WorkspaceLabel(full),
+                    Cwd: full,
+                    IsCurrent: string.Equals(full, currentFull, StringComparison.OrdinalIgnoreCase),
+                    IsSentinel: false));
+            }
+        }
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(home))
+        {
+            var fullHome = Path.GetFullPath(home);
+            if (seen.Add(fullHome))
+            {
+                list.Add(new WorkspacePickerItem(
+                    Label: NavModel.WorkspaceLabel(fullHome),
+                    Cwd: fullHome,
+                    IsCurrent: string.Equals(fullHome, currentFull, StringComparison.OrdinalIgnoreCase),
+                    IsSentinel: false));
+            }
+        }
+
+        list.Add(new WorkspacePickerItem(
+            Label: "📁 Choose folder…",
+            Cwd: string.Empty,
+            IsCurrent: false,
+            IsSentinel: true));
+
+        return list;
     }
 
     /// <summary>Home directory, used as the default cwd when the prompt
-    /// input mounts. Falls back to <see cref="Environment.CurrentDirectory"/>
-    /// on platforms where <c>SpecialFolder.UserProfile</c> is empty.</summary>
+    /// input mounts. Normalized via <see cref="Path.GetFullPath"/> so
+    /// the picker row's <see cref="WorkspacePickerItem.Cwd"/> matches
+    /// exactly (no trailing slash, no <c>./</c> segments). Falls back
+    /// to <see cref="Environment.CurrentDirectory"/> on platforms where
+    /// <c>SpecialFolder.UserProfile</c> is empty.</summary>
     private static string DefaultWorkspace()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        return string.IsNullOrEmpty(home)
+        var cwd = string.IsNullOrEmpty(home)
             ? Environment.CurrentDirectory
             : home;
+        return Path.GetFullPath(cwd);
     }
 
     /// <summary>Re-evaluate IsCurrent flags when the selection changes,
@@ -283,19 +364,143 @@ public partial class PromptInputViewModel : ViewModelBase
     /// so the ComboBox falls back to its placeholder.</summary>
     partial void OnSelectedWorkspaceChanged(string value)
     {
+        SyncSelectedItemToWorkspace(value);
+    }
+
+    /// <summary>Mirror a ComboBox row click into <see cref="SelectedWorkspace"/>.
+    /// Two cases:
+    /// <list type="bullet">
+    /// <item>Sentinel row → revert the visual selection to the current
+    /// cwd row, then async-kick the OS folder picker via
+    /// <see cref="ChooseFolderProvider"/>. The picker result, if any,
+    /// is normalised and written back through <see cref="SelectedWorkspace"/>
+    /// which routes through <see cref="OnSelectedWorkspaceChanged"/> to
+    /// re-highlight the matching row.</item>
+    /// <item>Regular row → copy its <see cref="WorkspacePickerItem.Cwd"/>
+    /// into <see cref="SelectedWorkspace"/>. The setter detects a
+    /// no-op when the value is unchanged and skips the cascade.</item>
+    /// </list>
+    /// Without this handler the ComboBox selection is purely cosmetic
+    /// — the picker row's click never reached <see cref="SelectedWorkspace"/>
+    /// so <c>HandleSubmit</c> would submit the stale default cwd.</summary>
+    partial void OnSelectedWorkspaceItemChanged(WorkspacePickerItem? value)
+    {
+        if (value is { IsSentinel: true })
+        {
+            // Sentinel = "open the OS folder picker". The sentinel's
+            // own Cwd is empty so we don't write it into SelectedWorkspace;
+            // instead we revert the visual ComboBox selection to the
+            // current cwd row (so the user doesn't see the sentinel
+            // visually stuck as the selection while the dialog is up)
+            // and kick off the async provider.
+            SyncSelectedItemToWorkspace();
+            if (ChooseFolderProvider is not null)
+                _ = PickFolderAsync(SelectedWorkspace);
+            return;
+        }
+
+        if (value is { Cwd: var cwd } && !string.IsNullOrEmpty(cwd))
+            SelectedWorkspace = cwd;
+    }
+
+    /// <summary>Force the ComboBox's <see cref="SelectedWorkspaceItem"/>
+    /// to track <see cref="SelectedWorkspace"/>. Shared between the
+    /// sentinel snap-back and the normal <c>SelectedWorkspace</c> setter
+    /// so both paths land on the same matching logic. Re-fires
+    /// <see cref="ObservableProperty.INotifyPropertyChanged"/> when the
+    /// row actually changes so the ComboBox re-renders (the sentinel
+    /// snap-back path mutates the field from inside the setter's
+    /// callback, so the auto-notify from the original setter already
+    /// fired with the sentinel value — we need a second notify to
+    /// push the reverted row back). <paramref name="cwdOverride"/>
+    /// exists so callers that already have the new cwd in hand (the
+    /// <c>OnSelectedWorkspaceChanged</c> partial) can skip the
+    /// property read.</summary>
+    private void SyncSelectedItemToWorkspace(string? cwdOverride = null)
+    {
+        var cwd = cwdOverride ?? SelectedWorkspace;
         var match = AvailableWorkspaces.FirstOrDefault(
-            w => !w.IsSentinel && string.Equals(w.Cwd, value, StringComparison.Ordinal));
-        if (!ReferenceEquals(_selectedWorkspaceItem, match))
-            _selectedWorkspaceItem = match;
+            w => !w.IsSentinel
+                && string.Equals(w.Cwd, cwd, StringComparison.OrdinalIgnoreCase));
+        if (ReferenceEquals(SelectedWorkspaceItem, match)) return;
+        // Direct field write to skip the OnSelectedWorkspaceItemChanged
+        // partial — that handler is the caller in the sentinel snap-back
+        // path and re-entering it would loop back into SyncSelectedItemToWorkspace.
+        // OnPropertyChanged is fired manually because the generated setter's
+        // auto-notify already fired with the previous (e.g. sentinel) value
+        // before this helper runs.
+#pragma warning disable MVVMTK0034
+        _selectedWorkspaceItem = match;
+#pragma warning restore MVVMTK0034
+        OnPropertyChanged(nameof(SelectedWorkspaceItem));
+    }
+
+    /// <summary>Awaits the OS folder picker and applies the result to
+    /// <see cref="SelectedWorkspace"/> only when the user hasn't
+    /// changed their mind since the dialog opened. <c>beforeCwd</c>
+    /// captures the cwd that was active when the sentinel was clicked;
+    /// if <see cref="SelectedWorkspace"/> has drifted away from it
+    /// (the user picked a different row, or a state-change path
+    /// updated it) we drop the picker result on the floor so we don't
+    /// clobber the user's later choice. Exceptions from the provider
+    /// are logged via stderr — the prototype has no status bar slot
+    /// to surface them yet.</summary>
+    private async Task PickFolderAsync(string beforeCwd)
+    {
+        try
+        {
+            var picked = await ChooseFolderProvider!().ConfigureAwait(true);
+            if (string.IsNullOrEmpty(picked)) return;
+            if (!string.Equals(SelectedWorkspace, beforeCwd, StringComparison.Ordinal))
+                return;
+            var full = Path.GetFullPath(picked);
+
+            // Insert the picked cwd as a new row so the ComboBox can
+            // highlight it after OnSelectedWorkspaceChanged runs
+            // SyncSelectedItemToWorkspace. Without this the row
+            // wouldn't exist yet and the ComboBox would fall back to
+            // its "Select workspace" placeholder (looks like the
+            // pick silently failed). We keep the sentinel as the
+            // trailing row by inserting before it.
+            var existing = AvailableWorkspaces.FirstOrDefault(w =>
+                string.Equals(w.Cwd, full, StringComparison.OrdinalIgnoreCase));
+            if (existing is null)
+            {
+                var sentinelIndex = AvailableWorkspaces.Count - 1;
+                AvailableWorkspaces.Insert(sentinelIndex, new WorkspacePickerItem(
+                    Label: NavModel.WorkspaceLabel(full),
+                    Cwd: full,
+                    IsCurrent: true,
+                    IsSentinel: false));
+            }
+
+            SelectedWorkspace = full;
+        }
+        catch (Exception ex)
+        {
+            // OS picker can throw on platform-specific failures
+            // (dialog cancellation re-raised, COM errors on Windows,
+            // etc.). Swallow + log; user can retry by clicking the
+            // sentinel again.
+            System.Console.Error.WriteLine($"PickFolderAsync: {ex.Message}");
+        }
     }
 
     /// <summary>Called from the VM's partial property generator so
-    /// <see cref="SendIconKind"/> / <see cref="SendToolTip"/> re-evaluate
-    /// when <see cref="IsRunning"/> flips.</summary>
     partial void OnIsRunningChanged(bool value)
     {
         OnPropertyChanged(nameof(SendIconKind));
         OnPropertyChanged(nameof(SendToolTip));
+    }
+
+    /// <summary>Called from the VM's partial property generator so
+    /// <see cref="ShowWorkspacePicker"/> re-evaluates when
+    /// <see cref="IsWorkspaceLocked"/> flips. <see cref="ShowWorkspacePicker"/>
+    /// is a computed property so it doesn't auto-notify; this partial
+    /// does it manually when the underlying flag changes.</summary>
+    partial void OnIsWorkspaceLockedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ShowWorkspacePicker));
     }
 }
 
