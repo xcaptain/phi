@@ -146,7 +146,6 @@ public partial class PromptInputViewModel : ViewModelBase
     /// express logical NOT, so the VM exposes the negated value
     /// directly. The workspace picker is hidden entirely once a
     /// session is bound — there's nothing to choose, the cwd is fixed.
-    /// </summary>
     public bool ShowWorkspacePicker => !IsWorkspaceLocked;
 
     public IRelayCommand SendCommand { get; }

@@ -44,8 +44,18 @@
                  TextWrapping="Wrap"
                  MinHeight="48"
                  MaxHeight="200"
-                 PlaceholderText="Ask Phi anything…" />
-
+                 PlaceholderText="Ask Phi anything…">
+          <TextBox.KeyBindings>
+            <!-- Enter submits via SendCommand. Shift+Enter is NOT bound
+                 so it falls through to TextBox.AcceptsReturn which
+                 inserts a newline. When the editor is empty and
+                 SendCommand.CanExecute is false, the KeyBinding does
+                 NOT mark Handled and Enter falls through to the
+                 TextBox, which inserts a newline — matching standard
+                 multi-line text-box behaviour. -->
+            <KeyBinding Gesture="Enter" Command="{Binding SendCommand}" />
+          </TextBox.KeyBindings>
+        </TextBox>
         <!-- Toolbar: ModelCombo · WorkspaceCombo · SubmitButton.
              DockPanel with LastChildFill=true keeps the Send button
              pinned to the right; the two pickers share the LEFT slot so

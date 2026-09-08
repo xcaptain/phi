@@ -6,13 +6,30 @@ using Phi.Avalonia.Desktop2.ViewModels;
 namespace Phi.Avalonia.Desktop2.Components;
 
 /// <summary>
-/// Prompt input layout container. Pure layout / x:Name wiring plus
-/// the one piece of UI logic the VM can't carry — opening the OS
-/// folder picker when the user clicks the trailing "📁 Choose
-/// folder…" sentinel row. The VM exposes a <c>Func&lt;Task&lt;string?&gt;&gt;</c>
-/// seam (<see cref="PromptInputViewModel.ChooseFolderProvider"/>)
-/// that this view implements via <see cref="TopLevel"/>'s
-/// <see cref="IStorageProvider"/>; tests substitute a stub.
+/// Prompt input layout container. Layout / x:Name wiring plus the
+/// OS folder picker seam. The two keyboard bits that we care about
+/// — Enter submits, Shift+Enter inserts a newline — are wired in
+/// XAML via <see cref="PromptInputView.axaml"/>'s
+/// <c>TextBox.KeyBindings</c>: a single
+/// <c>&lt;KeyBinding Gesture="Enter" Command="{Binding SendCommand}"/&gt;</c>
+/// runs in the pre-RaiseEvent walk inside <c>KeyboardDevice</c>, so
+/// when SendCommand.CanExecute is true the event is marked Handled
+/// before TextBox's own OnKeyDown override sees the press (no
+/// spurious newline on submit). Shift+Enter is intentionally not
+/// bound so it falls through to TextBox.AcceptsReturn which inserts
+/// the newline.
+/// <para>
+/// macOS Emacs-style caret keys (Ctrl-A/E/F/B/N/P/D/K/H) are
+/// intentionally NOT wired here. Avalonia 12 on macOS does not
+/// surface Cocoa <c>NSStandardKeyBindingResponding</c> bindings to
+/// the TextBox (the keymap only maps Option+Arrow for word-jump,
+/// leaving Ctrl+F/A/E without a default handler). Re-implementing
+/// Cocoa bindings on our side belongs upstream in Avalonia; until
+/// that's fixed the user can use macOS's <c>Cmd+Arrow</c> /
+/// <c>Home</c> / <c>End</c> / <c>Cmd+Shift+Arrow</c> which Avalonia's
+/// TextBox does handle natively (those go through the platform
+/// keymap, not the Cocoa text bindings).
+/// </para>
 /// <para>
 /// The slash auto-complete popup that the old
 /// <c>Phi.Avalonia.Components.PromptInputView</c> wired stays pending
@@ -31,9 +48,9 @@ public partial class PromptInputView : UserControl
 
     private void OnDataContextChanged(object? sender, EventArgs e)
     {
-        // Wire (or unwire) the OS folder picker provider when the VM
-        // changes. The provider is per-VM so the chat page swap
-        // automatically re-binds the picker against the new VM.
+        // Wire the OS folder picker provider when the VM changes.
+        // The provider is per-VM so the chat page swap automatically
+        // re-binds the picker against the new VM.
         if (DataContext is PromptInputViewModel vm)
         {
             vm.ChooseFolderProvider = PickFolderAsync;
