@@ -1,28 +1,45 @@
-<Project Sdk="Microsoft.NET.Sdk">
-
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <!-- NativeAOT. Declared here (not on the command line) so the global
-         property doesn't leak into the Roslyn source-generator project
-         Phi.SchemaGen (netstandard2.0), which errors with NETSDK1207. -->
-    <PublishAot>true</PublishAot>
-    <!-- Phi.Avalonia (currently referenced) brings in Avalonia.Controls.DataGrid
-         transitively, which itself has IL2104/IL3053 assembly-level trim warnings.
-         Acknowledged — the project is going away in Phase 9 (replaced by Phi.Avalonia.Desktop2). -->
-    <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <RootNamespace>Phi.Avalonia.Desktop</RootNamespace>
     <AssemblyName>phi-avalonia</AssemblyName>
+    
+    <!-- Native AOT Deployment Settings -->
+    <PublishAot>true</PublishAot>
+    <TrimMode>link</TrimMode>
+    <IsTrimmable>true</IsTrimmable>
+    
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia.Desktop" />
+    <AvaloniaResource Include="Assets\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Phi.Avalonia\Phi.Avalonia.csproj" />
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+    <PackageReference Include="Avalonia.Fonts.Inter" />
+    <PackageReference Include="AvaloniaUI.DiagnosticsSupport">
+      <IncludeAssets Condition="'$(Configuration)' != 'Debug'">None</IncludeAssets>
+      <PrivateAssets Condition="'$(Configuration)' != 'Debug'">All</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <PackageReference Include="MarkView.Avalonia" />
+    <PackageReference Include="MarkView.Avalonia.SyntaxHighlighting" />
+    <PackageReference Include="Material.Icons.Avalonia" />
+    <PackageReference Include="DiffPlex" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Phi\Phi.csproj" />
+    <ProjectReference Include="..\Phi.Extensions.Host\Phi.Extensions.Host.csproj" />
+    <ProjectReference Include="..\..\extensions\CodingPack\CodingPack.csproj" />
   </ItemGroup>
 
 </Project>

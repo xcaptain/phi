@@ -9,22 +9,15 @@ Phi 是一个 C# 版本的 基于 pi agent 架构的最小 coding agent，目标
 - Phi.Provider: 手写的 llm provider，对应 tau_ai 目录，我不喜欢 tau_ai 这个名字，因为看不出来是负责跟llm provider通信的
 - Phi.Agent: 对应 tau_agent 目录，自己实现的一个 harness, 状态管理，循环
 - Phi: Library，提供 UI-agnostic runtime（sessions / providers / tools / prompts / status router / slash commands / tool descriptors / chat projector）。无 UI 框架依赖。
-- Phi.Tui: 基于 XenoAtom.Terminal.UI 的终端界面 exe，引用 Phi。
-- Phi.Avalonia: 基于 Avalonia 跨平台框架的桌面 UI 库，引用 Phi。所有 UI（桌面 / 移动 / browser）共享同一份控件代码。
-- Phi.Avalonia.Desktop: Avalonia 的桌面平台入口 exe（classic desktop lifetime），引用 Phi.Avalonia。
+- Phi.Avalonia.Desktop: Avalonia 的桌面平台入口 exe（classic desktop lifetime），引用 Phi。所有 UI 内联在 exe 内——不依赖共享组件库，因为目前没有跨平台 UI 复用的需求。
 
-UI 框架选择：**Avalonia**（跨平台，支持 Windows / macOS / Linux / 移动 / browser），后续的桌面 UI
-开发统一在 `Phi.Avalonia/` 推进。`Phi.Avalonia/` 输出的控件树通过不同的 platform
-host 复用（`Phi.Avalonia.Desktop` 是 Windows / macOS / Linux 桌面入口）。
+UI 框架选择：**Avalonia**（跨平台，支持 Windows / macOS / Linux）。`Phi.Avalonia.Desktop` 是唯一的 Avalonia 桌面客户端实现；老的 `Phi.Avalonia` / `Phi.Avalonia.Tests` 已删除。
 
 依赖关系：
-
 ```
-                Phi.Tui ───┐
-                                  ├─► Phi ─► Phi.Provider ─► Phi.Agent
-Phi.Avalonia ──────────────┘
-        ▲
-Phi.Avalonia.Desktop (exe)
+        Phi.Tui ──┐
+                  ├─► Phi ─► Phi.Provider ─► Phi.Agent
+        Phi.Avalonia.Desktop ──┘
 ```
 
 `Phi.Agent` 是最底层的 package，依赖最少，可以注入不同的 provider 使用，可以随意分发。
@@ -104,20 +97,13 @@ Phi 库下面分：
 Phi.Tui exe 下分：
 
 - `src/Phi.Tui/`：应用壳 `PhiTuiApp`、基础设施（`SelectionCopyHost`、`SystemClipboard`、`ToastHostSentinel`）+ 入口 `Program.cs`
-- `src/Phi.Tui/Components/`：可复用积木——`PromptInput`（输入壳：editor + slash 分发 + 对话框 + skill 补全；持有 `ISession` 并在导航后通过 `SessionReplaced` 事件通知 shell）、`ChatHeader`、`ChatTranscript`（订阅 projector 并按 `ChatLine.Id` DIFF 到 `DocumentFlow`）、`PhiStatusBar`、`SuggestionStrip`、`StatusBarBinder`（薄壳，调 `SessionStatusRouter` + 实现 `ISessionStatusSink`）、`SideBySideDiff`、`ToolCards/`（XenoAtom 实现）
-- 命名空间：`Phi.Tui.*`
+Phi.Avalonia.Desktop 下分（所有 UI 内联在 exe 内）：
 
-Phi.Avalonia 库下分：
-
-- `src/Phi.Avalonia/`：应用壳 `PhiAvaloniaApp`（Avalonia `Application`）+ `MainWindow`（基于 `SukiWindow`）+ `ShellView`（两栏 shell）+ `ChatPageView` + `NavModel`（纯导航模型）+ `ActiveSession`（current session + Changed 事件，作为 XenoAtom `State<T>` 的 Avalonia 等价物）+ `AvaloniaTheme`（语义色，映射 SukiUI 色板）+ 入口组件 + `DeskLog`
-- `src/Phi.Avalonia/Components/`：与 TUI 镜像的积木——`TranscriptView`（订阅 projector，按 `ChatLine.Id` DIFF 渲染到 `StackPanel`）、`PromptInputView`（editor + slash 分发 + 工作区选择器 + 模型 picker；持有 `ISession` + `ActiveSession`，导航直接调 `session.NewSessionAsync` 并 `active.Replace(next)`）、`ProvidersPage`（provider 连接 + API key 弹窗）、`ToolCards/`（Avalonia 实现）
-- `src/Phi.Avalonia/Controls/`：`EllipsisMenu` 等跨组件复用的小控件
-- 命名空间：`Phi.Avalonia.*`（含子命名空间 `Phi.Avalonia.Components.*` / `Phi.Avalonia.Controls.*`）
-
-Phi.Avalonia.Desktop exe 下分：
-
-- `src/Phi.Avalonia.Desktop/`：`Program.cs`（组合 provider manager + `SessionEnvironment` + 初始 `Session.LoadAsync(...)` + `ActiveSession`，挂到 `PhiAvaloniaApp`，启动 classic desktop lifetime）
-- 命名空间：`Phi.Avalonia.Desktop.*`
+- `src/Phi.Avalonia.Desktop/Views/`：`MainWindow.axaml(.cs)` + `ShellView.axaml(.cs)` + `ChatPageView.axaml(.cs)` + `SidebarView.axaml(.cs)` + `ProvidersPageView.axaml(.cs)`（XAML-first layout + code-behind 仅做构造）
+- `src/Phi.Avalonia.Desktop/Components/`：`ChatLines/`（AssistantTextLineView、UserTextLineView、ToolCardLineView + ViewModel）、`PromptInputView.axaml(.cs)`（editor + pickers + send button）、`NavEntryViewModel.cs`、`NavModel.cs`
+- `src/Phi.Avalonia.Desktop/ViewModels/`：`ShellViewModel`、`ChatPageViewModel`、`SidebarViewModel`、`PromptInputViewModel`、`ProvidersPageViewModel`、`ViewModelBase`
+- `src/Phi.Avalonia.Desktop/`：`Program.cs`（composition root）+ `App.axaml(.cs)`（Avalonia `Application`）+ `ActiveSession.cs` + `Composition.cs` + `ViewLocator.cs`
+- 命名空间：`Phi.Avalonia.Desktop.*`（含 `Phi.Avalonia.Desktop.Views.*` / `Phi.Avalonia.Desktop.ViewModels.*` / `Phi.Avalonia.Desktop.Components.*` / `Phi.Avalonia.Desktop.Components.ChatLines.*`）
 
 ### Avalonia Shell 布局
 

@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:Phi.Avalonia.Desktop.Components.ChatLines"
+             x:Class="Phi.Avalonia.Desktop.Components.ChatLines.UserTextLineView"
+             x:DataType="vm:UserTextLineViewModel">
+  <Border Background="{DynamicResource SystemAccentColor}"
+          CornerRadius="14"
+          Padding="14,10"
+          Margin="40,4,4,12"
+          HorizontalAlignment="Right"
+          MaxWidth="700">
+    <!--
+      SelectableTextBlock (not TextBlock) so the user can mouse-select the
+      bubble's content and ⌘C / right-click → Copy. AssistantTextLineView
+      and ToolCardLineView's body are already selectable through
+      MarkView's MarkdownViewer; user text is the one place that needs the
+      explicit selectable control. Default IsTextSelectionEnabled is true
+      in Avalonia 12, so no extra flag needed.
+
+      SelectionBrush uses {DynamicResource TextSelectionBrush} — FluentTheme's
+      built-in text-selection token (translucent system accent in light mode,
+      translucent white in dark mode). This is the design-system correct
+      way to set a selection brush; hardcoding a hex would break theme
+      switching. Phase UI-4 will introduce a Theme.axaml with semantic
+      brushes (UserBubbleBackgroundBrush / UserBubbleSelectionBrush / etc.)
+      and replace the hardcoded {DynamicResource SystemAccentColor} above
+      with UserBubbleBackgroundBrush, so the chat-line palette is fully
+      driven by our own theme.
+    -->
+    <SelectableTextBlock Text="{Binding Text}"
+                          Foreground="White"
+                          TextWrapping="Wrap"
+                          LineSpacing="4"
+                          SelectionBrush="{DynamicResource TextSelectionBrush}" />
+  </Border>
+</UserControl>

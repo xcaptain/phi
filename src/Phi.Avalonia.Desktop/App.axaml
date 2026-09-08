@@ -1,0 +1,61 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Phi.Avalonia.Desktop.App"
+             xmlns:local="using:Phi.Avalonia.Desktop"
+             xmlns:materialIcons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
+             RequestedThemeVariant="Default">
+  <!--
+    Default follows the macOS / Windows / Linux system preference.
+    FluentTheme picks up RequestedThemeVariant automatically and ships
+    its own ThemeDictionaries (Light + Dark variants of every system
+    brush — SystemControlBackground*, SystemControlForeground*,
+    SystemControlHighlight*, SystemChrome*, SystemList*). We don't
+    define a custom palette; views reference FluentTheme's brushes by
+    name (e.g. {DynamicResource SystemControlBackgroundChromeMediumBrush})
+    and Avalonia resolves the right Light/Dark variant for the active
+    ThemeVariant.
+  -->
+
+  <Application.DataTemplates>
+    <!-- Strong-typed VM → View (see ViewLocator.cs). The original Avalonia
+         template's DataTemplate uses reflection, which NativeAOT can't trim;
+         our ViewLocator is a closed switch on VM types. -->
+    <local:ViewLocator />
+  </Application.DataTemplates>
+
+  <Application.Styles>
+    <FluentTheme />
+
+    <!-- Markdown rendering for transcript assistant text. Must load via XAML
+         (not AvaloniaXamlLoader.Load(stream)) for NativeAOT — AXML is the
+         precompiled binary form, loaded from !AvaloniaResources at runtime. -->
+    <StyleInclude Source="avares://MarkView.Avalonia/Themes/MarkdownTheme.axaml" />
+
+    <!-- MaterialIcon is a templated control; without these styles the icons
+         render as empty boxes (per the package README 2.0+). -->
+    <materialIcons:MaterialIconStyles />
+
+    <!-- Borderless TextBox class. Apply via Classes="borderless" on any
+         TextBox that should sit inside an outer card frame. The default
+         BorderThickness / Background apply to the TextBox control itself
+         (the template's PART_BorderElement binds to these via
+         TemplateBinding). The focus state needs the /template/ path
+         because FluentTheme's focus styling targets the template's Border
+         element directly (TextBox:focus /template/ Border#X) — a plain
+         .borderless:focus style on the TextBox control has lower
+         specificity and can't win. With the /template/ path our selector
+         has 5 specificity parts vs the theme's 4, so the focus accent
+         border is overridden. The only visible chrome on focus is the
+         blinking caret. Use for the prompt input and any future inline-
+         edit field; don't apply to standalone search boxes that DO want
+         the focus ring. -->
+    <Style Selector="TextBox.borderless">
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+    <Style Selector="TextBox.borderless:focus /template/ Border#PART_BorderElement">
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+  </Application.Styles>
+</Application>

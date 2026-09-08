@@ -4,12 +4,8 @@
     <Project Path="src/Phi.Extensions/Phi.Extensions.csproj" />
     <Project Path="src/Phi.Extensions.Host/Phi.Extensions.Host.csproj" />
     <Project Path="src/Phi/Phi.csproj" />
-    <Project Path="src/Phi.Provider/Phi.Provider.csproj" />
-    <Project Path="src/Phi.SchemaGen/Phi.SchemaGen.csproj" />
     <Project Path="src/Phi.Tui/Phi.Tui.csproj" />
-    <Project Path="src/Phi.Avalonia/Phi.Avalonia.csproj" />
     <Project Path="src/Phi.Avalonia.Desktop/Phi.Avalonia.Desktop.csproj" />
-    <Project Path="src/Phi.Avalonia.Desktop2/Phi.Avalonia.Desktop2.csproj" />
   </Folder>
   <Folder Name="/extensions/">
     <Project Path="extensions/CodingPack/CodingPack.csproj" />
@@ -22,7 +18,6 @@
     <Project Path="tests/Phi.Extensions.Host.Tests/Phi.Extensions.Host.Tests.csproj" />
     <Project Path="tests/Phi.Provider.Tests/Phi.Provider.Tests.csproj" />
     <Project Path="tests/Phi.Tests/Phi.Tests.csproj" />
-    <Project Path="tests/Phi.Avalonia.Desktop2.Tests/Phi.Avalonia.Desktop2.Tests.csproj" />
-    <Project Path="tests/Phi.Avalonia.Tests/Phi.Avalonia.Tests.csproj" />
+    <Project Path="tests/Phi.Avalonia.Desktop.Tests/Phi.Avalonia.Desktop.Tests.csproj" />
   </Folder>
 </Solution>
