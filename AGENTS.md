@@ -47,7 +47,9 @@ UI 框架选择：**Avalonia**（跨平台，支持 Windows / macOS / Linux）�
   - 设计文档 / 说明 → `website/articles/`
   - 博客 → `website/blog/`
   - 新增条目记得在对应 `toc.yml` 里登记
-- `website/api/` 下的 `*.yml` 是 DocFX metadata 阶段的中间产物，**不要提交**，已 gitignore；改完代码本地跑 `dotnet docfx build website/docfx.json --serve` 即可重新生成。
+- 站点构建：`dotnet docfx build website/docfx.json`（产物 `website/_site/`，已 gitignore）。
+- 站点预览（构建 + 起本地服务器）：`dotnet docfx build website/docfx.json --serve`。
+- 站点部署：CI 在 push to `main` 后自动构建并部署到 GitHub Pages，地址 https://phi.154839.xyz。base href 不需要注入：站点在自定义域根路径下，docfx 默认相对路径 (`href="styles/..."`) 直接生效。
 
 ## 桌面 UI 差异（Avalonia vs TUI）
 

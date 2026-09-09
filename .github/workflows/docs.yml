@@ -44,14 +44,8 @@ jobs:
           test -d website/_site || (echo "::error::website/_site not produced by docfx"; ls -la website; exit 1)
           ls website/_site | head -5
 
-      - name: Inject base href for GitHub Pages
-        run: |
-          find website/_site -name '*.html' -type f -exec \
-            sed -i 's|<head>|<head>\n    <base href="/phi/">|' {} +
-
-      - name: Verify base href
-        run: |
-          grep -q '<base href="/phi/">' website/_site/index.html
+      - name: Write CNAME for custom domain
+        run: echo 'phi.154839.xyz' > website/_site/CNAME
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

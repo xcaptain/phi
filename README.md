@@ -26,10 +26,12 @@ Phi.Agent 是最底层的 package，依赖最少，可以注入不同的 provide
 
 ## 文档 & 博客
 
-设计文档 / 博客都写到 `website/` 下，用 DocFX 构建：
+设计文档 / 博客都写到 `website/` 下，用 DocFX 构建。文档站部署到自定义域：<https://phi.154839.xyz>。
 
+```
 dotnet docfx build website/docfx.json           # 构建到 website/_site/
 dotnet docfx build website/docfx.json --serve   # 构建 + 起本地预览服务
+```
 
 详见 [website/articles/architecture.md](website/articles/architecture.md)。
 

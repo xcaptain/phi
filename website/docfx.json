@@ -58,7 +58,6 @@
     "globalMetadataFiles": [],
     "globalMetadata": {
       "_appTitle": "Phi",
-      "_appBasePath": "/phi/",
       "_appFooter": "Copyright (c) 2026 Phi contributors. Built with <a href=\"https://dotnet.github.io/docfx/\">DocFX</a>.",
       "_enableSearch": true,
       "_enableNewTab": true,
