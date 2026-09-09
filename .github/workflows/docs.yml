@@ -1,0 +1,62 @@
+name: Deploy Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'src/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore + build libraries
+        run: dotnet build phi.slnx --nologo -v minimal
+
+      - name: Build DocFX site
+        run: dotnet docfx build website/docfx.json
+
+      - name: Inject base href for GitHub Pages
+        run: |
+          find website/_site -name '*.html' -type f -exec \
+            sed -i 's|<head>|<head>\n    <base href="/phi/">|' {} +
+
+      - name: Verify base href
+        run: |
+          grep -q '<base href="/phi/">' website/_site/index.html
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: website/_site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

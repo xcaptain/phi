@@ -1,0 +1,6 @@
+- name: 架构概览
+  href: architecture.md
+- name: 扩展系统
+  href: extensions.md
+- name: 与 pi extensions 对齐
+  href: pi-extensions-align.md

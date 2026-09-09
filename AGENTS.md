@@ -41,6 +41,14 @@ UI 框架选择：**Avalonia**（跨平台，支持 Windows / macOS / Linux）�
 - tau: ~/github/tau
 - Avalonia: ~/github/Avalonia（samples/ 有完整示例）
 
+## 文档与博客
+
+- 所有 markdown 设计文档 / 说明 / 博客文章一律写到 `website/` 下：
+  - 设计文档 / 说明 → `website/articles/`
+  - 博客 → `website/blog/`
+  - 新增条目记得在对应 `toc.yml` 里登记
+- `website/api/` 下的 `*.yml` 是 DocFX metadata 阶段的中间产物，**不要提交**，已 gitignore；改完代码本地跑 `dotnet docfx build website/docfx.json --serve` 即可重新生成。
+
 ## 桌面 UI 差异（Avalonia vs TUI）
 
 - Avalonia 有成熟的控件体系：Markdown 通过 `MarkView.Avalonia` 渲染，图标通过 `Material.Icons.Avalonia` 渲染，主题走 `SukiUI`（`SukiTheme` + `SukiWindow`，light / dark 自动跟随系统；`PhiAvaloniaApp.axaml` 用 `<suki:SukiTheme ThemeColor="Blue"/>`）。

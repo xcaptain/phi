@@ -2,3 +2,5 @@ artifacts/
 TestResults/
 dist/
 .env
+website/_site/
+website/api/

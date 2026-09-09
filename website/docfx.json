@@ -1,0 +1,71 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "files": [
+            "src/Phi/Phi.csproj",
+            "src/Phi.Agent/Phi.Agent.csproj",
+            "src/Phi.Provider/Phi.Provider.csproj",
+            "src/Phi.Tui/Phi.Tui.csproj",
+            "src/Phi.Extensions/Phi.Extensions.csproj",
+            "src/Phi.Extensions.Host/Phi.Extensions.Host.csproj",
+            "src/Phi.Avalonia.Desktop/Phi.Avalonia.Desktop.csproj",
+            "src/Phi.SchemaGen/Phi.SchemaGen.csproj"
+          ],
+          "exclude": [
+            "**/bin/**",
+            "**/obj/**",
+            "**/App.axaml.cs",
+            "**/Program.cs",
+            "**/AssemblyInfo.cs"
+          ],
+          "src": "../"
+        }
+      ],
+      "dest": "api",
+      "disableGitFeatures": false,
+      "disableDefaultFilter": false,
+      "noRestore": true,
+      "allowCompilationErrors": true
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": [
+          "index.md",
+          "articles/**.md",
+          "blog/**.md",
+          "articles/**/toc.yml",
+          "blog/**/toc.yml",
+          "api/**.yml",
+          "api/index.md",
+          "toc.yml",
+          "*.md"
+        ]
+      }
+    ],
+    "resource": [
+      {
+        "files": [
+          "images/**",
+          "**/images/**"
+        ]
+      }
+    ],
+    "dest": "_site",
+    "globalMetadataFiles": [],
+    "globalMetadata": {
+      "_appTitle": "Phi",
+      "_appBasePath": "/phi/",
+      "_appFooter": "Copyright (c) 2026 Phi contributors. Built with <a href=\"https://dotnet.github.io/docfx/\">DocFX</a>.",
+      "_enableSearch": true,
+      "_enableNewTab": true,
+      "_lang": "zh-cn",
+      "_gitUrlPattern": "https://github.com/xiefei/phi/blob/main/{filename}"
+    },
+    "noRestore": true,
+    "KeepFileLink": false
+  }
+}
