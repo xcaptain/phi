@@ -63,7 +63,6 @@ public class SessionSwitchTests : IDisposable
         {
             ProviderResolver = resolver,
             SystemPrompt = new Phi.Prompts.SystemPromptOptions { ResolvedSystemPrompt = "test" },
-            MaxTurns = 5,
             ContextWindowTokens = ContextWindow.DefaultContextWindowTokens,
             AutoCompactTokenThreshold = null,
             AutoCompactEnabled = true,

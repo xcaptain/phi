@@ -58,7 +58,6 @@ public class HelloToolIntegrationTests : IDisposable
     {
         ProviderResolver = new FixedProviderResolver(new NullProvider()),
         SystemPrompt = new SystemPromptOptions { ResolvedSystemPrompt = "stub prompt" },
-        MaxTurns = 5,
         ContextWindowTokens = ContextWindow.DefaultContextWindowTokens,
         AutoCompactTokenThreshold = null,
         AutoCompactEnabled = true,

@@ -296,7 +296,7 @@ public sealed class Session : ISession
 
         var harness = new Harness(
             provider, tools, model: model,
-            system: systemPrompt, maxTurns: env.MaxTurns);
+            system: systemPrompt);
 
         return new SessionRuntime
         {

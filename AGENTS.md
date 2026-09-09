@@ -40,6 +40,7 @@ UI 框架选择：**Avalonia**（跨平台，支持 Windows / macOS / Linux）�
 - XenoAtom.Terminal.UI: ~/github/XenoAtom.Terminal.UI
 - tau: ~/github/tau
 - Avalonia: ~/github/Avalonia（samples/ 有完整示例）
+- pi: ~/github/pi
 
 ## 文档与博客
 

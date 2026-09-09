@@ -1,5 +1,7 @@
 - name: 架构概览
   href: architecture.md
+- name: 核心类型与事件
+  href: core-types-and-events.md
 - name: 扩展系统
   href: extensions.md
 - name: 与 pi extensions 对齐

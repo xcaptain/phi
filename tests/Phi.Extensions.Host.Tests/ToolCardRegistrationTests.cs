@@ -34,7 +34,6 @@ public class ToolCardRegistrationTests : IDisposable
     {
         ProviderResolver = new FixedResolver(new NullProvider()),
         SystemPrompt = new SystemPromptOptions { ResolvedSystemPrompt = "stub" },
-        MaxTurns = 5,
         ContextWindowTokens = ContextWindow.DefaultContextWindowTokens,
         AutoCompactTokenThreshold = null,
         AutoCompactEnabled = true,

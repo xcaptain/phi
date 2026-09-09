@@ -8,8 +8,10 @@ namespace Phi.Agent;
 /// for one session, draining steering/follow-up queues at turn boundaries
 /// so queued user prompts land as soon as the current direction finishes.
 /// Mirrors tau's <c>run_agent_loop()</c> in <c>tau_agent.loop</c> — including
-/// the steering-first / follow-up-second injection order, the
-/// tool-call-driven turn continuation, and the <c>max_turns</c> safety cap.
+/// the steering-first / follow-up-second injection order and the
+/// tool-call-driven turn continuation. The loop ends on a message with no
+/// tool calls or when the cancellation token fires; there is no hard turn
+/// cap (cancellation, compaction, and session abort own termination).
 /// <para>
 /// Per-event mapping vs tau's <c>_assistant_events</c>: providers yield raw
 /// granular events (<see cref="TextDeltaEvent"/>,
@@ -44,10 +46,9 @@ public static class AgentLoop
 {
     /// <summary>
     /// Runs the agent loop until the model emits a message with no tool
-    /// calls, <paramref name="maxTurns"/> is exceeded, or the cancellation
-    /// token fires. <see cref="Harness"/> delegates here and only adds
-    /// session-level concerns (initial prompt, cancel handling,
-    /// interrupted-tool placeholders).
+    /// calls or the cancellation token fires. <see cref="Harness"/>
+    /// delegates here and only adds session-level concerns (initial prompt,
+    /// cancel handling, interrupted-tool placeholders).
     /// <para>
     /// Yields <see cref="AgentStartEvent"/> + a sequence of
     /// <see cref="TurnStartEvent"/> / <see cref="MessageStartEvent"/> /
@@ -65,7 +66,6 @@ public static class AgentLoop
         IReadOnlyList<Tool> tools,
         Func<IReadOnlyList<IAgentMessage>>? getSteeringMessages = null,
         Func<IReadOnlyList<IAgentMessage>>? getFollowUpMessages = null,
-        int? maxTurns = null,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var toolByName = tools.ToDictionary(t => t.Name);
@@ -96,26 +96,6 @@ public static class AgentLoop
             }
 
             turn++;
-
-            if (maxTurns is not null && turn > maxTurns)
-            {
-                // Mirrors tau's _error_message: model + stop_reason +
-                // message only; Api/Provider stay "unknown" (no provider
-                // produced this message).
-                var overrun = new AssistantMessage
-                {
-                    Model = model,
-                    Content = [new TextBlock($"Agent stopped after max_turns={maxTurns}")],
-                    StopReason = StopReasons.Error,
-                };
-                messages.Add(overrun);
-                newMessages.Add(overrun);
-                yield return new MessageStartEvent(overrun);
-                yield return new MessageEndEvent(overrun);
-                yield return new TurnEndEvent(overrun);
-                yield return new AgentEndEvent(newMessages);
-                yield break;
-            }
 
             yield return new TurnStartEvent(turn);
 

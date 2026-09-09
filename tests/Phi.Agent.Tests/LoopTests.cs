@@ -27,7 +27,6 @@ public class LoopTests
     private static async Task<List<HarnessEvent>> RunAsync(
         FakePhiProvider fake, IList<IAgentMessage> messages,
         IReadOnlyList<Tool>? tools = null,
-        int? maxTurns = null,
         Func<IReadOnlyList<IAgentMessage>>? getSteeringMessages = null,
         Func<IReadOnlyList<IAgentMessage>>? getFollowUpMessages = null,
         CancellationToken cancellationToken = default)
@@ -36,7 +35,7 @@ public class LoopTests
         await foreach (var ev in AgentLoop.RunAgentAsync(
             fake, "test", "", messages, tools ?? [],
             getSteeringMessages, getFollowUpMessages,
-            maxTurns, cancellationToken))
+            cancellationToken))
         {
             events.Add(ev);
         }
@@ -97,28 +96,6 @@ public class LoopTests
         var streamed = events.OfType<MessageUpdateEvent>().First().Message;
         await Assert.That(streamed.Api).IsEqualTo("unknown");
         await Assert.That(streamed.Provider).IsEqualTo("unknown");
-    }
-
-    [Test]
-    public async Task RunAgentAsync_MaxTurnsOverrun_MessageHasUnknownIdentity()
-    {
-        // Mirrors tau's _error_message: agent-synthesized messages set
-        // model + stop_reason only; Api/Provider stay "unknown".
-        var fake = new FakePhiProvider(
-        [
-            [
-                new TextDeltaEvent("t1"),
-                new AssistantDoneEvent(FinalMessage("t1"), StopReasons.Stop),
-            ],
-        ]);
-
-        var messages = new List<IAgentMessage> { new UserMessage { Content = "Hi" } };
-        var events = await RunAsync(fake, messages, maxTurns: 0);
-
-        var overrun = events.OfType<TurnEndEvent>().Single().Message;
-        await Assert.That(overrun.StopReason).IsEqualTo(StopReasons.Error);
-        await Assert.That(overrun.Api).IsEqualTo("unknown");
-        await Assert.That(overrun.Provider).IsEqualTo("unknown");
     }
 
     [Test]
@@ -344,41 +321,6 @@ public class LoopTests
         await Assert.That(result.Details).IsNotNull();
         await Assert.That(result.Details!["path"]!.GetValue<string>()).IsEqualTo("/tmp/x");
         await Assert.That(result.Details!["lines"]!.GetValue<int>()).IsEqualTo(42);
-    }
-
-    [Test]
-    public async Task RunAgentAsync_MaxTurnsExceeded_StopsWithErrorMessage()
-    {
-        var toolCall = new ToolCall("c1", "bash")
-        {
-            Arguments = JsonNode.Parse("""{}""")!.AsObject(),
-        };
-
-        var fake = new FakePhiProvider([.. Enumerable.Range(0, 5).Select(_ =>
-            (IEnumerable<ProviderEvent>)
-            [
-                new ToolCallEvent(toolCall),
-                new AssistantDoneEvent(ToolUseMessage(toolCall), StopReasons.ToolUse),
-            ])]);
-
-        var messages = new List<IAgentMessage> { new UserMessage { Content = "go" } };
-
-        Task<ToolResult> LoopForever(string toolName, string toolCallId, JsonObject arguments, CancellationToken cancellationToken)
-            => Task.FromResult(new ToolResult([new TextBlock("ok")]));
-
-        var events = await RunAsync(fake, messages, [new FuncTool("bash", LoopForever)], maxTurns: 2);
-
-        // Turn 1 + Turn 2 each emit TurnEndEvent (tool use → next iteration);
-        // turn 3 would exceed maxTurns=2 → error assistant message + TurnEnd.
-        // Three TurnEndEvents total, the last one is the error.
-        await Assert.That(events.OfType<TurnEndEvent>().Count()).IsEqualTo(3);
-        var final = events.OfType<TurnEndEvent>().Last().Message;
-        await Assert.That(final.StopReason).IsEqualTo(StopReasons.Error);
-        await Assert.That(final.Text).Contains("max_turns=2");
-
-        // user + 2 × (assistant + tool_result) + assistant(error) = 6
-        await Assert.That(messages.Count).IsEqualTo(6);
-        await Assert.That(messages.Last()).IsTypeOf<AssistantMessage>();
     }
 
     [Test]

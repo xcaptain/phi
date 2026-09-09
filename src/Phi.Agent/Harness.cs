@@ -23,16 +23,13 @@ public sealed class Harness(
     IPhiProvider provider,
     IReadOnlyList<Tool> tools,
     string model,
-    string system = "",
-    int? maxTurns = null)
+    string system = "")
 {
     // Mutable so the extension runtime can add tools after construction
     // (extensions are loaded after the session is composed, so tools have
     // to register post-ApplyRuntime — see Sprint 1 design in
     // docs/extensions.md §14).
     private readonly List<Tool> _tools = [.. tools];
-    private readonly string _system = system;
-    private readonly int? _maxTurns = maxTurns;
     private readonly List<IAgentMessage> _messages = [];
 
     /// <summary>Read-only view of the tool set (built-in + extension tools).</summary>
@@ -165,9 +162,9 @@ public sealed class Harness(
         // MoveNextAsync without violating CS1626 (yield in try-catch) while
         // preserving streaming semantics.
         var enumerator = AgentLoop.RunAgentAsync(
-                Provider, Model, _system, _messages, _tools,
+                Provider, Model, system, _messages, _tools,
                 getSteeringMessages, getFollowUpMessages,
-                _maxTurns, cancellationToken)
+                cancellationToken)
             .GetAsyncEnumerator(cancellationToken);
 
         var cancelled = false;

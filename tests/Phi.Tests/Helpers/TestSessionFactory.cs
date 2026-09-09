@@ -92,13 +92,12 @@ internal static class TestSessionFactory
         return await Session.LoadAsync(cwd, env, providerName: "", model: "", resumeId: id);
     }
 
-    /// <summary>Default env: 128k context, 5 max turns, auto-compact on, no overrides.</summary>
+    /// <summary>Default env: 128k context, auto-compact on, no overrides.</summary>
     public static SessionEnvironment BuildEnv(IPhiProvider provider) =>
         new()
         {
             ProviderResolver = new FixedProviderResolver(provider),
             SystemPrompt = new SystemPromptOptions { ResolvedSystemPrompt = "test" },
-            MaxTurns = 5,
             ContextWindowTokens = ContextWindow.DefaultContextWindowTokens,
             AutoCompactTokenThreshold = null,
             AutoCompactEnabled = true,

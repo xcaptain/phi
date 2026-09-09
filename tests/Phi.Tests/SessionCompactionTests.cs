@@ -41,7 +41,6 @@ public class SessionCompactionTests : IDisposable
             {
                 ProviderResolver = env.ProviderResolver,
                 SystemPrompt = env.SystemPrompt,
-                MaxTurns = env.MaxTurns,
                 ContextWindowTokens = contextWindowTokens ?? 128_000,
                 CompactionKeepRecentTokens = compactionKeepRecentTokens ?? 50,
                 AutoCompactEnabled = autoCompactEnabled ?? true,

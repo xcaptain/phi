@@ -22,7 +22,6 @@ public sealed record SessionEnvironment
 {
     public required IProviderResolver ProviderResolver { get; init; }
     public required SystemPromptOptions SystemPrompt { get; init; }
-    public required int? MaxTurns { get; init; }
     public required int ContextWindowTokens { get; init; }
     public required int? AutoCompactTokenThreshold { get; init; }
     public required bool AutoCompactEnabled { get; init; }
@@ -79,14 +78,12 @@ public sealed record SessionEnvironment
     public static SessionEnvironment Default(
         IProviderResolver providerResolver,
         SystemPromptOptions? systemPrompt = null,
-        int? maxTurns = null,
         Func<Session, IDisposable>? extensionRuntimeFactory = null,
         Func<Session, Task<IDisposable>>? extensionRuntimeFactoryAsync = null) =>
         new()
         {
             ProviderResolver = providerResolver,
             SystemPrompt = systemPrompt ?? new SystemPromptOptions(),
-            MaxTurns = maxTurns,
             ContextWindowTokens = ContextWindow.DefaultContextWindowTokens,
             AutoCompactTokenThreshold = null,
             AutoCompactEnabled = true,
