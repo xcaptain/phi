@@ -132,6 +132,16 @@ public class TuiDialogShowerIntegrationTests
                 catch (OperationCanceledException) { }
                 finally { _stopped.Set(); }
             });
+            // Give App.Run a moment to enter its main loop and bind
+            // Dispatcher to the run thread. Without this the fixture
+            // returns while Dispatcher._threadId is still null, and
+            // Dispatcher.CheckAccess() returns true on any thread —
+            // which lets the worker-thread Task.Run() bypass marshalling
+            // and hit "Invalid thread access" inside TextBox's ctor.
+            // The fixed delay is the simplest workaround: there is no
+            // public API to observe the bind, and 200 ms is short
+            // relative to the per-test timeout.
+            Thread.Sleep(200);
         }
 
         public async ValueTask DisposeAsync()
