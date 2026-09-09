@@ -19,7 +19,6 @@ title: Phi
 - [架构概览](articles/architecture.md)
 - [扩展系统](articles/extensions.md)
 - [与 pi extensions 对齐](articles/pi-extensions-align.md)
-- [API 参考](api/index.html)
 
 ## 依赖关系
 
