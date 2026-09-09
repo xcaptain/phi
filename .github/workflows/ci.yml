@@ -31,14 +31,18 @@ jobs:
         run: dotnet build -c Release --no-restore /p:TreatWarningsAsErrors=true
 
       # TUnit's built-in Microsoft.Testing.Extensions.CodeCoverage writes
-      # one coverage report per test run under TestResults/. Codecov's
-      # uploader globs that directory automatically.
+      # one coverage report per test project under TestResults/. Pass the
+      # solution explicitly so `dotnet test` doesn't fall back to cwd
+      # scanning (which silently skips projects on a fresh checkout).
       - name: Test + coverage
-        run: dotnet test -c Release --no-build -- --coverage --coverage-output-format cobertura
+        run: |
+          dotnet test phi.slnx -c Release --no-build -- --coverage --coverage-output-format cobertura
+          echo '=== cobertura reports ==='
+          find TestResults -name '*.cobertura.xml'
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          directory: TestResults
+          directory: ${{ github.workspace }}/TestResults
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
