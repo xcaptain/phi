@@ -10,7 +10,7 @@ using Phi.Providers;
 
 namespace Phi.Avalonia.Desktop.ViewModels;
 
- /// <summary>
+/// <summary>
 /// Bottom-row input editor for the chat. Holds:
 /// <list type="bullet">
 /// <item><see cref="Text"/>: the editor's current draft.</item>
@@ -76,7 +76,7 @@ public partial class PromptInputViewModel : ViewModelBase
     [ObservableProperty]
     private WorkspacePickerItem? _selectedWorkspaceItem;
 
-/// <summary>
+    /// <summary>
     /// True while a turn is in flight. Driven by the chat page VM from
     /// <c>session.State.IsRunning</c> (the parent's
     /// <c>OnSessionStateChanged</c> handler assigns this on every

@@ -27,8 +27,8 @@ public sealed class ToolSchemaGenerator : IIncrementalGenerator
         var tools = context.SyntaxProvider.CreateSyntaxProvider(
             static (node, _) => node is ClassDeclarationSyntax { BaseList: not null } cds
                 && cds.Modifiers.Any(SyntaxKind.PartialKeyword),
-            static (ctx, _) => (INamedTypeSymbol?)ctx.SemanticModel.GetDeclaredSymbol(
-                (ClassDeclarationSyntax)ctx.Node))
+            static (ctx, ct) => ctx.SemanticModel.GetDeclaredSymbol(
+                (ClassDeclarationSyntax)ctx.Node, ct) as INamedTypeSymbol)
             .Where(static s => s is not null && IsTypedToolSubclass(s));
 
         context.RegisterSourceOutput(tools.Collect(), static (spc, toolSymbols) =>

@@ -30,8 +30,7 @@ jobs:
       - name: Build (warnings as errors)
         run: dotnet build -c Release --no-restore /p:TreatWarningsAsErrors=true
 
-      # --fail-fast (TUnit) stops on the first failing test for quick PR
-      # feedback. The -- separator forwards it to the test runner rather
-      # than being parsed as a dotnet test argument.
+      # TUnit runner doesn't reliably exit 0 with -- --fail-fast on 1.66.x,
+      # so we run all tests and let any failure (exit != 0) fail the job.
       - name: Test
-        run: dotnet test -c Release --no-build -- --fail-fast
+        run: dotnet test -c Release --no-build

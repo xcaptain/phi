@@ -9,7 +9,8 @@
     <IsRoslynComponent>true</IsRoslynComponent>
     <IsAotCompatible>true</IsAotCompatible>
     <!-- Source generator 必须引用 Microsoft.CodeAnalysis.CSharp，RS1041 是误报 -->
-    <NoWarn>$(NoWarn);RS1041</NoWarn>
+    <!-- CA1305 是误报：本生成器只输出 C# 标识符 / JSON 字面量字符串 / 枚举 token，不拼接 locale-sensitive 数字或日期 -->
+    <NoWarn>$(NoWarn);RS1041;CA1305</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

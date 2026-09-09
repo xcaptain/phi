@@ -7,7 +7,7 @@ using Phi.Providers;
 
 namespace Phi.Avalonia.Desktop.ViewModels;
 
- /// <summary>
+/// <summary>
 /// Right-column chat region: header (session title), transcript, prompt
 /// input. UI-2 + UI-3 prototype replaced by real
 /// <see cref="ISession"/> projection: every
@@ -40,7 +40,7 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
 
     /// <summary>Transcript of chat lines projected from the live
     /// <see cref="ISession.State"/>. Empty when no session is bound.</summary>
-    public ObservableCollection<ViewModelBase> Transcript { get; } = new();
+    public ObservableCollection<ViewModelBase> Transcript { get; } = [];
 
     public PromptInputViewModel PromptInput { get; }
 
@@ -263,6 +263,7 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
                 body: t.Text,
                 sourcePath: null),
 
+            _ => null,
         };
     }
 
@@ -313,6 +314,7 @@ public partial class ChatPageViewModel : ViewModelBase, IDisposable
             _session.HarnessEvent -= ev => Dispatcher.UIThread.Post(
                 () => OnHarnessEvent(ev), DispatcherPriority.Input);
         }
+        GC.SuppressFinalize(this);
     }
 
     /// it. The prompt input exposes model names from every connected

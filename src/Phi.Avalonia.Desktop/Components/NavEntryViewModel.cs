@@ -34,7 +34,7 @@ public sealed class WorkspaceNavEntryViewModel : NavEntryViewModel
 {
     /// <summary>The full working directory the workspace group
     /// represents. Kept on the row so a future menu action (e.g.
-/// New Session in workspace) has the cwd to pass through.</summary>
+    /// New Session in workspace) has the cwd to pass through.</summary>
     public string Cwd { get; }
 
     public WorkspaceNavEntryViewModel(string title, string cwd)

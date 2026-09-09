@@ -8,6 +8,8 @@
     <PublishAot>true</PublishAot>
     <RootNamespace>Phi.Tui</RootNamespace>
     <AssemblyName>phi</AssemblyName>
+    <!-- IL2026：项目扩展加载走 AssemblyLoadContext + 反射，本就 trim-unsafe；当前不发布 trimmed binary，warning 是过度保守的产物。 -->
+    <NoWarn>$(NoWarn);IL2026</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

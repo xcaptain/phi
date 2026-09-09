@@ -39,7 +39,7 @@ public partial class SidebarViewModel : ViewModelBase
     /// <summary>The flat list rendered by the sidebar. Mix of
     /// <see cref="WorkspaceNavEntryViewModel"/> + <see cref="SessionNavEntryViewModel"/>;
     /// the XAML's per-kind DataTemplate handles visual dispatch.</summary>
-    public ObservableCollection<NavEntryViewModel> Entries { get; } = new();
+    public ObservableCollection<NavEntryViewModel> Entries { get; } = [];
 
     /// <summary>Current group mode. Default
     /// <see cref="NavModel.GroupMode.ByWorkspace"/>; the older shell

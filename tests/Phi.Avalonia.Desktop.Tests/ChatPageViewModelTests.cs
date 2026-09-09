@@ -27,6 +27,11 @@ internal sealed class FakeSession : ISession
     public event Action<SessionState>? StateChanged;
     public event Action<HarnessEvent>? HarnessEvent;
 
+    /// <summary>Test helper: raises <see cref="HarnessEvent"/> so the
+    /// declared-but-never-raised warning stays off and future tests can
+    /// exercise the streaming projection path.</summary>
+    public void RaiseHarnessEvent(HarnessEvent e) => HarnessEvent?.Invoke(e);
+
     /// <summary>Test helper: replace <see cref="State"/> and fire
     /// <see cref="StateChanged"/>.</summary>
     public void Mutate(SessionState next)
