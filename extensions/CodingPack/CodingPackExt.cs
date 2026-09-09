@@ -13,12 +13,16 @@ namespace Phi.Extensions.CodingPack;
 /// <see cref="IPhiApi.AddPromptGuideline"/>.</item>
 /// </list>
 /// <para>
-/// Sprint 2.5 note: Phi.Tui / Phi.Avalonia reference this assembly at
-/// compile time (not via dll discovery) so the default coding capability
-/// is always present — the same shape as any other extension, but shipped
-/// in the box. The <c>FileOpsExtractor</c> compaction helper stays in the
-/// Phi core because the compaction pipeline (which runs there) needs it at
-/// build time and Phi can't reference CodingPack (would be a cycle); the
+/// CodingPack is the first entry in
+/// <see cref="Phi.Extensions.Host.BuiltInExtensions"/>: shipped in the
+/// box, registered by every composition root that calls
+/// <c>BuiltInExtensions.RegisterAll</c>. The ProjectReference on this
+/// project lives on <c>Phi.Extensions.Host</c> (not on each frontend)
+/// so that the AOT / trim visibility decision and the "which built-ins
+/// are always loaded" decision are made in one place. The
+/// <c>FileOpsExtractor</c> compaction helper stays in the Phi core
+/// because the compaction pipeline (which runs there) needs it at build
+/// time and Phi can't reference CodingPack (would be a cycle); the
 /// tool-name coupling it encodes is slated for removal in Sprint 4.
 /// </para>
 /// </summary>

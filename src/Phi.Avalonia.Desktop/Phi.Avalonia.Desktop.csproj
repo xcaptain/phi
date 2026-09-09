@@ -39,7 +39,8 @@
   <ItemGroup>
     <ProjectReference Include="..\Phi\Phi.csproj" />
     <ProjectReference Include="..\Phi.Extensions.Host\Phi.Extensions.Host.csproj" />
-    <ProjectReference Include="..\..\extensions\CodingPack\CodingPack.csproj" />
+    <!-- CodingPack arrives transitively via Phi.Extensions.Host;
+         BuiltInExtensions.RegisterAll is the single place that wires it. -->
   </ItemGroup>
 
 </Project>

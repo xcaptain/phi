@@ -1,5 +1,6 @@
 using Phi;
 using Phi.Agent;
+using Phi.Extensions.Host;
 using Phi.Providers;
 
 namespace Phi.Avalonia.Desktop;
@@ -95,7 +96,23 @@ public static class Composition
                 "No provider has an API key configured. " +
                 "Open the Providers page and save a key before starting a chat.");
 
-        _environment = SessionEnvironment.Default(_providers);
+        _environment = SessionEnvironment.Default(_providers,
+            // Avalonia's extension UI sink is not yet wired (that work
+            // owns its own change); for now we give the runtime a
+            // NullUiSink so PermissionGate-style hooks see HasUi=false
+            // and take their auto-block / no-op paths. The CodingPack
+            // tools (bash / read / write / edit) and the /tools slash
+            // command still load via BuiltInExtensions.RegisterAll —
+            // the parity goal of this factory is to give Avalonia the
+            // same default coding capability Phi.Tui has, not to plug
+            // in the bridge (that's a separate ticket).
+            extensionRuntimeFactory: session =>
+            {
+                var runtime = new ExtensionRuntime(session, new PhiUiBridge(new NullUiSink()));
+                BuiltInExtensions.RegisterAll(runtime);
+                runtime.Initialize();
+                return runtime;
+            });
 
         // Pre-session start: ActiveSession is created with no live
         // session. The user lands on the picker UI and the actual

@@ -1,5 +1,4 @@
 using Phi;
-using Phi.Extensions.CodingPack;
 using Phi.Extensions.Host;
 using Phi.Providers;
 using Phi.Tui;
@@ -53,7 +52,7 @@ var env = SessionEnvironment.Default(providerManager,
         var bridge = new PhiUiBridge(() => currentSink);
         var runtime = new ExtensionRuntime(session, bridge);
         currentRuntime = runtime;
-        runtime.RegisterCompiledExtension(new CodingPackExt());
+        BuiltInExtensions.RegisterAll(runtime);
         runtime.Initialize();
         return runtime;
     },
@@ -67,7 +66,7 @@ var env = SessionEnvironment.Default(providerManager,
         var bridge = new PhiUiBridge(() => currentSink);
         var runtime = new ExtensionRuntime(session, bridge);
         currentRuntime = runtime;
-        runtime.RegisterCompiledExtension(new CodingPackExt());
+        BuiltInExtensions.RegisterAll(runtime);
         await runtime.DiscoverAndTrustProjectExtensionsAsync(session.Cwd);
         runtime.Initialize();
         return runtime;

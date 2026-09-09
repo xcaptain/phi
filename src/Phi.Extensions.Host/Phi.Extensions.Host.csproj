@@ -18,6 +18,12 @@
   <ItemGroup>
     <ProjectReference Include="..\Phi.Extensions\Phi.Extensions.csproj" />
     <ProjectReference Include="..\Phi\Phi.csproj" />
+    <!-- BuiltInExtensions.RegisterAll lists the extensions the host
+         always loads. The ProjectReference lives here (not on every
+         frontend) so CodingPack's AOT visibility has a single owner and
+         BuiltInExtensions.cs is the single source of truth for which
+         built-ins are registered. -->
+    <ProjectReference Include="..\..\extensions\CodingPack\CodingPack.csproj" />
   </ItemGroup>
 
   <!-- The host package exposes implementation types that aren't part of
