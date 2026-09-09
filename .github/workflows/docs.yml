@@ -30,11 +30,19 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Restore .NET local tools
+        run: dotnet tool restore
+
       - name: Restore + build libraries
         run: dotnet build phi.slnx --nologo -v minimal
 
       - name: Build DocFX site
         run: dotnet docfx build website/docfx.json
+
+      - name: Verify _site exists
+        run: |
+          test -d website/_site || (echo "::error::website/_site not produced by docfx"; ls -la website; exit 1)
+          ls website/_site | head -5
 
       - name: Inject base href for GitHub Pages
         run: |
