@@ -15,7 +15,7 @@ public static class WorkspaceSessionStore
     /// Every indexed session across all workspaces, filtered to those touched
     /// within <paramref name="days"/> days and ordered newest first.
     /// </summary>
-    public static IReadOnlyList<SessionRecord> ListAllSessions(int days = 7)
+    public static IReadOnlyList<SessionRecord> ListAllSessions(int days = 365)
     {
         if (!Directory.Exists(SessionPaths.DefaultRoot)) return [];
 

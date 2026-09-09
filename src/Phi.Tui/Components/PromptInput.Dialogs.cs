@@ -11,10 +11,10 @@ public sealed partial class PromptInput
 
     internal void ShowSessionsDialog()
     {
-        var sessions = _session.ListRecent(7);
+        var sessions = _session.ListRecent(365);
         if (sessions.Count == 0)
         {
-            _transcript.ShowTransient("No sessions in the last 7 days");
+            _transcript.ShowTransient("No sessions in the last 365 days");
             return;
         }
 
@@ -31,7 +31,7 @@ public sealed partial class PromptInput
             _ = ResumeAsync(target.Id);
         });
 
-        var dialog = new Dialog(new Markup("[bold]Sessions (last 7 days)[/]"), list)
+        var dialog = new Dialog(new Markup("[bold]Sessions (last 365 days)[/]"), list)
         {
             IsResizable = false,
             IsDraggable = true,
