@@ -6,5 +6,3 @@
   href: extensions.md
 - name: 与 pi extensions 对齐
   href: pi-extensions-align.md
-- name: Termux 安装试运行
-  href: termux-install.md
